@@ -1,0 +1,34 @@
+[package]
+name = "pi_wgpu"
+version = "0.1.0"
+authors = ["moyy <myy412001799@gmail.com>"]
+edition = "2021"
+description = "WebGPU implement"
+repository = "https://github.com/GaiaWorld/pi_wgpu"
+license = "MIT OR Apache-2.0"
+keywords = ["pi", "webgpu"]
+
+[features]
+trace = []
+
+[dependencies]
+raw-window-handle = "0.5"
+
+log = "0.4"
+futures = "0.3"
+thiserror = "1.0"
+lazy_static = "1.4"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+pi_share = "0.4"
+pi_futures = "0.1"
+pi-async-rt = "0.1"
+
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+wasm-bindgen-futures = { version = "0.4" }
+
+[dev-dependencies]
+winit = { git = "http://ser.yinengyun.com:10082/tech/winit.git" }
+pi_bevy_winit_window = { path = "../winit_window" }
