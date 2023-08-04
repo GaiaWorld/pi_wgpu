@@ -1,6 +1,6 @@
 # pi_wgpu
 
-WebGPU 的 Rust 实现，目前只实现 GLES 3.0 / WebGL 2.0 后端；
+WebGPU 的 Rust 实现，目前只实现 GL 后端；
 
 接口 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) 的 0.15 版本 为基准 进行修改；
 
@@ -14,7 +14,7 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 + 浏览器
 + 微信小游戏
 
-所以 需要 简化版本的 GLES 3.0 / WebGL 2.0 后端实现 过渡 一段时间。
+所以 需要 简化版本的 GL 后端实现 过渡 一段时间。
 
 ## 设计
 
