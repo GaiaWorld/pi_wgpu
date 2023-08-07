@@ -311,6 +311,11 @@ pub struct SurfaceCapabilities {
     /// Must be at least one.
     pub formats: Vec<wgt::TextureFormat>,
 
+    /// List of supported V-sync modes.
+    ///
+    /// Must be at least one.
+    pub present_modes: Vec<wgt::PresentMode>,
+
     /// Range for the swap chain sizes.
     ///
     /// - `swap_chain_sizes.start` must be at least 1.
@@ -329,11 +334,6 @@ pub struct SurfaceCapabilities {
     ///
     /// Must have at least `TextureUses::COLOR_TARGET`
     pub usage: TextureUses,
-
-    /// List of supported V-sync modes.
-    ///
-    /// Must be at least one.
-    pub present_modes: Vec<wgt::PresentMode>,
 
     /// List of supported alpha composition modes.
     ///

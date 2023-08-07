@@ -35,12 +35,15 @@ pub trait Api: Clone + Sized {
 
 pub trait Instance<A: Api>: Sized + Send + Sync {
     unsafe fn init(desc: &InstanceDescriptor) -> Result<Self, InstanceError>;
+
     unsafe fn create_surface(
         &self,
         display_handle: raw_window_handle::RawDisplayHandle,
         window_handle: raw_window_handle::RawWindowHandle,
     ) -> Result<A::Surface, InstanceError>;
+
     unsafe fn destroy_surface(&self, surface: A::Surface);
+
     unsafe fn enumerate_adapters(&self) -> Vec<ExposedAdapter<A>>;
 }
 
@@ -67,6 +70,7 @@ pub trait Surface<A: Api>: Send + Sync {
         &mut self,
         timeout: Option<std::time::Duration>,
     ) -> Result<Option<AcquiredSurfaceTexture<A>>, SurfaceError>;
+
     unsafe fn discard_texture(&mut self, texture: A::SurfaceTexture);
 }
 
@@ -97,21 +101,27 @@ pub trait Adapter<A: Api>: Send + Sync {
 pub trait Device<A: Api>: Send + Sync {
     /// Exit connection to this logical device.
     unsafe fn exit(self, queue: A::Queue);
+
     /// Creates a new buffer.
     ///
     /// The initial usage is `BufferUses::empty()`.
     unsafe fn create_buffer(&self, desc: &BufferDescriptor) -> Result<A::Buffer, DeviceError>;
+
     unsafe fn destroy_buffer(&self, buffer: A::Buffer);
+
     //TODO: clarify if zero-sized mapping is allowed
     unsafe fn map_buffer(
         &self,
         buffer: &A::Buffer,
         range: MemoryRange,
     ) -> Result<BufferMapping, DeviceError>;
+
     unsafe fn unmap_buffer(&self, buffer: &A::Buffer) -> Result<(), DeviceError>;
+
     unsafe fn flush_mapped_ranges<I>(&self, buffer: &A::Buffer, ranges: I)
     where
         I: Iterator<Item = MemoryRange>;
+
     unsafe fn invalidate_mapped_ranges<I>(&self, buffer: &A::Buffer, ranges: I)
     where
         I: Iterator<Item = MemoryRange>;
@@ -120,20 +130,26 @@ pub trait Device<A: Api>: Send + Sync {
     ///
     /// The initial usage for all subresources is `TextureUses::UNINITIALIZED`.
     unsafe fn create_texture(&self, desc: &TextureDescriptor) -> Result<A::Texture, DeviceError>;
+
     unsafe fn destroy_texture(&self, texture: A::Texture);
+
     unsafe fn create_texture_view(
         &self,
         texture: &A::Texture,
         desc: &TextureViewDescriptor,
     ) -> Result<A::TextureView, DeviceError>;
+
     unsafe fn destroy_texture_view(&self, view: A::TextureView);
+
     unsafe fn create_sampler(&self, desc: &SamplerDescriptor) -> Result<A::Sampler, DeviceError>;
+
     unsafe fn destroy_sampler(&self, sampler: A::Sampler);
 
     unsafe fn create_command_encoder(
         &self,
         desc: &CommandEncoderDescriptor<A>,
     ) -> Result<A::CommandEncoder, DeviceError>;
+
     unsafe fn destroy_command_encoder(&self, pool: A::CommandEncoder);
 
     /// Creates a bind group layout.
@@ -141,16 +157,21 @@ pub trait Device<A: Api>: Send + Sync {
         &self,
         desc: &BindGroupLayoutDescriptor,
     ) -> Result<A::BindGroupLayout, DeviceError>;
+
     unsafe fn destroy_bind_group_layout(&self, bg_layout: A::BindGroupLayout);
+
     unsafe fn create_pipeline_layout(
         &self,
         desc: &PipelineLayoutDescriptor<A>,
     ) -> Result<A::PipelineLayout, DeviceError>;
+
     unsafe fn destroy_pipeline_layout(&self, pipeline_layout: A::PipelineLayout);
+
     unsafe fn create_bind_group(
         &self,
         desc: &BindGroupDescriptor<A>,
     ) -> Result<A::BindGroup, DeviceError>;
+
     unsafe fn destroy_bind_group(&self, group: A::BindGroup);
 
     unsafe fn create_shader_module(
@@ -158,26 +179,36 @@ pub trait Device<A: Api>: Send + Sync {
         desc: &ShaderModuleDescriptor,
         shader: ShaderInput,
     ) -> Result<A::ShaderModule, ShaderError>;
+
     unsafe fn destroy_shader_module(&self, module: A::ShaderModule);
+
     unsafe fn create_render_pipeline(
         &self,
         desc: &RenderPipelineDescriptor<A>,
     ) -> Result<A::RenderPipeline, PipelineError>;
+
     unsafe fn destroy_render_pipeline(&self, pipeline: A::RenderPipeline);
+
     unsafe fn create_compute_pipeline(
         &self,
         desc: &ComputePipelineDescriptor<A>,
     ) -> Result<A::ComputePipeline, PipelineError>;
+
     unsafe fn destroy_compute_pipeline(&self, pipeline: A::ComputePipeline);
 
     unsafe fn create_query_set(
         &self,
         desc: &wgt::QuerySetDescriptor<Label>,
     ) -> Result<A::QuerySet, DeviceError>;
+
     unsafe fn destroy_query_set(&self, set: A::QuerySet);
+
     unsafe fn create_fence(&self) -> Result<A::Fence, DeviceError>;
+
     unsafe fn destroy_fence(&self, fence: A::Fence);
+
     unsafe fn get_fence_value(&self, fence: &A::Fence) -> Result<FenceValue, DeviceError>;
+
     /// Calling wait with a lower value than the current fence value will immediately return.
     unsafe fn wait(
         &self,
@@ -187,6 +218,7 @@ pub trait Device<A: Api>: Send + Sync {
     ) -> Result<bool, DeviceError>;
 
     unsafe fn start_capture(&self) -> bool;
+
     unsafe fn stop_capture(&self);
 }
 
@@ -202,11 +234,13 @@ pub trait Queue<A: Api>: Send + Sync {
         command_buffers: &[&A::CommandBuffer],
         signal_fence: Option<(&mut A::Fence, FenceValue)>,
     ) -> Result<(), DeviceError>;
+
     unsafe fn present(
         &mut self,
         surface: &mut A::Surface,
         texture: A::SurfaceTexture,
     ) -> Result<(), SurfaceError>;
+
     unsafe fn get_timestamp_period(&self) -> f32;
 }
 
@@ -217,9 +251,12 @@ pub trait Queue<A: Api>: Send + Sync {
 pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
     /// Begin encoding a new command buffer.
     unsafe fn begin_encoding(&mut self, label: Label) -> Result<(), DeviceError>;
+
     /// Discard currently recorded list, if any.
     unsafe fn discard_encoding(&mut self);
+
     unsafe fn end_encoding(&mut self) -> Result<A::CommandBuffer, DeviceError>;
+
     /// Reclaims all resources that are allocated for this encoder.
     /// Must get all of the produced command buffers back,
     /// and they must not be used by GPU at this moment.
@@ -311,15 +348,21 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
     );
 
     unsafe fn insert_debug_marker(&mut self, label: &str);
+
     unsafe fn begin_debug_marker(&mut self, group_label: &str);
+
     unsafe fn end_debug_marker(&mut self);
 
     // queries
 
     unsafe fn begin_query(&mut self, set: &A::QuerySet, index: u32);
+
     unsafe fn end_query(&mut self, set: &A::QuerySet, index: u32);
+
     unsafe fn write_timestamp(&mut self, set: &A::QuerySet, index: u32);
+
     unsafe fn reset_queries(&mut self, set: &A::QuerySet, range: Range<u32>);
+
     unsafe fn copy_query_results(
         &mut self,
         set: &A::QuerySet,
@@ -333,6 +376,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
 
     // Begins a render pass, clears all active bindings.
     unsafe fn begin_render_pass(&mut self, desc: &RenderPassDescriptor<A>);
+
     unsafe fn end_render_pass(&mut self);
 
     unsafe fn set_render_pipeline(&mut self, pipeline: &A::RenderPipeline);
@@ -342,10 +386,15 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         binding: BufferBinding<'a, A>,
         format: wgt::IndexFormat,
     );
+
     unsafe fn set_vertex_buffer<'a>(&mut self, index: u32, binding: BufferBinding<'a, A>);
+
     unsafe fn set_viewport(&mut self, rect: &Rect<f32>, depth_range: Range<f32>);
+
     unsafe fn set_scissor_rect(&mut self, rect: &Rect<u32>);
+
     unsafe fn set_stencil_reference(&mut self, value: u32);
+
     unsafe fn set_blend_constants(&mut self, color: &[f32; 4]);
 
     unsafe fn draw(
@@ -355,6 +404,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         start_instance: u32,
         instance_count: u32,
     );
+
     unsafe fn draw_indexed(
         &mut self,
         start_index: u32,
@@ -363,18 +413,21 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         start_instance: u32,
         instance_count: u32,
     );
+
     unsafe fn draw_indirect(
         &mut self,
         buffer: &A::Buffer,
         offset: wgt::BufferAddress,
         draw_count: u32,
     );
+
     unsafe fn draw_indexed_indirect(
         &mut self,
         buffer: &A::Buffer,
         offset: wgt::BufferAddress,
         draw_count: u32,
     );
+
     unsafe fn draw_indirect_count(
         &mut self,
         buffer: &A::Buffer,
@@ -383,6 +436,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         count_offset: wgt::BufferAddress,
         max_count: u32,
     );
+
     unsafe fn draw_indexed_indirect_count(
         &mut self,
         buffer: &A::Buffer,
@@ -396,10 +450,12 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
 
     // Begins a compute pass, clears all active bindings.
     unsafe fn begin_compute_pass(&mut self, desc: &ComputePassDescriptor);
+
     unsafe fn end_compute_pass(&mut self);
 
     unsafe fn set_compute_pipeline(&mut self, pipeline: &A::ComputePipeline);
 
     unsafe fn dispatch(&mut self, count: [u32; 3]);
+
     unsafe fn dispatch_indirect(&mut self, buffer: &A::Buffer, offset: wgt::BufferAddress);
 }
