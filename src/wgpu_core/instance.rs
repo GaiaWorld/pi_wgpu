@@ -1,5 +1,5 @@
 use super::api::HalApi;
-use crate::{Adapter, Backends, CreateSurfaceError, InstanceDescriptor, Surface};
+use crate::{wgpu_hal as hal, Adapter, Backends, CreateSurfaceError, InstanceDescriptor, Surface};
 use std::future::Future;
 
 /// Context for all other wgpu objects. Instance of wgpu.
@@ -11,7 +11,9 @@ use std::future::Future;
 ///
 /// Corresponds to [WebGPU `GPU`](https://gpuweb.github.io/gpuweb/#gpu-interface).
 #[derive(Debug)]
-pub struct Instance {}
+pub struct Instance {
+    inner: <hal::GL as hal::Api>::Instance,
+}
 
 static_assertions::assert_impl_all!(Instance: Send, Sync);
 
@@ -86,7 +88,7 @@ impl Instance {
         options: &crate::RequestAdapterOptions,
     ) -> impl Future<Output = Option<Adapter>> + Send {
         unimplemented!("Instance::request_adapter is not implemented");
-        
+
         use futures::future::FutureExt;
         async { None }.boxed()
     }

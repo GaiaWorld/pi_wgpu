@@ -7,7 +7,7 @@
 
 use std::ops::RangeBounds;
 
-use crate::{BindingResource, Label, BufferAddress, BufferUsages, BufferSize};
+use crate::{BindingResource, Label, BufferAddress, BufferUsages, BufferSize, wgpu_hal as hal};
 
 /// Describes a [`Buffer`].
 ///
@@ -28,6 +28,7 @@ static_assertions::assert_impl_all!(BufferDescriptor: Send, Sync);
 #[derive(Debug)]
 pub struct Buffer {
     // Todo: missing map_state https://www.w3.org/TR/webgpu/#dom-gpubuffer-mapstate
+    inner: <hal::GL as hal::Api>::Buffer,
 }
 
 static_assertions::assert_impl_all!(Buffer: Send, Sync);

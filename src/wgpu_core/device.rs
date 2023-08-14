@@ -1,6 +1,7 @@
 use std::future::Future;
 use super::api::HalApi;
 use crate::{
+    wgpu_hal as hal,
     BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, Buffer, CommandEncoder, ComputePipeline,
     ComputePipelineDescriptor, Error, ErrorFilter, Label, PipelineLayout, PipelineLayoutDescriptor,
     QuerySet, RenderBundleEncoder, RenderBundleEncoderDescriptor, RenderPipeline,
@@ -17,7 +18,9 @@ use crate::{
 ///
 /// Corresponds to [WebGPU `GPUDevice`](https://gpuweb.github.io/gpuweb/#gpu-device).
 #[derive(Debug)]
-pub struct Device {}
+pub struct Device {
+    inner: <hal::GL as hal::Api>::Device,
+}
 
 static_assertions::assert_impl_all!(Device: Send, Sync);
 

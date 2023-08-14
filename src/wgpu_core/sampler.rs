@@ -1,4 +1,4 @@
-use crate::{AddressMode, CompareFunction, FilterMode, Label, SamplerBorderColor};
+use crate::{wgpu_hal as hal, AddressMode, CompareFunction, FilterMode, Label, SamplerBorderColor};
 use std::num::NonZeroU8;
 
 /// Handle to a sampler.
@@ -11,7 +11,9 @@ use std::num::NonZeroU8;
 ///
 /// Corresponds to [WebGPU `GPUSampler`](https://gpuweb.github.io/gpuweb/#sampler-interface).
 #[derive(Debug)]
-pub struct Sampler {}
+pub struct Sampler {
+    inner: <hal::GL as hal::Api>::Sampler,
+}
 static_assertions::assert_impl_all!(Sampler: Send, Sync);
 
 impl Drop for Sampler {

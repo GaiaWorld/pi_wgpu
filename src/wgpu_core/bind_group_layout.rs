@@ -1,4 +1,4 @@
-use crate::{BindGroupLayoutEntry, BufferBinding, Label, Sampler, TextureView};
+use crate::{wgpu_hal as hal, BindGroupLayoutEntry, BufferBinding, Label, Sampler, TextureView};
 
 /// Resource that can be bound to a pipeline.
 ///
@@ -57,7 +57,10 @@ static_assertions::assert_impl_all!(BindingResource: Send, Sync);
 /// Corresponds to [WebGPU `GPUBindGroupLayout`](
 /// https://gpuweb.github.io/gpuweb/#gpubindgrouplayout).
 #[derive(Debug)]
-pub struct BindGroupLayout {}
+pub struct BindGroupLayout {
+    inner: <hal::GL as hal::Api>::BindGroupLayout,
+}
+
 static_assertions::assert_impl_all!(BindGroupLayout: Send, Sync);
 
 impl Drop for BindGroupLayout {

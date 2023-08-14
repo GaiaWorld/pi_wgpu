@@ -1,4 +1,4 @@
-use crate::{BindGroupLayout, Label, PushConstantRange};
+use crate::{BindGroupLayout, Label, PushConstantRange, wgpu_hal as hal};
 
 /// Handle to a pipeline layout.
 ///
@@ -7,7 +7,9 @@ use crate::{BindGroupLayout, Label, PushConstantRange};
 ///
 /// Corresponds to [WebGPU `GPUPipelineLayout`](https://gpuweb.github.io/gpuweb/#gpupipelinelayout).
 #[derive(Debug)]
-pub struct PipelineLayout {}
+pub struct PipelineLayout {
+    inner: <hal::GL as hal::Api>::PipelineLayout,
+}
 static_assertions::assert_impl_all!(PipelineLayout: Send, Sync);
 
 impl Drop for PipelineLayout {

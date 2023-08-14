@@ -1,4 +1,4 @@
-use crate::{BindGroupLayout, Label, BindingResource};
+use crate::{wgpu_hal as hal, BindGroupLayout, BindingResource, Label};
 
 /// Handle to a binding group.
 ///
@@ -9,7 +9,9 @@ use crate::{BindGroupLayout, Label, BindingResource};
 ///
 /// Corresponds to [WebGPU `GPUBindGroup`](https://gpuweb.github.io/gpuweb/#gpubindgroup).
 #[derive(Debug)]
-pub struct BindGroup {}
+pub struct BindGroup {
+    inner: <hal::GL as hal::Api>::BindGroup,
+}
 static_assertions::assert_impl_all!(BindGroup: Send, Sync);
 
 impl Drop for BindGroup {

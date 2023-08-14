@@ -1,4 +1,4 @@
-use crate::Label;
+use crate::{wgpu_hal as hal, Label};
 
 /// Handle to a query set.
 ///
@@ -6,6 +6,7 @@ use crate::Label;
 ///
 /// Corresponds to [WebGPU `GPUQuerySet`](https://gpuweb.github.io/gpuweb/#queryset).
 pub struct QuerySet {
+    inner: <hal::GL as hal::Api>::QuerySet,
 }
 static_assertions::assert_impl_all!(QuerySet: Send, Sync);
 

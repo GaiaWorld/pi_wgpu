@@ -1,5 +1,5 @@
 use super::api::HalApi;
-use crate::{Adapter, Device, SurfaceCapabilities, TextureFormat, Texture};
+use crate::{wgpu_hal as hal, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
 
 /// Handle to a presentable surface.
 ///
@@ -10,7 +10,9 @@ use crate::{Adapter, Device, SurfaceCapabilities, TextureFormat, Texture};
 /// [`GPUCanvasContext`](https://gpuweb.github.io/gpuweb/#canvas-context)
 /// serves a similar role.
 #[derive(Debug)]
-pub struct Surface {}
+pub struct Surface {
+    inner: <hal::GL as hal::Api>::Surface,
+}
 
 static_assertions::assert_impl_all!(Surface: Send, Sync);
 
@@ -90,7 +92,7 @@ pub struct SurfaceTexture {
     /// `true` if the acquired buffer can still be used for rendering,
     /// but should be recreated for maximum performance.
     pub suboptimal: bool,
-    
+
     presented: bool,
 }
 

@@ -1,4 +1,4 @@
-use crate::{BindGroupLayout, Label, PipelineLayout, ShaderModule};
+use crate::{BindGroupLayout, Label, PipelineLayout, ShaderModule, wgpu_hal as hal};
 
 /// Handle to a compute pipeline.
 ///
@@ -7,7 +7,9 @@ use crate::{BindGroupLayout, Label, PipelineLayout, ShaderModule};
 ///
 /// Corresponds to [WebGPU `GPUComputePipeline`](https://gpuweb.github.io/gpuweb/#compute-pipeline).
 #[derive(Debug)]
-pub struct ComputePipeline {}
+pub struct ComputePipeline {
+    inner: <hal::GL as hal::Api>::ComputePipeline,
+}
 static_assertions::assert_impl_all!(ComputePipeline: Send, Sync);
 
 impl Drop for ComputePipeline {

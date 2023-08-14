@@ -1,6 +1,6 @@
 use std::{borrow::Cow, marker::PhantomData};
 
-use crate::Label;
+use crate::{wgpu_hal as hal, Label};
 
 /// Handle to a compiled shader module.
 ///
@@ -11,7 +11,9 @@ use crate::Label;
 ///
 /// Corresponds to [WebGPU `GPUShaderModule`](https://gpuweb.github.io/gpuweb/#shader-module).
 #[derive(Debug)]
-pub struct ShaderModule {}
+pub struct ShaderModule {
+    inner: <hal::GL as hal::Api>::ShaderModule,
+}
 static_assertions::assert_impl_all!(ShaderModule: Send, Sync);
 
 impl Drop for ShaderModule {

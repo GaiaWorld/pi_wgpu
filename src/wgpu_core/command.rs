@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, num::NonZeroU32, ops::Range};
 
 use crate::{
+    wgpu_hal as hal,
     BindGroup, Buffer, BufferAddress, BufferSize, BufferSlice, Color, ComputePipeline,
     DynamicOffset, Extent3d, ImageSubresourceRange, IndexFormat, Label, Operations, QuerySet,
     RenderBundleDepthStencil, RenderPipeline, ShaderStages, Texture, TextureFormat, TextureView,
@@ -14,7 +15,9 @@ use crate::{
 ///
 /// Corresponds to [WebGPU `GPUCommandBuffer`](https://gpuweb.github.io/gpuweb/#command-buffer).
 #[derive(Debug)]
-pub struct CommandBuffer {}
+pub struct CommandBuffer {
+    inner: <hal::GL as hal::Api>::CommandBuffer,
+}
 
 static_assertions::assert_impl_all!(CommandBuffer: Send, Sync);
 
@@ -34,7 +37,9 @@ impl Drop for CommandBuffer {
 ///
 /// Corresponds to [WebGPU `GPUCommandEncoder`](https://gpuweb.github.io/gpuweb/#command-encoder).
 #[derive(Debug)]
-pub struct CommandEncoder {}
+pub struct CommandEncoder {
+    inner: <hal::GL as hal::Api>::CommandEncoder,
+}
 
 static_assertions::assert_impl_all!(CommandEncoder: Send, Sync);
 

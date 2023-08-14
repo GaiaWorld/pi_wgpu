@@ -1,4 +1,6 @@
-use crate::{Buffer, BufferAddress, BufferSize, CommandBuffer, Extent3d, ImageDataLayout};
+use crate::{
+    wgpu_hal as hal, Buffer, BufferAddress, BufferSize, CommandBuffer, Extent3d, ImageDataLayout,
+};
 use std::{
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -13,7 +15,9 @@ use std::{
 ///
 /// Corresponds to [WebGPU `GPUQueue`](https://gpuweb.github.io/gpuweb/#gpu-queue).
 #[derive(Debug)]
-pub struct Queue {}
+pub struct Queue {
+    inner: <hal::GL as hal::Api>::Queue,
+}
 
 static_assertions::assert_impl_all!(Queue: Send, Sync);
 

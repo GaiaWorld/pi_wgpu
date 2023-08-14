@@ -1,7 +1,7 @@
 use super::api::HalApi;
 use crate::{
-    AdapterInfo, Device, DownlevelCapabilities, Features, Limits, PresentationTimestamp, Queue,
-    Surface, TextureFormat, TextureFormatFeatures,
+    wgpu_hal as hal, AdapterInfo, Device, DownlevelCapabilities, Features, Limits,
+    PresentationTimestamp, Queue, Surface, TextureFormat, TextureFormatFeatures,
 };
 use std::future::Future;
 
@@ -14,7 +14,9 @@ use std::future::Future;
 ///
 /// Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 #[derive(Debug)]
-pub struct Adapter {}
+pub struct Adapter {
+    inner: <hal::GL as hal::Api>::Adapter,
+}
 
 static_assertions::assert_impl_all!(Adapter: Send, Sync);
 

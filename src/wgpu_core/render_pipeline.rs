@@ -1,4 +1,5 @@
 use crate::{
+    wgpu_hal as hal,
     BindGroupLayout, BufferAddress, ColorTargetState, DepthStencilState, Label, MultisampleState,
     PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute, VertexStepMode,
 };
@@ -11,7 +12,9 @@ use std::num::NonZeroU32;
 ///
 /// Corresponds to [WebGPU `GPURenderPipeline`](https://gpuweb.github.io/gpuweb/#render-pipeline).
 #[derive(Debug)]
-pub struct RenderPipeline {}
+pub struct RenderPipeline {
+    inner: <hal::GL as hal::Api>::RenderPipeline,
+}
 static_assertions::assert_impl_all!(RenderPipeline: Send, Sync);
 
 impl Drop for RenderPipeline {

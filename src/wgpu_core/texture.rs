@@ -1,7 +1,7 @@
 use super::api::HalApi;
 use crate::{
-    Extent3d, Label, TextureAspect, TextureDimension, TextureFormat, TextureUsages,
-    TextureViewDimension,
+    wgpu_hal as hal, Extent3d, Label, TextureAspect, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDimension,
 };
 use std::num::NonZeroU32;
 
@@ -11,7 +11,9 @@ use std::num::NonZeroU32;
 ///
 /// Corresponds to [WebGPU `GPUTexture`](https://gpuweb.github.io/gpuweb/#texture-interface).
 #[derive(Debug)]
-pub struct Texture {}
+pub struct Texture {
+    inner: <hal::GL as hal::Api>::Texture,
+}
 static_assertions::assert_impl_all!(Texture: Send, Sync);
 
 impl Drop for Texture {
