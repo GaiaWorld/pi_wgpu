@@ -1,4 +1,7 @@
-use crate::{wgpu_hal as hal, BindGroupLayout, BindingResource, Label};
+use crate::{
+    wgpu_hal::{self as hal, Device},
+    BindGroupLayout, BindingResource, Label,
+};
 
 /// Handle to a binding group.
 ///
@@ -10,12 +13,19 @@ use crate::{wgpu_hal as hal, BindGroupLayout, BindingResource, Label};
 /// Corresponds to [WebGPU `GPUBindGroup`](https://gpuweb.github.io/gpuweb/#gpubindgroup).
 #[derive(Debug)]
 pub struct BindGroup {
-    inner: <hal::GL as hal::Api>::BindGroup,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::BindGroup>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for BindGroup {
     fn drop(&mut self) {
-        unimplemented!("BindGroup::drop is not implemented")
+        profiling::scope!("wgpu_core::BindGroup::drop");
+        if let Some(bg) = self.inner.take() {
+            unsafe {
+                self.device.inner.destroy_bind_group(bg);
+            }
+        }
     }
 }
 

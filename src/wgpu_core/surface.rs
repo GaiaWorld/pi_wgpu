@@ -1,5 +1,8 @@
 use super::api::HalApi;
-use crate::{wgpu_hal as hal, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
+use crate::{
+    wgpu_hal::{self as hal, Instance},
+    Adapter, Device, SurfaceCapabilities, Texture, TextureFormat,
+};
 
 /// Handle to a presentable surface.
 ///
@@ -11,13 +14,18 @@ use crate::{wgpu_hal as hal, Adapter, Device, SurfaceCapabilities, Texture, Text
 /// serves a similar role.
 #[derive(Debug)]
 pub struct Surface {
-    pub(crate) inner: <hal::GL as hal::Api>::Surface,
-}
+    pub(crate) inner: Option<<hal::GL as hal::Api>::Surface>,
 
+    pub(crate) instance: crate::Instance,
+}
 
 impl Drop for Surface {
     fn drop(&mut self) {
-        unimplemented!("Surface::drop is not implemented")
+        profiling::scope!("wgpu_core::Surface::drop");
+
+        if let Some(surface) = self.inner.take() {
+            unsafe { self.instance.inner.destroy_surface(surface) }
+        }
     }
 }
 
@@ -95,7 +103,6 @@ pub struct SurfaceTexture {
     presented: bool,
 }
 
-
 impl SurfaceTexture {
     /// Schedule this texture to be presented on the owning surface.
     ///
@@ -159,4 +166,3 @@ impl std::error::Error for CreateSurfaceError {}
 /// Corresponds to [WebGPU `GPUCanvasConfiguration`](
 /// https://gpuweb.github.io/gpuweb/#canvas-configuration).
 pub type SurfaceConfiguration = crate::wgpu_types::SurfaceConfiguration<Vec<TextureFormat>>;
-

@@ -1,14 +1,14 @@
 use std::{
     future::{ready, Future},
     iter::Iterator,
+    sync::Arc,
 };
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use super::api::HalApi;
 use crate::{
-    wgpu_core::adapter, wgpu_hal as hal, Backends, CreateSurfaceError, InstanceDescriptor,
-    PowerPreference, Surface,
+    wgpu_hal as hal, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface,
 };
 
 /// Context for all other wgpu objects. Instance of wgpu.
@@ -19,9 +19,9 @@ use crate::{
 /// Does not have to be kept alive.
 ///
 /// Corresponds to [WebGPU `GPU`](https://gpuweb.github.io/gpuweb/#gpu-interface).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instance {
-    pub(crate) inner: <hal::GL as hal::Api>::Instance,
+    pub(crate) inner: Arc<<hal::GL as hal::Api>::Instance>,
 }
 
 impl Default for Instance {
@@ -44,7 +44,7 @@ impl Instance {
     /// - `instance_desc` - Has fields for which [backends][Backends] wgpu will choose
     ///   during instantiation, and which [DX12 shader compiler][Dx12Compiler] wgpu will use.
     pub fn new(instance_desc: InstanceDescriptor) -> Self {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::new");
+        profiling::scope!("wgpu_core::Instance::new");
 
         assert!(instance_desc.backends.contains(Backends::GL));
 
@@ -62,8 +62,10 @@ impl Instance {
             dx12_shader_compiler: instance_desc.dx12_shader_compiler.clone(),
         };
 
+        let inner = unsafe { hal::Instance::init(&hal_desc).unwrap() };
+
         Self {
-            inner: unsafe { hal::Instance::init(&hal_desc).unwrap() },
+            inner: Arc::new(inner),
         }
     }
 
@@ -78,7 +80,7 @@ impl Instance {
     /// Refer to the creation of wgpu-hal Instance for every backend.
     #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
     pub unsafe fn from_hal<A: HalApi>(hal_instance: A::Instance) -> Self {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::from_hal");
+        profiling::scope!("wgpu_core::Instance::from_hal");
 
         assert!(A::VARIANT == crate::wgpu_types::Backend::Gl);
 
@@ -117,7 +119,7 @@ impl Instance {
     pub fn enumerate_adapters(&self, backends: Backends) -> impl Iterator<Item = crate::Adapter> {
         use crate::wgpu_hal::Instance;
 
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::enumerate_adapters");
+        profiling::scope!("wgpu_core::Instance::enumerate_adapters");
 
         assert!(backends.contains(Backends::GL));
 
@@ -146,7 +148,7 @@ impl Instance {
     ) -> impl Future<Output = Option<crate::Adapter>> + Send {
         use hal::Adapter;
 
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::request_adapter");
+        profiling::scope!("wgpu_core::Instance::request_adapter");
 
         // 不支持 软件 Adapter
         assert!(!options.force_fallback_adapter);
@@ -207,7 +209,7 @@ impl Instance {
             }
         }
 
-        let mut select = [-1, -1, -1, -1, -1];
+        let select;
         match options.power_preference {
             // 低性能：集成显卡 --> 独立显卡 --> 其他 --> 虚拟显卡 --> cpu 软件模拟
             PowerPreference::LowPower => {
@@ -269,7 +271,7 @@ impl Instance {
     ) -> Result<Surface, CreateSurfaceError> {
         use crate::wgpu_hal::Instance;
 
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::create_surface");
+        profiling::scope!("wgpu_core::Instance::create_surface");
 
         let display_handle = HasRawDisplayHandle::raw_display_handle(window);
 
@@ -278,7 +280,8 @@ impl Instance {
         let raw = self.inner.create_surface(display_handle, window_handle);
 
         Ok(crate::Surface {
-            inner: raw.unwrap(),
+            inner: raw.ok(),
+            instance: self.clone(),
         })
     }
 
@@ -302,7 +305,7 @@ impl Instance {
     /// - visual must be a valid IDCompositionVisual to create a surface upon.
     #[cfg(target_os = "windows")]
     pub unsafe fn create_surface_from_visual(&self, visual: *mut std::ffi::c_void) -> Surface {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::create_surface_from_visual");
+        profiling::scope!("wgpu_core::Instance::create_surface_from_visual");
 
         unimplemented!("Instance::create_surface_from_visual is not implemented")
     }
@@ -317,7 +320,7 @@ impl Instance {
         &self,
         surface_handle: *mut std::ffi::c_void,
     ) -> Surface {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::create_surface_from_surface_handle");
+        profiling::scope!("wgpu_core::Instance::create_surface_from_surface_handle");
 
         unimplemented!("Instance::create_surface_from_surface_handle is not implemented")
     }
@@ -336,7 +339,7 @@ impl Instance {
         &self,
         canvas: &web_sys::HtmlCanvasElement,
     ) -> Result<Surface, CreateSurfaceError> {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::create_surface_from_canvas");
+        profiling::scope!("wgpu_core::Instance::create_surface_from_canvas");
 
         unimplemented!("Instance::create_surface_from_canvas is not implemented")
     }
@@ -355,7 +358,7 @@ impl Instance {
         &self,
         canvas: &web_sys::OffscreenCanvas,
     ) -> Result<Surface, CreateSurfaceError> {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::create_surface_from_offscreen_canvas");
+        profiling::scope!("wgpu_core::Instance::create_surface_from_offscreen_canvas");
 
         unimplemented!("Instance::create_surface_from_offscreen_canvas is not implemented")
     }
@@ -377,7 +380,7 @@ impl Instance {
     ///
     /// [`Queue`s]: Queue
     pub fn poll_all(&self, force_wait: bool) -> bool {
-        profiling::scope!("pi_wgpu::wgpu_core::Instance::poll_all");
+        profiling::scope!("wgpu_core::Instance::poll_all");
 
         unimplemented!("Instance::poll_all is not implemented")
     }

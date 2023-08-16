@@ -1,5 +1,5 @@
 use crate::{
-    wgpu_hal as hal,
+    wgpu_hal::{self as hal, Device},
     BindGroupLayout, BufferAddress, ColorTargetState, DepthStencilState, Label, MultisampleState,
     PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute, VertexStepMode,
 };
@@ -13,12 +13,18 @@ use std::num::NonZeroU32;
 /// Corresponds to [WebGPU `GPURenderPipeline`](https://gpuweb.github.io/gpuweb/#render-pipeline).
 #[derive(Debug)]
 pub struct RenderPipeline {
-    inner: <hal::GL as hal::Api>::RenderPipeline,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::RenderPipeline>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for RenderPipeline {
     fn drop(&mut self) {
-        unimplemented!("RenderPipeline::drop is not implemented")
+        profiling::scope!("wgpu_core::RenderPipeline::drop");
+
+        if let Some(pipline) = self.inner.take() {
+            unsafe { self.device.inner.destroy_render_pipeline(pipline) }
+        }
     }
 }
 

@@ -1,10 +1,10 @@
 use std::{marker::PhantomData, num::NonZeroU32, ops::Range};
 
 use crate::{
-    wgpu_hal as hal,
-    BindGroup, Buffer, BufferAddress, BufferSize, BufferSlice, Color, ComputePipeline,
-    DynamicOffset, Extent3d, ImageSubresourceRange, IndexFormat, Label, Operations, QuerySet,
-    RenderBundleDepthStencil, RenderPipeline, ShaderStages, Texture, TextureFormat, TextureView,
+    wgpu_hal as hal, BindGroup, Buffer, BufferAddress, BufferSize, BufferSlice, Color,
+    ComputePipeline, DynamicOffset, Extent3d, ImageSubresourceRange, IndexFormat, Label,
+    Operations, QuerySet, RenderBundleDepthStencil, RenderPipeline, ShaderStages, Texture,
+    TextureFormat, TextureView,
 };
 
 /// Handle to a command buffer on the GPU.
@@ -16,13 +16,14 @@ use crate::{
 /// Corresponds to [WebGPU `GPUCommandBuffer`](https://gpuweb.github.io/gpuweb/#command-buffer).
 #[derive(Debug)]
 pub struct CommandBuffer {
-    inner: <hal::GL as hal::Api>::CommandBuffer,
-}
+    pub(crate) inner: Option<<hal::GL as hal::Api>::CommandBuffer>,
 
+    pub(crate) device: crate::Device,
+}
 
 impl Drop for CommandBuffer {
     fn drop(&mut self) {
-        unimplemented!("CommandBuffer::drop is not implemented")
+        // TODO: 对 GL 而言，是空实现
     }
 }
 
@@ -37,13 +38,14 @@ impl Drop for CommandBuffer {
 /// Corresponds to [WebGPU `GPUCommandEncoder`](https://gpuweb.github.io/gpuweb/#command-encoder).
 #[derive(Debug)]
 pub struct CommandEncoder {
-    inner: <hal::GL as hal::Api>::CommandEncoder,
-}
+    pub(crate) inner: Option<<hal::GL as hal::Api>::CommandEncoder>,
 
+    pub(crate) device: crate::Device,
+}
 
 impl Drop for CommandEncoder {
     fn drop(&mut self) {
-        unimplemented!("CommandEncoder::drop is not implemented")
+        // TODO: 对 GL 而言，是空实现
     }
 }
 
@@ -232,7 +234,6 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
     /// The depth and stencil attachment of the render pass, if any.
     pub depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<'tex>>,
 }
-
 
 /// In-progress recording of a render pass.
 ///
@@ -579,7 +580,6 @@ impl<'a> RenderPass<'a> {
 #[derive(Debug)]
 pub struct RenderBundle {}
 
-
 impl Drop for RenderBundle {
     fn drop(&mut self) {
         unimplemented!("RenderBundle::drop is not implemented")
@@ -605,7 +605,6 @@ pub struct ComputePassDescriptor<'a> {
     /// Debug label of the compute pass. This will show up in graphics debuggers for easy identification.
     pub label: Label<'a>,
 }
-
 
 /// In-progress recording of a compute pass.
 ///
@@ -769,7 +768,7 @@ pub struct RenderPassDepthStencilAttachment<'tex> {
 pub struct RenderBundleEncoder<'a> {
     _data: PhantomData<&'a ()>,
 }
-// TODO 
+// TODO
 impl<'a> RenderBundleEncoder<'a> {
     /// Finishes recording and returns a [`RenderBundle`] that can be executed in other render passes.
     pub fn finish(self, desc: &RenderBundleDescriptor) -> RenderBundle {

@@ -19,7 +19,7 @@ use crate::{
 /// Corresponds to [WebGPU `GPUDevice`](https://gpuweb.github.io/gpuweb/#gpu-device).
 #[derive(Debug)]
 pub struct Device {
-    inner: <hal::GL as hal::Api>::Device,
+    pub(crate) inner: <hal::GL as hal::Api>::Device,
 }
 
 

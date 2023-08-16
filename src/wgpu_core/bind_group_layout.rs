@@ -1,4 +1,7 @@
-use crate::{wgpu_hal as hal, BindGroupLayoutEntry, BufferBinding, Label, Sampler, TextureView};
+use crate::{
+    wgpu_hal::{self as hal, Device},
+    BindGroupLayoutEntry, BufferBinding, Label, Sampler, TextureView,
+};
 
 /// Resource that can be bound to a pipeline.
 ///
@@ -57,13 +60,20 @@ pub enum BindingResource<'a> {
 /// https://gpuweb.github.io/gpuweb/#gpubindgrouplayout).
 #[derive(Debug)]
 pub struct BindGroupLayout {
-    inner: <hal::GL as hal::Api>::BindGroupLayout,
-}
+    pub(crate) inner: Option<<hal::GL as hal::Api>::BindGroupLayout>,
 
+    pub(crate) device: crate::Device,
+}
 
 impl Drop for BindGroupLayout {
     fn drop(&mut self) {
-        unimplemented!("BindGroupLayout::drop is not implemented")
+        profiling::scope!("wgpu_core::BindGroupLayout::drop");
+        
+        if let Some(bg_layout) = self.inner.take() {
+            unsafe {
+                self.device.inner.destroy_bind_group_layout(bg_layout);
+            }
+        }
     }
 }
 

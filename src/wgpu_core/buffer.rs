@@ -7,7 +7,10 @@
 
 use std::ops::RangeBounds;
 
-use crate::{BindingResource, Label, BufferAddress, BufferUsages, BufferSize, wgpu_hal as hal};
+use crate::{
+    wgpu_hal::{self as hal, Device},
+    BindingResource, BufferAddress, BufferSize, BufferUsages, Label,
+};
 
 /// Describes a [`Buffer`].
 ///
@@ -16,7 +19,6 @@ use crate::{BindingResource, Label, BufferAddress, BufferUsages, BufferSize, wgp
 /// Corresponds to [WebGPU `GPUBufferDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpubufferdescriptor).
 pub type BufferDescriptor<'a> = crate::wgpu_types::BufferDescriptor<Label<'a>>;
-
 
 /// Handle to a GPU-accessible buffer.
 ///
@@ -27,55 +29,71 @@ pub type BufferDescriptor<'a> = crate::wgpu_types::BufferDescriptor<Label<'a>>;
 #[derive(Debug)]
 pub struct Buffer {
     // Todo: missing map_state https://www.w3.org/TR/webgpu/#dom-gpubuffer-mapstate
-    inner: <hal::GL as hal::Api>::Buffer,
-}
+    pub(crate) inner: Option<<hal::GL as hal::Api>::Buffer>,
 
+    pub(crate) usage: BufferUsages,
+    pub(crate) size: BufferAddress,
+
+    pub(crate) device: crate::Device,
+}
 
 impl Drop for Buffer {
     fn drop(&mut self) {
-        unimplemented!("Buffer::drop is not implemented")
+        profiling::scope!("wgpu_core::Buffer::drop");
+
+        // TODO: 这里是单线程结构，没有考虑到 多线程 和 录制需求；
+        if let Some(buffer) = self.inner.take() {
+            unsafe { self.device.inner.destroy_buffer(buffer) }
+        }
     }
 }
 
 impl Buffer {
-    /// Return the binding view of the entire buffer.
-    pub fn as_entire_binding(&self) -> BindingResource {
-        unimplemented!("Buffer::as_entire_binding is not implemented")
-    }
-
-    /// Return the binding view of the entire buffer.
-    pub fn as_entire_buffer_binding(&self) -> BufferBinding {
-        unimplemented!("Buffer::as_entire_buffer_binding is not implemented")
-    }
-
-    /// Use only a portion of this Buffer for a given operation. Choosing a range with no end
-    /// will use the rest of the buffer. Using a totally unbounded range will use the entire buffer.
-    pub fn slice<S: RangeBounds<BufferAddress>>(&self, bounds: S) -> BufferSlice {
-        unimplemented!("Buffer::slice is not implemented")
-    }
-
-    /// Flushes any pending write operations and unmaps the buffer from host memory.
-    pub fn unmap(&self) {
-        unimplemented!("Buffer::unmap is not implemented")
-    }
-
-    /// Destroy the associated native resources as soon as possible.
-    pub fn destroy(&self) {
-        unimplemented!("Buffer::destroy is not implemented")
-    }
-
     /// Returns the length of the buffer allocation in bytes.
     ///
     /// This is always equal to the `size` that was specified when creating the buffer.
     pub fn size(&self) -> BufferAddress {
-        unimplemented!("Buffer::size is not implemented")
+        self.size
     }
 
     /// Returns the allowed usages for this `Buffer`.
     ///
     /// This is always equal to the `usage` that was specified when creating the buffer.
     pub fn usage(&self) -> BufferUsages {
-        unimplemented!("Buffer::usage is not implemented")
+        self.usage
+    }
+
+    /// Return the binding view of the entire buffer.
+    pub fn as_entire_binding(&self) -> BindingResource {
+        BindingResource::Buffer(self.as_entire_buffer_binding())
+    }
+
+    /// Return the binding view of the entire buffer.
+    pub fn as_entire_buffer_binding(&self) -> BufferBinding {
+        BufferBinding {
+            buffer: self,
+            offset: 0,
+            size: None,
+        }
+    }
+
+    /// Use only a portion of this Buffer for a given operation. Choosing a range with no end
+    /// will use the rest of the buffer. Using a totally unbounded range will use the entire buffer.
+    // TODO: map, unmap 请使用 Queue::write_buffer
+    pub fn slice<S: RangeBounds<BufferAddress>>(&self, _bounds: S) -> BufferSlice {
+        unimplemented!("wgpu_core::Buffer::slice is not implemented")
+    }
+
+    /// Flushes any pending write operations and unmaps the buffer from host memory.
+    // TODO: map, unmap 请使用 Queue::write_buffer
+    pub fn unmap(&self) {
+        unimplemented!("wgpu_core::Buffer::unmap is not implemented")
+    }
+
+    /// Destroy the associated native resources as soon as possible.
+    // TODO: 只要高层不握住，自然调用 Drop 释放Buffer；此处不明白为什么要写这个函数？
+    pub fn destroy(&self) {
+        unimplemented!("wgpu_core::Buffer::destroy is not implemented")
     }
 }
 
@@ -89,11 +107,10 @@ impl Buffer {
 /// an offset and size are specified as arguments to each call working with the [`Buffer`], instead.
 #[derive(Copy, Clone, Debug)]
 pub struct BufferSlice<'a> {
-    buffer: &'a Buffer,
-    offset: BufferAddress,
-    size: Option<BufferSize>,
+    _buffer: &'a Buffer,
+    _offset: BufferAddress,
+    _size: Option<BufferSize>,
 }
-
 
 impl<'a> BufferSlice<'a> {
     /// Map the buffer. Buffer is ready to map once the callback is called.
@@ -107,47 +124,23 @@ impl<'a> BufferSlice<'a> {
     /// and used to set flags, send messages, etc.
     pub fn map_async(
         &self,
-        mode: MapMode,
-        callback: impl FnOnce(Result<(), BufferAsyncError>) + Send + 'static,
+        _mode: MapMode,
+        _callback: impl FnOnce(Result<(), BufferAsyncError>) + Send + 'static,
     ) {
-        unimplemented!("BufferSlice::map_async is not implemented")
+        unimplemented!("wgpu_core::BufferSlice::map_async is not implemented")
     }
 
     /// Synchronously and immediately map a buffer for reading. If the buffer is not immediately mappable
     /// through [`BufferDescriptor::mapped_at_creation`] or [`BufferSlice::map_async`], will panic.
     pub fn get_mapped_range(&self) -> BufferView<'a> {
-        unimplemented!("BufferSlice::get_mapped_range is not implemented")
+        unimplemented!("wgpu_core::BufferSlice::get_mapped_range is not implemented")
     }
 
     /// Synchronously and immediately map a buffer for writing. If the buffer is not immediately mappable
     /// through [`BufferDescriptor::mapped_at_creation`] or [`BufferSlice::map_async`], will panic.
     pub fn get_mapped_range_mut(&self) -> BufferViewMut<'a> {
-        unimplemented!("BufferSlice::get_mapped_range_mut is not implemented")
+        unimplemented!("wgpu_core::BufferSlice::get_mapped_range_mut is not implemented")
     }
-}
-
-/// Read only view into a mapped buffer.
-#[derive(Debug)]
-pub struct BufferView<'a> {
-    slice: BufferSlice<'a>,
-    data: Box<dyn BufferMappedRange>,
-}
-
-/// Write only view into mapped buffer.
-///
-/// It is possible to read the buffer using this view, but doing so is not
-/// recommended, as it is likely to be slow.
-#[derive(Debug)]
-pub struct BufferViewMut<'a> {
-    slice: BufferSlice<'a>,
-    data: Box<dyn BufferMappedRange>,
-    readable: bool,
-}
-
-pub trait BufferMappedRange: std::fmt::Debug {
-    fn slice(&self) -> &[u8];
-
-    fn slice_mut(&mut self) -> &mut [u8];
 }
 
 /// Describes the segment of a buffer to bind.
@@ -166,6 +159,30 @@ pub struct BufferBinding<'a> {
     pub offset: BufferAddress,
     /// Size of the binding, or `None` for using the rest of the buffer.
     pub size: Option<BufferSize>,
+}
+
+/// Read only view into a mapped buffer.
+#[derive(Debug)]
+pub struct BufferView<'a> {
+    _slice: BufferSlice<'a>,
+    _data: Box<dyn BufferMappedRange>,
+}
+
+/// Write only view into mapped buffer.
+///
+/// It is possible to read the buffer using this view, but doing so is not
+/// recommended, as it is likely to be slow.
+#[derive(Debug)]
+pub struct BufferViewMut<'a> {
+    _slice: BufferSlice<'a>,
+    _data: Box<dyn BufferMappedRange>,
+    _readable: bool,
+}
+
+pub trait BufferMappedRange: std::fmt::Debug {
+    fn slice(&self) -> &[u8];
+
+    fn slice_mut(&mut self) -> &mut [u8];
 }
 
 /// Error occurred when trying to async map a buffer.

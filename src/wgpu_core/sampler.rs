@@ -1,4 +1,4 @@
-use crate::{wgpu_hal as hal, AddressMode, CompareFunction, FilterMode, Label, SamplerBorderColor};
+use crate::{wgpu_hal::{self as hal, Device}, AddressMode, CompareFunction, FilterMode, Label, SamplerBorderColor};
 use std::num::NonZeroU8;
 
 /// Handle to a sampler.
@@ -12,12 +12,18 @@ use std::num::NonZeroU8;
 /// Corresponds to [WebGPU `GPUSampler`](https://gpuweb.github.io/gpuweb/#sampler-interface).
 #[derive(Debug)]
 pub struct Sampler {
-    inner: <hal::GL as hal::Api>::Sampler,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::Sampler>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for Sampler {
     fn drop(&mut self) {
-        unimplemented!("Sampler::drop is not implemented")
+        profiling::scope!("wgpu_core::Sampler::drop");
+
+        if let Some(sampler) = self.inner.take() {
+            unsafe { self.device.inner.destroy_sampler(sampler) }
+        }
     }
 }
 

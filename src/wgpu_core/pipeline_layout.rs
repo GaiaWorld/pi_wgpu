@@ -1,4 +1,4 @@
-use crate::{BindGroupLayout, Label, PushConstantRange, wgpu_hal as hal};
+use crate::{BindGroupLayout, Label, PushConstantRange, wgpu_hal::{self as hal, Device}};
 
 /// Handle to a pipeline layout.
 ///
@@ -8,12 +8,18 @@ use crate::{BindGroupLayout, Label, PushConstantRange, wgpu_hal as hal};
 /// Corresponds to [WebGPU `GPUPipelineLayout`](https://gpuweb.github.io/gpuweb/#gpupipelinelayout).
 #[derive(Debug)]
 pub struct PipelineLayout {
-    inner: <hal::GL as hal::Api>::PipelineLayout,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::PipelineLayout>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for PipelineLayout {
     fn drop(&mut self) {
-        unimplemented!("PipelineLayout::drop is not implemented")
+        profiling::scope!("wgpu_core::PipelineLayout::drop");
+
+        if let Some(pipeline_layout) = self.inner.take() {
+            unsafe { self.device.inner.destroy_pipeline_layout(pipeline_layout) }
+        }
     }
 }
 

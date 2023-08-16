@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{Backend, Instance, Surface};
 
 pub trait HalApi: crate::wgpu_hal::Api {
@@ -15,19 +17,19 @@ pub trait HalApi: crate::wgpu_hal::Api {
 impl HalApi for crate::wgpu_hal::Empty {
     const VARIANT: Backend = Backend::Empty;
 
-    fn create_instance_from_hal(hal_instance: Self::Instance) -> Instance {
+    fn create_instance_from_hal(_hal_instance: Self::Instance) -> Instance {
         unimplemented!("Empty::create_instance_from_hal is not implemented")
     }
 
-    fn instance_as_hal(instance: &Instance) -> Option<&Self::Instance> {
+    fn instance_as_hal(_instance: &Instance) -> Option<&Self::Instance> {
         unimplemented!("Empty::instance_as_hal is not implemented")
     }
 
-    fn get_surface(surface: &Surface) -> Option<&Self::Surface> {
+    fn get_surface(_surface: &Surface) -> Option<&Self::Surface> {
         unimplemented!("Empty::get_surface is not implemented")
     }
 
-    fn get_surface_mut(surface: &mut Surface) -> Option<&mut Self::Surface> {
+    fn get_surface_mut(_surface: &mut Surface) -> Option<&mut Self::Surface> {
         unimplemented!("Empty::get_surface_mut is not implemented")
     }
 }
@@ -38,7 +40,7 @@ impl HalApi for crate::wgpu_hal::GL {
     fn create_instance_from_hal(hal_instance: Self::Instance) -> Instance {
         #[allow(clippy::needless_update)]
         Instance {
-            inner: hal_instance,
+            inner: Arc::new(hal_instance),
         }
     }
 
@@ -47,9 +49,9 @@ impl HalApi for crate::wgpu_hal::GL {
     }
 
     fn get_surface(surface: &Surface) -> Option<&Self::Surface> {
-        Some(&surface.inner)
+        surface.inner.as_ref()
     }
     fn get_surface_mut(surface: &mut Surface) -> Option<&mut Self::Surface> {
-        Some(&mut surface.inner)
+        surface.inner.as_mut()
     }
 }

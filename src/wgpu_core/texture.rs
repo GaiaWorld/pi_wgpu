@@ -1,7 +1,8 @@
 use super::api::HalApi;
 use crate::{
-    wgpu_hal as hal, Extent3d, Label, TextureAspect, TextureDimension, TextureFormat,
-    TextureUsages, TextureViewDimension,
+    wgpu_hal::{self as hal, Device},
+    Extent3d, Label, TextureAspect, TextureDimension, TextureFormat, TextureUsages,
+    TextureViewDimension,
 };
 use std::num::NonZeroU32;
 
@@ -12,12 +13,18 @@ use std::num::NonZeroU32;
 /// Corresponds to [WebGPU `GPUTexture`](https://gpuweb.github.io/gpuweb/#texture-interface).
 #[derive(Debug)]
 pub struct Texture {
-    inner: <hal::GL as hal::Api>::Texture,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::Texture>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        unimplemented!("Texture::drop")
+        profiling::scope!("wgpu_core::Texture::drop");
+
+        if let Some(texture) = self.inner.take() {
+            unsafe { self.device.inner.destroy_texture(texture) }
+        }
     }
 }
 
@@ -122,11 +129,19 @@ impl Texture {
 ///
 /// Corresponds to [WebGPU `GPUTextureView`](https://gpuweb.github.io/gpuweb/#gputextureview).
 #[derive(Debug)]
-pub struct TextureView {}
+pub struct TextureView {
+    pub(crate) inner: Option<<hal::GL as hal::Api>::TextureView>,
+
+    pub(crate) device: crate::Device,
+}
 
 impl Drop for TextureView {
     fn drop(&mut self) {
-        unimplemented!("TextureView::drop is not implemented")
+        profiling::scope!("wgpu_core::TextureView::drop");
+
+        if let Some(view) = self.inner.take() {
+            unsafe { self.device.inner.destroy_texture_view(view) }
+        }
     }
 }
 
@@ -167,7 +182,8 @@ pub struct TextureViewDescriptor<'a> {
 ///
 /// Corresponds to [WebGPU `GPUTextureDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturedescriptor).
-pub type TextureDescriptor<'a> = crate::wgpu_types::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
+pub type TextureDescriptor<'a> =
+    crate::wgpu_types::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
 
 pub use crate::wgpu_types::ImageCopyTexture as ImageCopyTextureBase;
 

@@ -7,20 +7,18 @@ use crate::{BindGroupLayout, Label, PipelineLayout, ShaderModule, wgpu_hal as ha
 ///
 /// Corresponds to [WebGPU `GPUComputePipeline`](https://gpuweb.github.io/gpuweb/#compute-pipeline).
 #[derive(Debug)]
-pub struct ComputePipeline {
-    inner: <hal::GL as hal::Api>::ComputePipeline,
-}
+pub struct ComputePipeline;
 
 impl Drop for ComputePipeline {
     fn drop(&mut self) {
-        unimplemented!("ComputePipeline::drop is not implemented")
+        unimplemented!("wgpu_core::ComputePipeline::drop is not implemented")
     }
 }
 
 impl ComputePipeline {
     /// Get an object representing the bind group layout at a given index.
-    pub fn get_bind_group_layout(&self, index: u32) -> BindGroupLayout {
-        unimplemented!("ComputePipeline::get_bind_group_layout")
+    pub fn get_bind_group_layout(&self, _index: u32) -> BindGroupLayout {
+        unimplemented!("wgpu_core::ComputePipeline::get_bind_group_layout")
     }
 }
 

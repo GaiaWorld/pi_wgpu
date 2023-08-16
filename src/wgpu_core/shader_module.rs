@@ -1,6 +1,6 @@
 use std::{borrow::Cow, marker::PhantomData};
 
-use crate::{wgpu_hal as hal, Label};
+use crate::{wgpu_hal::{self as hal, Device}, Label};
 
 /// Handle to a compiled shader module.
 ///
@@ -12,12 +12,18 @@ use crate::{wgpu_hal as hal, Label};
 /// Corresponds to [WebGPU `GPUShaderModule`](https://gpuweb.github.io/gpuweb/#shader-module).
 #[derive(Debug)]
 pub struct ShaderModule {
-    inner: <hal::GL as hal::Api>::ShaderModule,
+    pub(crate) inner: Option<<hal::GL as hal::Api>::ShaderModule>,
+
+    pub(crate) device: crate::Device,
 }
 
 impl Drop for ShaderModule {
     fn drop(&mut self) {
-        unimplemented!("ShaderModule::drop is not implemented")
+        profiling::scope!("wgpu_core::ShaderModule::drop");
+
+        if let Some(shader) = self.inner.take() {
+            unsafe { self.device.inner.destroy_shader_module(shader) }
+        }
     }
 }
 
