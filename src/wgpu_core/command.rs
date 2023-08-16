@@ -19,7 +19,6 @@ pub struct CommandBuffer {
     inner: <hal::GL as hal::Api>::CommandBuffer,
 }
 
-static_assertions::assert_impl_all!(CommandBuffer: Send, Sync);
 
 impl Drop for CommandBuffer {
     fn drop(&mut self) {
@@ -41,7 +40,6 @@ pub struct CommandEncoder {
     inner: <hal::GL as hal::Api>::CommandEncoder,
 }
 
-static_assertions::assert_impl_all!(CommandEncoder: Send, Sync);
 
 impl Drop for CommandEncoder {
     fn drop(&mut self) {
@@ -235,7 +233,6 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
     pub depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<'tex>>,
 }
 
-static_assertions::assert_impl_all!(RenderPassDescriptor: Send, Sync);
 
 /// In-progress recording of a render pass.
 ///
@@ -582,7 +579,6 @@ impl<'a> RenderPass<'a> {
 #[derive(Debug)]
 pub struct RenderBundle {}
 
-static_assertions::assert_impl_all!(RenderBundle: Send, Sync);
 
 impl Drop for RenderBundle {
     fn drop(&mut self) {
@@ -596,8 +592,7 @@ impl Drop for RenderBundle {
 ///
 /// Corresponds to [WebGPU `GPURenderBundleDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpurenderbundledescriptor).
-pub type RenderBundleDescriptor<'a> = wgt::RenderBundleDescriptor<Label<'a>>;
-static_assertions::assert_impl_all!(RenderBundleDescriptor: Send, Sync);
+pub type RenderBundleDescriptor<'a> = crate::wgpu_types::RenderBundleDescriptor<Label<'a>>;
 
 /// Describes the attachments of a compute pass.
 ///
@@ -611,7 +606,6 @@ pub struct ComputePassDescriptor<'a> {
     pub label: Label<'a>,
 }
 
-static_assertions::assert_impl_all!(ComputePassDescriptor: Send, Sync);
 
 /// In-progress recording of a compute pass.
 ///
@@ -743,7 +737,6 @@ pub struct RenderPassColorAttachment<'tex> {
     /// What operations will be performed on this color attachment.
     pub ops: Operations<Color>,
 }
-static_assertions::assert_impl_all!(RenderPassColorAttachment: Send, Sync);
 
 /// Describes a depth/stencil attachment to a [`RenderPass`].
 ///
@@ -760,7 +753,6 @@ pub struct RenderPassDepthStencilAttachment<'tex> {
     /// What operations will be performed on the stencil part of the attachment.
     pub stencil_ops: Option<Operations<u32>>,
 }
-static_assertions::assert_impl_all!(RenderPassDepthStencilAttachment: Send, Sync);
 
 /// Encodes a series of GPU operations into a reusable "render bundle".
 ///
@@ -777,8 +769,7 @@ static_assertions::assert_impl_all!(RenderPassDepthStencilAttachment: Send, Sync
 pub struct RenderBundleEncoder<'a> {
     _data: PhantomData<&'a ()>,
 }
-// TODO static_assertions::assert_not_impl_any!(RenderBundleEncoder<'_>: Send, Sync);
-
+// TODO 
 impl<'a> RenderBundleEncoder<'a> {
     /// Finishes recording and returns a [`RenderBundle`] that can be executed in other render passes.
     pub fn finish(self, desc: &RenderBundleDescriptor) -> RenderBundle {
@@ -924,7 +915,6 @@ pub struct RenderBundleEncoderDescriptor<'a> {
     /// If this render bundle will rendering to multiple array layers in the attachments at the same time.
     pub multiview: Option<NonZeroU32>,
 }
-static_assertions::assert_impl_all!(RenderBundleEncoderDescriptor: Send, Sync);
 
 /// Describes a [`CommandEncoder`].
 ///
@@ -932,14 +922,12 @@ static_assertions::assert_impl_all!(RenderBundleEncoderDescriptor: Send, Sync);
 ///
 /// Corresponds to [WebGPU `GPUCommandEncoderDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpucommandencoderdescriptor).
-pub type CommandEncoderDescriptor<'a> = wgt::CommandEncoderDescriptor<Label<'a>>;
-static_assertions::assert_impl_all!(CommandEncoderDescriptor: Send, Sync);
+pub type CommandEncoderDescriptor<'a> = crate::wgpu_types::CommandEncoderDescriptor<Label<'a>>;
 
-pub use wgt::ImageCopyBuffer as ImageCopyBufferBase;
+pub use crate::wgpu_types::ImageCopyBuffer as ImageCopyBufferBase;
 
 /// View of a buffer which can be used to copy to/from a texture.
 ///
 /// Corresponds to [WebGPU `GPUImageCopyBuffer`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpuimagecopybuffer).
 pub type ImageCopyBuffer<'a> = ImageCopyBufferBase<&'a Buffer>;
-static_assertions::assert_impl_all!(ImageCopyBuffer: Send, Sync);

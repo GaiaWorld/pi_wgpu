@@ -51,7 +51,7 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
     unsafe fn copy_external_image_to_texture<T>(
         &mut self,
-        src: &wgt::ImageCopyExternalImage,
+        src: &crate::wgpu_types::ImageCopyExternalImage,
         dst: &super::Texture,
         dst_premultiplication: bool,
         regions: T,
@@ -99,8 +99,8 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
         set: &super::QuerySet,
         range: Range<u32>,
         buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
-        stride: wgt::BufferSize,
+        offset: crate::wgpu_types::BufferAddress,
+        stride: crate::wgpu_types::BufferSize,
     ) {
     }
 
@@ -115,14 +115,14 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
         layout: &super::PipelineLayout,
         index: u32,
         group: &super::BindGroup,
-        dynamic_offsets: &[wgt::DynamicOffset],
+        dynamic_offsets: &[crate::wgpu_types::DynamicOffset],
     ) {
     }
 
     unsafe fn set_push_constants(
         &mut self,
         layout: &super::PipelineLayout,
-        stages: wgt::ShaderStages,
+        stages: crate::wgpu_types::ShaderStages,
         offset: u32,
         data: &[u32],
     ) {
@@ -139,7 +139,7 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     unsafe fn set_index_buffer<'a>(
         &mut self,
         binding: BufferBinding<'a, super::Api>,
-        format: wgt::IndexFormat,
+        format: crate::wgpu_types::IndexFormat,
     ) {
     }
 
@@ -176,7 +176,7 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     unsafe fn draw_indirect(
         &mut self,
         buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     ) {
     }
@@ -184,7 +184,7 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     unsafe fn draw_indexed_indirect(
         &mut self,
         buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     ) {
     }
@@ -192,9 +192,9 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     unsafe fn draw_indirect_count(
         &mut self,
         buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &super::Buffer,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     ) {
     }
@@ -202,9 +202,9 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
     unsafe fn draw_indexed_indirect_count(
         &mut self,
         buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &super::Buffer,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     ) {
     }
@@ -219,5 +219,5 @@ impl api::CommandEncoder<super::Api> for CommandEncoder {
 
     unsafe fn dispatch(&mut self, count: [u32; 3]) {}
 
-    unsafe fn dispatch_indirect(&mut self, buffer: &super::Buffer, offset: wgt::BufferAddress) {}
+    unsafe fn dispatch_indirect(&mut self, buffer: &super::Buffer, offset: crate::wgpu_types::BufferAddress) {}
 }

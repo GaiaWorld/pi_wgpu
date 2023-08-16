@@ -1,9 +1,21 @@
+use std::future::Future;
+
+use thiserror::Error;
+
 use super::api::HalApi;
 use crate::{
-    wgpu_hal as hal, AdapterInfo, Device, DownlevelCapabilities, Features, Limits,
-    PresentationTimestamp, Queue, Surface, TextureFormat, TextureFormatFeatures,
+    wgpu_hal as hal, wgpu_types::RequestAdapterOptions as RequestAdapterOptionsBase, AdapterInfo,
+    Backend, Device, DownlevelCapabilities, Features, Limits, PresentationTimestamp, Queue,
+    Surface, TextureFormat, TextureFormatFeatures,
 };
-use std::future::Future;
+
+/// Additional information required when requesting an adapter.
+///
+/// For use with [`Instance::request_adapter`].
+///
+/// Corresponds to [WebGPU `GPURequestAdapterOptions`](
+/// https://gpuweb.github.io/gpuweb/#dictdef-gpurequestadapteroptions).
+pub type RequestAdapterOptions<'a> = RequestAdapterOptionsBase<&'a Surface>;
 
 /// Handle to a physical graphics and/or compute device.
 ///
@@ -15,10 +27,8 @@ use std::future::Future;
 /// Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 #[derive(Debug)]
 pub struct Adapter {
-    inner: <hal::GL as hal::Api>::Adapter,
+    pub(crate) inner: hal::ExposedAdapter<hal::GL>,
 }
-
-static_assertions::assert_impl_all!(Adapter: Send, Sync);
 
 impl Drop for Adapter {
     fn drop(&mut self) {
@@ -162,13 +172,33 @@ impl Adapter {
     }
 }
 
-pub use wgt::RequestAdapterOptions as RequestAdapterOptionsBase;
+#[derive(Debug, Error)]
+#[error("adapter is invalid")]
+pub struct InvalidAdapter;
 
-/// Additional information required when requesting an adapter.
-///
-/// For use with [`Instance::request_adapter`].
-///
-/// Corresponds to [WebGPU `GPURequestAdapterOptions`](
-/// https://gpuweb.github.io/gpuweb/#dictdef-gpurequestadapteroptions).
-pub type RequestAdapterOptions<'a> = RequestAdapterOptionsBase<&'a Surface>;
-static_assertions::assert_impl_all!(RequestAdapterOptions: Send, Sync);
+#[derive(Debug, Error)]
+pub enum RequestAdapterError {
+    #[error("no suitable adapter found")]
+    NotFound,
+    #[error("surface {0:?} is invalid")]
+    InvalidSurface(Surface),
+}
+
+impl Adapter {
+    pub(crate) fn new_gl(mut raw: hal::ExposedAdapter<hal::GL>) -> Self {
+        // WebGPU requires this offset alignment as lower bound on all adapters.
+        const MIN_BUFFER_OFFSET_ALIGNMENT_LOWER_BOUND: u32 = 32;
+
+        let limits = &mut raw.capabilities.limits;
+
+        limits.min_uniform_buffer_offset_alignment = limits
+            .min_uniform_buffer_offset_alignment
+            .max(MIN_BUFFER_OFFSET_ALIGNMENT_LOWER_BOUND);
+
+        limits.min_storage_buffer_offset_alignment = limits
+            .min_storage_buffer_offset_alignment
+            .max(MIN_BUFFER_OFFSET_ALIGNMENT_LOWER_BOUND);
+
+        Self { inner: raw }
+    }
+}

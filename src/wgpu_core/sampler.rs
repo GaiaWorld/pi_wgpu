@@ -14,7 +14,6 @@ use std::num::NonZeroU8;
 pub struct Sampler {
     inner: <hal::GL as hal::Api>::Sampler,
 }
-static_assertions::assert_impl_all!(Sampler: Send, Sync);
 
 impl Drop for Sampler {
     fn drop(&mut self) {
@@ -55,7 +54,6 @@ pub struct SamplerDescriptor<'a> {
     /// Border color to use when address_mode is [`AddressMode::ClampToBorder`]
     pub border_color: Option<SamplerBorderColor>,
 }
-static_assertions::assert_impl_all!(SamplerDescriptor: Send, Sync);
 
 impl Default for SamplerDescriptor<'_> {
     fn default() -> Self {

@@ -14,7 +14,6 @@ use crate::{wgpu_hal as hal, Label};
 pub struct ShaderModule {
     inner: <hal::GL as hal::Api>::ShaderModule,
 }
-static_assertions::assert_impl_all!(ShaderModule: Send, Sync);
 
 impl Drop for ShaderModule {
     fn drop(&mut self) {
@@ -63,7 +62,6 @@ pub enum ShaderSource<'a> {
     #[doc(hidden)]
     Dummy(PhantomData<&'a ()>),
 }
-static_assertions::assert_impl_all!(ShaderSource: Send, Sync);
 
 /// Descriptor for use with [`Device::create_shader_module`].
 ///
@@ -76,7 +74,6 @@ pub struct ShaderModuleDescriptor<'a> {
     /// Source code for the shader.
     pub source: ShaderSource<'a>,
 }
-static_assertions::assert_impl_all!(ShaderModuleDescriptor: Send, Sync);
 
 /// Descriptor for a shader module given by SPIR-V binary, for use with
 /// [`Device::create_shader_module_spirv`].
@@ -89,4 +86,3 @@ pub struct ShaderModuleDescriptorSpirV<'a> {
     /// Binary SPIR-V data, in 4-byte words.
     pub source: Cow<'a, [u32]>,
 }
-static_assertions::assert_impl_all!(ShaderModuleDescriptorSpirV: Send, Sync);

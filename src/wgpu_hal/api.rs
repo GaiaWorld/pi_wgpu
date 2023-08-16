@@ -77,14 +77,14 @@ pub trait Surface<A: Api>: Send + Sync {
 pub trait Adapter<A: Api>: Send + Sync {
     unsafe fn open(
         &self,
-        features: wgt::Features,
-        limits: &wgt::Limits,
+        features: crate::wgpu_types::Features,
+        limits: &crate::wgpu_types::Limits,
     ) -> Result<OpenDevice<A>, DeviceError>;
 
     /// Return the set of supported capabilities for a texture format.
     unsafe fn texture_format_capabilities(
         &self,
-        format: wgt::TextureFormat,
+        format: crate::wgpu_types::TextureFormat,
     ) -> TextureFormatCapabilities;
 
     /// Returns the capabilities of working with a specified surface.
@@ -94,8 +94,8 @@ pub trait Adapter<A: Api>: Send + Sync {
 
     /// Creates a [`PresentationTimestamp`] using the adapter's WSI.
     ///
-    /// [`PresentationTimestamp`]: wgt::PresentationTimestamp
-    unsafe fn get_presentation_timestamp(&self) -> wgt::PresentationTimestamp;
+    /// [`PresentationTimestamp`]: crate::wgpu_types::PresentationTimestamp
+    unsafe fn get_presentation_timestamp(&self) -> crate::wgpu_types::PresentationTimestamp;
 }
 
 pub trait Device<A: Api>: Send + Sync {
@@ -198,7 +198,7 @@ pub trait Device<A: Api>: Send + Sync {
 
     unsafe fn create_query_set(
         &self,
-        desc: &wgt::QuerySetDescriptor<Label>,
+        desc: &crate::wgpu_types::QuerySetDescriptor<Label>,
     ) -> Result<A::QuerySet, DeviceError>;
 
     unsafe fn destroy_query_set(&self, set: A::QuerySet);
@@ -287,7 +287,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
     #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
     unsafe fn copy_external_image_to_texture<T>(
         &mut self,
-        src: &wgt::ImageCopyExternalImage,
+        src: &crate::wgpu_types::ImageCopyExternalImage,
         dst: &A::Texture,
         dst_premultiplication: bool,
         regions: T,
@@ -336,13 +336,13 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         layout: &A::PipelineLayout,
         index: u32,
         group: &A::BindGroup,
-        dynamic_offsets: &[wgt::DynamicOffset],
+        dynamic_offsets: &[crate::wgpu_types::DynamicOffset],
     );
 
     unsafe fn set_push_constants(
         &mut self,
         layout: &A::PipelineLayout,
-        stages: wgt::ShaderStages,
+        stages: crate::wgpu_types::ShaderStages,
         offset: u32,
         data: &[u32],
     );
@@ -368,8 +368,8 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
         set: &A::QuerySet,
         range: Range<u32>,
         buffer: &A::Buffer,
-        offset: wgt::BufferAddress,
-        stride: wgt::BufferSize,
+        offset: crate::wgpu_types::BufferAddress,
+        stride: crate::wgpu_types::BufferSize,
     );
 
     // render passes
@@ -384,7 +384,7 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
     unsafe fn set_index_buffer<'a>(
         &mut self,
         binding: BufferBinding<'a, A>,
-        format: wgt::IndexFormat,
+        format: crate::wgpu_types::IndexFormat,
     );
 
     unsafe fn set_vertex_buffer<'a>(&mut self, index: u32, binding: BufferBinding<'a, A>);
@@ -417,32 +417,32 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
     unsafe fn draw_indirect(
         &mut self,
         buffer: &A::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     );
 
     unsafe fn draw_indexed_indirect(
         &mut self,
         buffer: &A::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     );
 
     unsafe fn draw_indirect_count(
         &mut self,
         buffer: &A::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &A::Buffer,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     );
 
     unsafe fn draw_indexed_indirect_count(
         &mut self,
         buffer: &A::Buffer,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &A::Buffer,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     );
 
@@ -457,5 +457,5 @@ pub trait CommandEncoder<A: Api>: Send + Sync + fmt::Debug {
 
     unsafe fn dispatch(&mut self, count: [u32; 3]);
 
-    unsafe fn dispatch_indirect(&mut self, buffer: &A::Buffer, offset: wgt::BufferAddress);
+    unsafe fn dispatch_indirect(&mut self, buffer: &A::Buffer, offset: crate::wgpu_types::BufferAddress);
 }

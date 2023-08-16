@@ -125,7 +125,7 @@ impl api::Device<super::Api> for Device {
 
     unsafe fn create_query_set(
         &self,
-        desc: &wgt::QuerySetDescriptor<Label>,
+        desc: &crate::wgpu_types::QuerySetDescriptor<Label>,
     ) -> super::DeviceResult<super::QuerySet> {
         Ok(super::QuerySet)
     }

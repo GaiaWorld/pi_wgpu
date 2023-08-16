@@ -10,14 +10,14 @@ unsafe impl Sync for Adapter {}
 impl api::Adapter<super::Api> for Adapter {
     unsafe fn open(
         &self,
-        features: wgt::Features,
-        _limits: &wgt::Limits,
+        features: crate::wgpu_types::Features,
+        _limits: &crate::wgpu_types::Limits,
     ) -> super::DeviceResult<OpenDevice<super::Api>> {
         Err(DeviceError::Lost)
     }
     unsafe fn texture_format_capabilities(
         &self,
-        format: wgt::TextureFormat,
+        format: crate::wgpu_types::TextureFormat,
     ) -> TextureFormatCapabilities {
         TextureFormatCapabilities::empty()
     }
@@ -26,7 +26,7 @@ impl api::Adapter<super::Api> for Adapter {
         None
     }
 
-    unsafe fn get_presentation_timestamp(&self) -> wgt::PresentationTimestamp {
-        wgt::PresentationTimestamp::INVALID_TIMESTAMP
+    unsafe fn get_presentation_timestamp(&self) -> crate::wgpu_types::PresentationTimestamp {
+        crate::wgpu_types::PresentationTimestamp::INVALID_TIMESTAMP
     }
 }

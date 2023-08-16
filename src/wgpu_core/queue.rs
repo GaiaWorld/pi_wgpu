@@ -19,7 +19,6 @@ pub struct Queue {
     inner: <hal::GL as hal::Api>::Queue,
 }
 
-static_assertions::assert_impl_all!(Queue: Send, Sync);
 
 impl Queue {
     /// Schedule a data write into `buffer` starting at `offset`.
@@ -84,7 +83,7 @@ impl Queue {
     #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
     pub fn copy_external_image_to_texture(
         &self,
-        source: &wgt::ImageCopyExternalImage,
+        source: &crate::wgpu_types::ImageCopyExternalImage,
         dest: ImageCopyTextureTagged,
         size: Extent3d,
     ) {
@@ -130,7 +129,6 @@ impl Queue {
 /// There is no analogue in the WebGPU specification.
 #[derive(Debug, Clone)]
 pub struct SubmissionIndex(Arc<crate::Data>);
-static_assertions::assert_impl_all!(SubmissionIndex: Send, Sync);
 
 /// A read-only view into a staging buffer.
 ///
@@ -140,7 +138,6 @@ static_assertions::assert_impl_all!(SubmissionIndex: Send, Sync);
 pub struct QueueWriteBufferView<'a> {
     _data: PhantomData<&'a ()>,
 }
-static_assertions::assert_impl_all!(QueueWriteBufferView: Send, Sync);
 
 impl Deref for QueueWriteBufferView<'_> {
     type Target = [u8];

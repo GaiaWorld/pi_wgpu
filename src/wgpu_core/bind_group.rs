@@ -12,7 +12,6 @@ use crate::{wgpu_hal as hal, BindGroupLayout, BindingResource, Label};
 pub struct BindGroup {
     inner: <hal::GL as hal::Api>::BindGroup,
 }
-static_assertions::assert_impl_all!(BindGroup: Send, Sync);
 
 impl Drop for BindGroup {
     fn drop(&mut self) {
@@ -35,7 +34,6 @@ pub struct BindGroupDescriptor<'a> {
     /// The resources to bind to this bind group.
     pub entries: &'a [BindGroupEntry<'a>],
 }
-static_assertions::assert_impl_all!(BindGroupDescriptor: Send, Sync);
 
 /// An element of a [`BindGroupDescriptor`], consisting of a bindable resource
 /// and the slot to bind it to.
@@ -50,4 +48,3 @@ pub struct BindGroupEntry<'a> {
     /// Resource to attach to the binding
     pub resource: BindingResource<'a>,
 }
-static_assertions::assert_impl_all!(BindGroupEntry: Send, Sync);

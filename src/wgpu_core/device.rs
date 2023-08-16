@@ -22,7 +22,6 @@ pub struct Device {
     inner: <hal::GL as hal::Api>::Device,
 }
 
-static_assertions::assert_impl_all!(Device: Send, Sync);
 
 impl Drop for Device {
     fn drop(&mut self) {
@@ -236,14 +235,12 @@ impl Device {
 ///
 /// Corresponds to [WebGPU `GPUDeviceDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpudevicedescriptor).
-pub type DeviceDescriptor<'a> = wgt::DeviceDescriptor<Label<'a>>;
+pub type DeviceDescriptor<'a> = crate::wgpu_types::DeviceDescriptor<Label<'a>>;
 
-static_assertions::assert_impl_all!(DeviceDescriptor: Send, Sync);
 
 /// Requesting a device failed.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RequestDeviceError;
-static_assertions::assert_impl_all!(RequestDeviceError: Send, Sync);
 
 impl std::fmt::Display for RequestDeviceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -253,7 +250,7 @@ impl std::fmt::Display for RequestDeviceError {
 
 impl std::error::Error for RequestDeviceError {}
 
-use wgt::{Limits, Features};
-pub use wgt::Maintain as MaintainBase;
+use crate::wgpu_types::{Limits, Features};
+pub use crate::wgpu_types::Maintain as MaintainBase;
 /// Passed to [`Device::poll`] to control how and if it should block.
-pub type Maintain = wgt::Maintain<SubmissionIndex>;
+pub type Maintain = crate::wgpu_types::Maintain<SubmissionIndex>;

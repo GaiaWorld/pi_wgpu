@@ -17,10 +17,10 @@ pub const MAX_VERTEX_BUFFERS: usize = 16;
 pub const MAX_COLOR_ATTACHMENTS: usize = 8;
 pub const MAX_MIP_LEVELS: u32 = 16;
 /// Size of a single occlusion/timestamp query, when copied into a buffer, in bytes.
-pub const QUERY_SIZE: wgt::BufferAddress = 8;
+pub const QUERY_SIZE: crate::wgpu_types::BufferAddress = 8;
 
 pub type Label<'a> = Option<&'a str>;
-pub type MemoryRange = Range<wgt::BufferAddress>;
+pub type MemoryRange = Range<crate::wgpu_types::BufferAddress>;
 pub type FenceValue = u64;
 
 /// Drop guard to signal wgpu-hal is no longer using an externally created object.
@@ -45,7 +45,7 @@ pub enum ShaderError {
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum PipelineError {
     #[error("linkage failed for stage {0:?}: {1}")]
-    Linkage(wgt::ShaderStages, String),
+    Linkage(crate::wgpu_types::ShaderStages, String),
     #[error("entry point for stage {0:?} is invalid")]
     EntryPoint(naga::ShaderStage),
     #[error(transparent)]
@@ -70,7 +70,6 @@ pub struct InstanceError;
 
 bitflags!(
     /// Instance initialization flags.
-    #[derive(Clone, Copy, Debug)]
     pub struct InstanceFlags: u32 {
         /// Generate debug information in shaders and objects.
         const DEBUG = 1 << 0;
@@ -81,7 +80,6 @@ bitflags!(
 
 bitflags!(
     /// Pipeline layout creation flags.
-    #[derive(Clone, Copy, Debug)]
     pub struct PipelineLayoutFlags: u32 {
         /// Include support for base vertex/instance drawing.
         const BASE_VERTEX_INSTANCE = 1 << 0;
@@ -92,7 +90,6 @@ bitflags!(
 
 bitflags!(
     /// Pipeline layout creation flags.
-    #[derive(Clone, Copy, Debug)]
     pub struct BindGroupLayoutFlags: u32 {
         /// Allows for bind group binding arrays to be shorter than the array in the BGL.
         const PARTIALLY_BOUND = 1 << 0;
@@ -101,7 +98,6 @@ bitflags!(
 
 bitflags!(
     /// Texture format capability flags.
-    #[derive(Clone, Copy, Debug)]
     pub struct TextureFormatCapabilities: u32 {
         /// Format can be sampled.
         const SAMPLED = 1 << 0;
@@ -143,7 +139,6 @@ bitflags!(
 
 bitflags!(
     /// Texture format capability flags.
-    #[derive(Clone, Copy, Debug)]
     pub struct FormatAspects: u8 {
         const COLOR = 1 << 0;
         const DEPTH = 1 << 1;
@@ -151,23 +146,23 @@ bitflags!(
     }
 );
 
-impl From<wgt::TextureAspect> for FormatAspects {
-    fn from(aspect: wgt::TextureAspect) -> Self {
+impl From<crate::wgpu_types::TextureAspect> for FormatAspects {
+    fn from(aspect: crate::wgpu_types::TextureAspect) -> Self {
         match aspect {
-            wgt::TextureAspect::All => Self::all(),
-            wgt::TextureAspect::DepthOnly => Self::DEPTH,
-            wgt::TextureAspect::StencilOnly => Self::STENCIL,
+            crate::wgpu_types::TextureAspect::All => Self::all(),
+            crate::wgpu_types::TextureAspect::DepthOnly => Self::DEPTH,
+            crate::wgpu_types::TextureAspect::StencilOnly => Self::STENCIL,
         }
     }
 }
 
-impl From<wgt::TextureFormat> for FormatAspects {
-    fn from(format: wgt::TextureFormat) -> Self {
+impl From<crate::wgpu_types::TextureFormat> for FormatAspects {
+    fn from(format: crate::wgpu_types::TextureFormat) -> Self {
         match format {
-            wgt::TextureFormat::Stencil8 => Self::STENCIL,
-            wgt::TextureFormat::Depth16Unorm => Self::DEPTH,
-            wgt::TextureFormat::Depth32Float | wgt::TextureFormat::Depth24Plus => Self::DEPTH,
-            wgt::TextureFormat::Depth32FloatStencil8 | wgt::TextureFormat::Depth24PlusStencil8 => {
+            crate::wgpu_types::TextureFormat::Stencil8 => Self::STENCIL,
+            crate::wgpu_types::TextureFormat::Depth16Unorm => Self::DEPTH,
+            crate::wgpu_types::TextureFormat::Depth32Float | crate::wgpu_types::TextureFormat::Depth24Plus => Self::DEPTH,
+            crate::wgpu_types::TextureFormat::Depth32FloatStencil8 | crate::wgpu_types::TextureFormat::Depth24PlusStencil8 => {
                 Self::DEPTH | Self::STENCIL
             }
             _ => Self::COLOR,
@@ -176,7 +171,6 @@ impl From<wgt::TextureFormat> for FormatAspects {
 }
 
 bitflags!(
-    #[derive(Clone, Copy, Debug)]
     pub struct MemoryFlags: u32 {
         const TRANSIENT = 1 << 0;
         const PREFER_COHERENT = 1 << 1;
@@ -186,7 +180,6 @@ bitflags!(
 //TODO: it's not intuitive for the backends to consider `LOAD` being optional.
 
 bitflags!(
-    #[derive(Clone, Copy, Debug)]
     pub struct AttachmentOps: u8 {
         const LOAD = 1 << 0;
         const STORE = 1 << 1;
@@ -194,8 +187,7 @@ bitflags!(
 );
 
 bitflags::bitflags! {
-    /// Similar to `wgt::BufferUsages` but for internal use.
-    #[derive(Clone, Copy, Debug)]
+    /// Similar to `crate::wgpu_types::BufferUsages` but for internal use.
     pub struct BufferUses: u16 {
         /// The argument to a read-only mapping.
         const MAP_READ = 1 << 0;
@@ -231,8 +223,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
-    /// Similar to `wgt::TextureUsages` but for internal use.
-    #[derive(Clone, Copy, Debug)]
+    /// Similar to `crate::wgpu_types::TextureUsages` but for internal use.
     pub struct TextureUses: u16 {
         /// The texture is in unknown state.
         const UNINITIALIZED = 1 << 0;
@@ -275,30 +266,30 @@ bitflags::bitflags! {
 pub struct InstanceDescriptor<'a> {
     pub name: &'a str,
     pub flags: InstanceFlags,
-    pub dx12_shader_compiler: wgt::Dx12Compiler,
+    pub dx12_shader_compiler: crate::wgpu_types::Dx12Compiler,
 }
 
 #[derive(Clone, Debug)]
 pub struct Alignments {
     /// The alignment of the start of the buffer used as a GPU copy source.
-    pub buffer_copy_offset: wgt::BufferSize,
+    pub buffer_copy_offset: crate::wgpu_types::BufferSize,
     /// The alignment of the row pitch of the texture data stored in a buffer that is
     /// used in a GPU copy operation.
-    pub buffer_copy_pitch: wgt::BufferSize,
+    pub buffer_copy_pitch: crate::wgpu_types::BufferSize,
 }
 
 #[derive(Clone, Debug)]
 pub struct Capabilities {
-    pub limits: wgt::Limits,
+    pub limits: crate::wgpu_types::Limits,
     pub alignments: Alignments,
-    pub downlevel: wgt::DownlevelCapabilities,
+    pub downlevel: crate::wgpu_types::DownlevelCapabilities,
 }
 
 #[derive(Debug)]
 pub struct ExposedAdapter<A: Api> {
     pub adapter: A::Adapter,
-    pub info: wgt::AdapterInfo,
-    pub features: wgt::Features,
+    pub info: crate::wgpu_types::AdapterInfo,
+    pub features: crate::wgpu_types::Features,
     pub capabilities: Capabilities,
 }
 
@@ -309,12 +300,12 @@ pub struct SurfaceCapabilities {
     /// List of supported texture formats.
     ///
     /// Must be at least one.
-    pub formats: Vec<wgt::TextureFormat>,
+    pub formats: Vec<crate::wgpu_types::TextureFormat>,
 
     /// List of supported V-sync modes.
     ///
     /// Must be at least one.
-    pub present_modes: Vec<wgt::PresentMode>,
+    pub present_modes: Vec<crate::wgpu_types::PresentMode>,
 
     /// Range for the swap chain sizes.
     ///
@@ -323,12 +314,12 @@ pub struct SurfaceCapabilities {
     pub swap_chain_sizes: RangeInclusive<u32>,
 
     /// Current extent of the surface, if known.
-    pub current_extent: Option<wgt::Extent3d>,
+    pub current_extent: Option<crate::wgpu_types::Extent3d>,
 
     /// Range of supported extents.
     ///
     /// `current_extent` must be inside this range.
-    pub extents: RangeInclusive<wgt::Extent3d>,
+    pub extents: RangeInclusive<crate::wgpu_types::Extent3d>,
 
     /// Supported texture usage flags.
     ///
@@ -338,7 +329,7 @@ pub struct SurfaceCapabilities {
     /// List of supported alpha composition modes.
     ///
     /// Must be at least one.
-    pub composite_alpha_modes: Vec<wgt::CompositeAlphaMode>,
+    pub composite_alpha_modes: Vec<crate::wgpu_types::CompositeAlphaMode>,
 }
 
 #[derive(Debug)]
@@ -365,7 +356,7 @@ pub struct BufferMapping {
 #[derive(Clone, Debug)]
 pub struct BufferDescriptor<'a> {
     pub label: Label<'a>,
-    pub size: wgt::BufferAddress,
+    pub size: crate::wgpu_types::BufferAddress,
     pub usage: BufferUses,
     pub memory_flags: MemoryFlags,
 }
@@ -373,16 +364,16 @@ pub struct BufferDescriptor<'a> {
 #[derive(Clone, Debug)]
 pub struct TextureDescriptor<'a> {
     pub label: Label<'a>,
-    pub size: wgt::Extent3d,
+    pub size: crate::wgpu_types::Extent3d,
     pub mip_level_count: u32,
     pub sample_count: u32,
-    pub dimension: wgt::TextureDimension,
-    pub format: wgt::TextureFormat,
+    pub dimension: crate::wgpu_types::TextureDimension,
+    pub format: crate::wgpu_types::TextureFormat,
     pub usage: TextureUses,
     pub memory_flags: MemoryFlags,
     /// Allows views of this texture to have a different format
     /// than the texture does.
-    pub view_formats: Vec<wgt::TextureFormat>,
+    pub view_formats: Vec<crate::wgpu_types::TextureFormat>,
 }
 
 /// TextureView descriptor.
@@ -395,34 +386,34 @@ pub struct TextureDescriptor<'a> {
 #[derive(Clone, Debug)]
 pub struct TextureViewDescriptor<'a> {
     pub label: Label<'a>,
-    pub format: wgt::TextureFormat,
-    pub dimension: wgt::TextureViewDimension,
+    pub format: crate::wgpu_types::TextureFormat,
+    pub dimension: crate::wgpu_types::TextureViewDimension,
     pub usage: TextureUses,
-    pub range: wgt::ImageSubresourceRange,
+    pub range: crate::wgpu_types::ImageSubresourceRange,
 }
 
 #[derive(Clone, Debug)]
 pub struct SamplerDescriptor<'a> {
     pub label: Label<'a>,
-    pub address_modes: [wgt::AddressMode; 3],
-    pub mag_filter: wgt::FilterMode,
-    pub min_filter: wgt::FilterMode,
-    pub mipmap_filter: wgt::FilterMode,
+    pub address_modes: [crate::wgpu_types::AddressMode; 3],
+    pub mag_filter: crate::wgpu_types::FilterMode,
+    pub min_filter: crate::wgpu_types::FilterMode,
+    pub mipmap_filter: crate::wgpu_types::FilterMode,
     pub lod_clamp: Option<Range<f32>>,
-    pub compare: Option<wgt::CompareFunction>,
+    pub compare: Option<crate::wgpu_types::CompareFunction>,
     pub anisotropy_clamp: Option<NonZeroU8>,
-    pub border_color: Option<wgt::SamplerBorderColor>,
+    pub border_color: Option<crate::wgpu_types::SamplerBorderColor>,
 }
 
 /// BindGroupLayout descriptor.
 ///
 /// Valid usage:
-/// - `entries` are sorted by ascending `wgt::BindGroupLayoutEntry::binding`
+/// - `entries` are sorted by ascending `crate::wgpu_types::BindGroupLayoutEntry::binding`
 #[derive(Clone, Debug)]
 pub struct BindGroupLayoutDescriptor<'a> {
     pub label: Label<'a>,
     pub flags: BindGroupLayoutFlags,
-    pub entries: &'a [wgt::BindGroupLayoutEntry],
+    pub entries: &'a [crate::wgpu_types::BindGroupLayoutEntry],
 }
 
 #[derive(Clone, Debug)]
@@ -430,7 +421,7 @@ pub struct PipelineLayoutDescriptor<'a, A: Api> {
     pub label: Label<'a>,
     pub flags: PipelineLayoutFlags,
     pub bind_group_layouts: &'a [&'a A::BindGroupLayout],
-    pub push_constant_ranges: &'a [wgt::PushConstantRange],
+    pub push_constant_ranges: &'a [crate::wgpu_types::PushConstantRange],
 }
 
 #[derive(Debug)]
@@ -449,14 +440,14 @@ pub struct BufferBinding<'a, A: Api> {
     /// [340]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-offset-00340
     /// [341]: https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkDescriptorBufferInfo-range-00341
     /// [bbr]: https://registry.khronos.org/OpenGL-Refpages/es3.0/html/glBindBufferRange.xhtml
-    pub offset: wgt::BufferAddress,
+    pub offset: crate::wgpu_types::BufferAddress,
 
     /// The size of the region bound, in bytes.
     ///
     /// If `None`, the region extends from `offset` to the end of the
     /// buffer. Given the restrictions on `offset`, this means that
     /// the size is always greater than zero.
-    pub size: Option<wgt::BufferSize>,
+    pub size: Option<crate::wgpu_types::BufferSize>,
 }
 
 // Rust gets confused about the impl requirements for `A`
@@ -581,11 +572,11 @@ pub struct ComputePipelineDescriptor<'a, A: Api> {
 #[derive(Clone, Debug)]
 pub struct VertexBufferLayout<'a> {
     /// The stride, in bytes, between elements of this buffer.
-    pub array_stride: wgt::BufferAddress,
+    pub array_stride: crate::wgpu_types::BufferAddress,
     /// How often this vertex buffer is "stepped" forward.
-    pub step_mode: wgt::VertexStepMode,
+    pub step_mode: crate::wgpu_types::VertexStepMode,
     /// The list of attributes which comprise a single vertex.
-    pub attributes: &'a [wgt::VertexAttribute],
+    pub attributes: &'a [crate::wgpu_types::VertexAttribute],
 }
 
 /// Describes a render (graphics) pipeline.
@@ -599,15 +590,15 @@ pub struct RenderPipelineDescriptor<'a, A: Api> {
     /// The vertex stage for this pipeline.
     pub vertex_stage: ProgrammableStage<'a, A>,
     /// The properties of the pipeline at the primitive assembly and rasterization level.
-    pub primitive: wgt::PrimitiveState,
+    pub primitive: crate::wgpu_types::PrimitiveState,
     /// The effect of draw calls on the depth and stencil aspects of the output target, if any.
-    pub depth_stencil: Option<wgt::DepthStencilState>,
+    pub depth_stencil: Option<crate::wgpu_types::DepthStencilState>,
     /// The multi-sampling properties of the pipeline.
-    pub multisample: wgt::MultisampleState,
+    pub multisample: crate::wgpu_types::MultisampleState,
     /// The fragment stage for this pipeline.
     pub fragment_stage: Option<ProgrammableStage<'a, A>>,
     /// The effect of draw calls on the color aspect of the output target.
-    pub color_targets: &'a [Option<wgt::ColorTargetState>],
+    pub color_targets: &'a [Option<crate::wgpu_types::ColorTargetState>],
     /// If the pipeline will be used with a multiview render pass, this indicates how many array
     /// layers the attachments will have.
     pub multiview: Option<NonZeroU32>,
@@ -619,19 +610,19 @@ pub struct SurfaceConfiguration {
     /// `SurfaceCapabilities::swap_chain_size` range.
     pub swap_chain_size: u32,
     /// Vertical synchronization mode.
-    pub present_mode: wgt::PresentMode,
+    pub present_mode: crate::wgpu_types::PresentMode,
     /// Alpha composition mode.
-    pub composite_alpha_mode: wgt::CompositeAlphaMode,
+    pub composite_alpha_mode: crate::wgpu_types::CompositeAlphaMode,
     /// Format of the surface textures.
-    pub format: wgt::TextureFormat,
+    pub format: crate::wgpu_types::TextureFormat,
     /// Requested texture extent. Must be in
     /// `SurfaceCapabilities::extents` range.
-    pub extent: wgt::Extent3d,
+    pub extent: crate::wgpu_types::Extent3d,
     /// Allowed usage of surface textures,
     pub usage: TextureUses,
     /// Allows views of swapchain texture to have a different format
     /// than the texture does.
-    pub view_formats: Vec<wgt::TextureFormat>,
+    pub view_formats: Vec<crate::wgpu_types::TextureFormat>,
 }
 
 #[derive(Debug, Clone)]
@@ -651,15 +642,15 @@ pub struct BufferBarrier<'a, A: Api> {
 #[derive(Debug, Clone)]
 pub struct TextureBarrier<'a, A: Api> {
     pub texture: &'a A::Texture,
-    pub range: wgt::ImageSubresourceRange,
+    pub range: crate::wgpu_types::ImageSubresourceRange,
     pub usage: Range<TextureUses>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct BufferCopy {
-    pub src_offset: wgt::BufferAddress,
-    pub dst_offset: wgt::BufferAddress,
-    pub size: wgt::BufferSize,
+    pub src_offset: crate::wgpu_types::BufferAddress,
+    pub dst_offset: crate::wgpu_types::BufferAddress,
+    pub size: crate::wgpu_types::BufferSize,
 }
 
 #[derive(Clone, Debug)]
@@ -668,7 +659,7 @@ pub struct TextureCopyBase {
     pub array_layer: u32,
     /// Origin within a texture.
     /// Note: for 1D and 2D textures, Z must be 0.
-    pub origin: wgt::Origin3d,
+    pub origin: crate::wgpu_types::Origin3d,
     pub aspect: FormatAspects,
 }
 
@@ -688,7 +679,7 @@ pub struct TextureCopy {
 
 #[derive(Clone, Debug)]
 pub struct BufferTextureCopy {
-    pub buffer_layout: wgt::ImageDataLayout,
+    pub buffer_layout: crate::wgpu_types::ImageDataLayout,
     pub texture_base: TextureCopyBase,
     pub size: CopyExtent,
 }
@@ -716,7 +707,7 @@ pub struct ColorAttachment<'a, A: Api> {
     pub target: Attachment<'a, A>,
     pub resolve_target: Option<Attachment<'a, A>>,
     pub ops: AttachmentOps,
-    pub clear_value: wgt::Color,
+    pub clear_value: crate::wgpu_types::Color,
 }
 
 // Rust gets confused about the impl requirements for `A`
@@ -742,7 +733,7 @@ pub struct DepthStencilAttachment<'a, A: Api> {
 #[derive(Clone, Debug)]
 pub struct RenderPassDescriptor<'a, A: Api> {
     pub label: Label<'a>,
-    pub extent: wgt::Extent3d,
+    pub extent: crate::wgpu_types::Extent3d,
     pub sample_count: u32,
     pub color_attachments: &'a [Option<ColorAttachment<'a, A>>],
     pub depth_stencil_attachment: Option<DepthStencilAttachment<'a, A>>,

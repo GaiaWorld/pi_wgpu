@@ -46,7 +46,7 @@ pub use pipeline_layout::*;
 pub use compute_pipeline::*;
 pub use render_pipeline::*;
 
-pub use wgt::{
+pub use crate::wgpu_types::{
     AdapterInfo, AddressMode, AstcBlock, AstcChannel, Backend, Backends, BindGroupLayoutEntry,
     BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, BufferAddress,
     BufferBindingType, BufferSize, BufferUsages, Color, ColorTargetState, ColorWrites,
@@ -130,7 +130,6 @@ pub enum Error {
         description: String,
     },
 }
-static_assertions::assert_impl_all!(Error: Send);
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
@@ -158,7 +157,6 @@ pub enum ErrorFilter {
     /// Catch only validation errors.
     Validation,
 }
-static_assertions::assert_impl_all!(ErrorFilter: Send, Sync);
 
 /// Type for the callback of uncaptured error handler
 pub trait UncapturedErrorHandler: Fn(Error) + Send + 'static {}

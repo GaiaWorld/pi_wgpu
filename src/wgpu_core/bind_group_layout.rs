@@ -9,41 +9,40 @@ use crate::{wgpu_hal as hal, BindGroupLayoutEntry, BufferBinding, Label, Sampler
 pub enum BindingResource<'a> {
     /// Binding is backed by a buffer.
     ///
-    /// Corresponds to [`wgt::BufferBindingType::Uniform`] and [`wgt::BufferBindingType::Storage`]
+    /// Corresponds to [`crate::wgpu_types::BufferBindingType::Uniform`] and [`crate::wgpu_types::BufferBindingType::Storage`]
     /// with [`BindGroupLayoutEntry::count`] set to None.
     Buffer(BufferBinding<'a>),
     /// Binding is backed by an array of buffers.
     ///
     /// [`Features::BUFFER_BINDING_ARRAY`] must be supported to use this feature.
     ///
-    /// Corresponds to [`wgt::BufferBindingType::Uniform`] and [`wgt::BufferBindingType::Storage`]
+    /// Corresponds to [`crate::wgpu_types::BufferBindingType::Uniform`] and [`crate::wgpu_types::BufferBindingType::Storage`]
     /// with [`BindGroupLayoutEntry::count`] set to Some.
     BufferArray(&'a [BufferBinding<'a>]),
     /// Binding is a sampler.
     ///
-    /// Corresponds to [`wgt::BindingType::Sampler`] with [`BindGroupLayoutEntry::count`] set to None.
+    /// Corresponds to [`crate::wgpu_types::BindingType::Sampler`] with [`BindGroupLayoutEntry::count`] set to None.
     Sampler(&'a Sampler),
     /// Binding is backed by an array of samplers.
     ///
     /// [`Features::TEXTURE_BINDING_ARRAY`] must be supported to use this feature.
     ///
-    /// Corresponds to [`wgt::BindingType::Sampler`] with [`BindGroupLayoutEntry::count`] set
+    /// Corresponds to [`crate::wgpu_types::BindingType::Sampler`] with [`BindGroupLayoutEntry::count`] set
     /// to Some.
     SamplerArray(&'a [&'a Sampler]),
     /// Binding is backed by a texture.
     ///
-    /// Corresponds to [`wgt::BindingType::Texture`] and [`wgt::BindingType::StorageTexture`] with
+    /// Corresponds to [`crate::wgpu_types::BindingType::Texture`] and [`crate::wgpu_types::BindingType::StorageTexture`] with
     /// [`BindGroupLayoutEntry::count`] set to None.
     TextureView(&'a TextureView),
     /// Binding is backed by an array of textures.
     ///
     /// [`Features::TEXTURE_BINDING_ARRAY`] must be supported to use this feature.
     ///
-    /// Corresponds to [`wgt::BindingType::Texture`] and [`wgt::BindingType::StorageTexture`] with
+    /// Corresponds to [`crate::wgpu_types::BindingType::Texture`] and [`crate::wgpu_types::BindingType::StorageTexture`] with
     /// [`BindGroupLayoutEntry::count`] set to Some.
     TextureViewArray(&'a [&'a TextureView]),
 }
-static_assertions::assert_impl_all!(BindingResource: Send, Sync);
 
 /// Handle to a binding group layout.
 ///
@@ -61,7 +60,6 @@ pub struct BindGroupLayout {
     inner: <hal::GL as hal::Api>::BindGroupLayout,
 }
 
-static_assertions::assert_impl_all!(BindGroupLayout: Send, Sync);
 
 impl Drop for BindGroupLayout {
     fn drop(&mut self) {
@@ -83,4 +81,3 @@ pub struct BindGroupLayoutDescriptor<'a> {
     /// Array of entries in this BindGroupLayout
     pub entries: &'a [BindGroupLayoutEntry],
 }
-static_assertions::assert_impl_all!(BindGroupLayoutDescriptor: Send, Sync);

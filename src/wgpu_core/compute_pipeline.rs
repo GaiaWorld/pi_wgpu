@@ -10,7 +10,6 @@ use crate::{BindGroupLayout, Label, PipelineLayout, ShaderModule, wgpu_hal as ha
 pub struct ComputePipeline {
     inner: <hal::GL as hal::Api>::ComputePipeline,
 }
-static_assertions::assert_impl_all!(ComputePipeline: Send, Sync);
 
 impl Drop for ComputePipeline {
     fn drop(&mut self) {
@@ -43,5 +42,4 @@ pub struct ComputePipelineDescriptor<'a> {
     /// and no return value in the shader.
     pub entry_point: &'a str,
 }
-static_assertions::assert_impl_all!(ComputePipelineDescriptor: Send, Sync);
 

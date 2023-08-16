@@ -1,4 +1,5 @@
 
+mod wgpu_types;
 mod wgpu_core;
 mod wgpu_hal;
 

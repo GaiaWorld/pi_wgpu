@@ -11,10 +11,9 @@ use crate::{wgpu_hal as hal, Adapter, Device, SurfaceCapabilities, Texture, Text
 /// serves a similar role.
 #[derive(Debug)]
 pub struct Surface {
-    inner: <hal::GL as hal::Api>::Surface,
+    pub(crate) inner: <hal::GL as hal::Api>::Surface,
 }
 
-static_assertions::assert_impl_all!(Surface: Send, Sync);
 
 impl Drop for Surface {
     fn drop(&mut self) {
@@ -96,7 +95,6 @@ pub struct SurfaceTexture {
     presented: bool,
 }
 
-static_assertions::assert_impl_all!(SurfaceTexture: Send, Sync);
 
 impl SurfaceTexture {
     /// Schedule this texture to be presented on the owning surface.
@@ -125,7 +123,6 @@ pub enum SurfaceError {
     /// There is no more memory left to allocate a new frame.
     OutOfMemory,
 }
-static_assertions::assert_impl_all!(SurfaceError: Send, Sync);
 
 impl std::fmt::Display for SurfaceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,7 +143,6 @@ impl std::error::Error for SurfaceError {}
 pub struct CreateSurfaceError {
     // TODO: Report diagnostic clues
 }
-static_assertions::assert_impl_all!(CreateSurfaceError: Send, Sync);
 
 impl std::fmt::Display for CreateSurfaceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -162,6 +158,5 @@ impl std::error::Error for CreateSurfaceError {}
 ///
 /// Corresponds to [WebGPU `GPUCanvasConfiguration`](
 /// https://gpuweb.github.io/gpuweb/#canvas-configuration).
-pub type SurfaceConfiguration = wgt::SurfaceConfiguration<Vec<TextureFormat>>;
+pub type SurfaceConfiguration = crate::wgpu_types::SurfaceConfiguration<Vec<TextureFormat>>;
 
-static_assertions::assert_impl_all!(SurfaceConfiguration: Send, Sync);

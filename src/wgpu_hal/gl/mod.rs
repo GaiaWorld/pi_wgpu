@@ -48,7 +48,7 @@ use render_pipeline::RenderPipeline;
 
 pub(self) type DeviceResult<T> = Result<T, super::DeviceError>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Api;
 
 impl super::Api for Api {

@@ -81,14 +81,14 @@ impl super::Surface<Api> for Context {
 impl super::Adapter<Api> for Context {
     unsafe fn open(
         &self,
-        features: wgt::Features,
-        _limits: &wgt::Limits,
+        features: crate::wgpu_types::Features,
+        _limits: &crate::wgpu_types::Limits,
     ) -> DeviceResult<super::OpenDevice<Api>> {
         Err(super::DeviceError::Lost)
     }
     unsafe fn texture_format_capabilities(
         &self,
-        format: wgt::TextureFormat,
+        format: crate::wgpu_types::TextureFormat,
     ) -> super::TextureFormatCapabilities {
         super::TextureFormatCapabilities::empty()
     }
@@ -97,8 +97,8 @@ impl super::Adapter<Api> for Context {
         None
     }
 
-    unsafe fn get_presentation_timestamp(&self) -> wgt::PresentationTimestamp {
-        wgt::PresentationTimestamp::INVALID_TIMESTAMP
+    unsafe fn get_presentation_timestamp(&self) -> crate::wgpu_types::PresentationTimestamp {
+        crate::wgpu_types::PresentationTimestamp::INVALID_TIMESTAMP
     }
 }
 
@@ -214,7 +214,7 @@ impl super::Device<Api> for Context {
 
     unsafe fn create_query_set(
         &self,
-        desc: &wgt::QuerySetDescriptor<super::Label>,
+        desc: &crate::wgpu_types::QuerySetDescriptor<super::Label>,
     ) -> DeviceResult<Resource> {
         Ok(Resource)
     }
@@ -270,7 +270,7 @@ impl super::CommandEncoder<Api> for Encoder {
     #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
     unsafe fn copy_external_image_to_texture<T>(
         &mut self,
-        src: &wgt::ImageCopyExternalImage,
+        src: &crate::wgpu_types::ImageCopyExternalImage,
         dst: &Resource,
         dst_premultiplication: bool,
         regions: T,
@@ -308,8 +308,8 @@ impl super::CommandEncoder<Api> for Encoder {
         set: &Resource,
         range: Range<u32>,
         buffer: &Resource,
-        offset: wgt::BufferAddress,
-        stride: wgt::BufferSize,
+        offset: crate::wgpu_types::BufferAddress,
+        stride: crate::wgpu_types::BufferSize,
     ) {
     }
 
@@ -323,13 +323,13 @@ impl super::CommandEncoder<Api> for Encoder {
         layout: &Resource,
         index: u32,
         group: &Resource,
-        dynamic_offsets: &[wgt::DynamicOffset],
+        dynamic_offsets: &[crate::wgpu_types::DynamicOffset],
     ) {
     }
     unsafe fn set_push_constants(
         &mut self,
         layout: &Resource,
-        stages: wgt::ShaderStages,
+        stages: crate::wgpu_types::ShaderStages,
         offset: u32,
         data: &[u32],
     ) {
@@ -344,7 +344,7 @@ impl super::CommandEncoder<Api> for Encoder {
     unsafe fn set_index_buffer<'a>(
         &mut self,
         binding: super::BufferBinding<'a, Api>,
-        format: wgt::IndexFormat,
+        format: crate::wgpu_types::IndexFormat,
     ) {
     }
     unsafe fn set_vertex_buffer<'a>(&mut self, index: u32, binding: super::BufferBinding<'a, Api>) {
@@ -374,32 +374,32 @@ impl super::CommandEncoder<Api> for Encoder {
     unsafe fn draw_indirect(
         &mut self,
         buffer: &Resource,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     ) {
     }
     unsafe fn draw_indexed_indirect(
         &mut self,
         buffer: &Resource,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         draw_count: u32,
     ) {
     }
     unsafe fn draw_indirect_count(
         &mut self,
         buffer: &Resource,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &Resource,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     ) {
     }
     unsafe fn draw_indexed_indirect_count(
         &mut self,
         buffer: &Resource,
-        offset: wgt::BufferAddress,
+        offset: crate::wgpu_types::BufferAddress,
         count_buffer: &Resource,
-        count_offset: wgt::BufferAddress,
+        count_offset: crate::wgpu_types::BufferAddress,
         max_count: u32,
     ) {
     }
@@ -412,5 +412,5 @@ impl super::CommandEncoder<Api> for Encoder {
     unsafe fn set_compute_pipeline(&mut self, pipeline: &Resource) {}
 
     unsafe fn dispatch(&mut self, count: [u32; 3]) {}
-    unsafe fn dispatch_indirect(&mut self, buffer: &Resource, offset: wgt::BufferAddress) {}
+    unsafe fn dispatch_indirect(&mut self, buffer: &Resource, offset: crate::wgpu_types::BufferAddress) {}
 }

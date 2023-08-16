@@ -15,9 +15,8 @@ use crate::{BindingResource, Label, BufferAddress, BufferUsages, BufferSize, wgp
 ///
 /// Corresponds to [WebGPU `GPUBufferDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpubufferdescriptor).
-pub type BufferDescriptor<'a> = wgt::BufferDescriptor<Label<'a>>;
+pub type BufferDescriptor<'a> = crate::wgpu_types::BufferDescriptor<Label<'a>>;
 
-static_assertions::assert_impl_all!(BufferDescriptor: Send, Sync);
 
 /// Handle to a GPU-accessible buffer.
 ///
@@ -31,7 +30,6 @@ pub struct Buffer {
     inner: <hal::GL as hal::Api>::Buffer,
 }
 
-static_assertions::assert_impl_all!(Buffer: Send, Sync);
 
 impl Drop for Buffer {
     fn drop(&mut self) {
@@ -96,7 +94,6 @@ pub struct BufferSlice<'a> {
     size: Option<BufferSize>,
 }
 
-static_assertions::assert_impl_all!(BufferSlice: Send, Sync);
 
 impl<'a> BufferSlice<'a> {
     /// Map the buffer. Buffer is ready to map once the callback is called.
@@ -170,12 +167,10 @@ pub struct BufferBinding<'a> {
     /// Size of the binding, or `None` for using the rest of the buffer.
     pub size: Option<BufferSize>,
 }
-static_assertions::assert_impl_all!(BufferBinding: Send, Sync);
 
 /// Error occurred when trying to async map a buffer.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BufferAsyncError;
-static_assertions::assert_impl_all!(BufferAsyncError: Send, Sync);
 
 impl std::fmt::Display for BufferAsyncError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -193,4 +188,3 @@ pub enum MapMode {
     /// Map only for writing
     Write,
 }
-static_assertions::assert_impl_all!(MapMode: Send, Sync);

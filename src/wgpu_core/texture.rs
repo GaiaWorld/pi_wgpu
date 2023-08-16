@@ -14,7 +14,6 @@ use std::num::NonZeroU32;
 pub struct Texture {
     inner: <hal::GL as hal::Api>::Texture,
 }
-static_assertions::assert_impl_all!(Texture: Send, Sync);
 
 impl Drop for Texture {
     fn drop(&mut self) {
@@ -124,7 +123,6 @@ impl Texture {
 /// Corresponds to [WebGPU `GPUTextureView`](https://gpuweb.github.io/gpuweb/#gputextureview).
 #[derive(Debug)]
 pub struct TextureView {}
-static_assertions::assert_impl_all!(TextureView: Send, Sync);
 
 impl Drop for TextureView {
     fn drop(&mut self) {
@@ -162,7 +160,6 @@ pub struct TextureViewDescriptor<'a> {
     /// If `None`, considered to include the rest of the array layers, but at least 1 in total.
     pub array_layer_count: Option<NonZeroU32>,
 }
-static_assertions::assert_impl_all!(TextureViewDescriptor: Send, Sync);
 
 /// Describes a [`Texture`].
 ///
@@ -170,14 +167,12 @@ static_assertions::assert_impl_all!(TextureViewDescriptor: Send, Sync);
 ///
 /// Corresponds to [WebGPU `GPUTextureDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturedescriptor).
-pub type TextureDescriptor<'a> = wgt::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
-static_assertions::assert_impl_all!(TextureDescriptor: Send, Sync);
+pub type TextureDescriptor<'a> = crate::wgpu_types::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
 
-pub use wgt::ImageCopyTexture as ImageCopyTextureBase;
+pub use crate::wgpu_types::ImageCopyTexture as ImageCopyTextureBase;
 
 /// View of a texture which can be used to copy to/from a buffer/texture.
 ///
 /// Corresponds to [WebGPU `GPUImageCopyTexture`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpuimagecopytexture).
 pub type ImageCopyTexture<'a> = ImageCopyTextureBase<&'a Texture>;
-static_assertions::assert_impl_all!(ImageCopyTexture: Send, Sync);

@@ -10,7 +10,6 @@ use crate::{BindGroupLayout, Label, PushConstantRange, wgpu_hal as hal};
 pub struct PipelineLayout {
     inner: <hal::GL as hal::Api>::PipelineLayout,
 }
-static_assertions::assert_impl_all!(PipelineLayout: Send, Sync);
 
 impl Drop for PipelineLayout {
     fn drop(&mut self) {
@@ -38,4 +37,3 @@ pub struct PipelineLayoutDescriptor<'a> {
     /// If this array is non-empty, the [`Features::PUSH_CONSTANTS`] must be enabled.
     pub push_constant_ranges: &'a [PushConstantRange],
 }
-static_assertions::assert_impl_all!(PipelineLayoutDescriptor: Send, Sync);

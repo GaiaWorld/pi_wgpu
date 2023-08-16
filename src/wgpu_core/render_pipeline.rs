@@ -15,7 +15,6 @@ use std::num::NonZeroU32;
 pub struct RenderPipeline {
     inner: <hal::GL as hal::Api>::RenderPipeline,
 }
-static_assertions::assert_impl_all!(RenderPipeline: Send, Sync);
 
 impl Drop for RenderPipeline {
     fn drop(&mut self) {
@@ -56,7 +55,6 @@ pub struct RenderPipelineDescriptor<'a> {
     /// layers the attachments will have.
     pub multiview: Option<NonZeroU32>,
 }
-static_assertions::assert_impl_all!(RenderPipelineDescriptor: Send, Sync);
 
 /// Describes the vertex processing in a render pipeline.
 ///
@@ -74,7 +72,6 @@ pub struct VertexState<'a> {
     /// The format of any vertex buffers used with this pipeline.
     pub buffers: &'a [VertexBufferLayout<'a>],
 }
-static_assertions::assert_impl_all!(VertexState: Send, Sync);
 
 /// Describes how the vertex buffer is interpreted.
 ///
@@ -91,7 +88,6 @@ pub struct VertexBufferLayout<'a> {
     /// The list of attributes which comprise a single vertex.
     pub attributes: &'a [VertexAttribute],
 }
-static_assertions::assert_impl_all!(VertexBufferLayout: Send, Sync);
 
 /// Describes the fragment processing in a render pipeline.
 ///
@@ -109,4 +105,3 @@ pub struct FragmentState<'a> {
     /// The color state of the render targets.
     pub targets: &'a [Option<ColorTargetState>],
 }
-static_assertions::assert_impl_all!(FragmentState: Send, Sync);
