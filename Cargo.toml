@@ -16,9 +16,11 @@ gl = ["naga/glsl-out"]
 [dependencies]
 log = "0.4"
 futures = "0.3"
+arrayvec = "0.7"
 bitflags = "1"
 thiserror = "1.0"
 parking_lot = "0.12"
+codespan-reporting = "0.11"
 raw-window-handle = "0.5"
 profiling = { version = "1", default-features = false }
 serde = { version = "1", features = ["serde_derive"], optional = true }
