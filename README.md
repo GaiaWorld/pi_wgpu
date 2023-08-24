@@ -129,3 +129,41 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | write_timestamp                   | ×    |
 | begin_pipeline_statistics_query   | ×    |
 | end_pipeline_statistics_query     | ×    |
+
+### `Buffer`
+
+| 函数                       | 支持 | 说明 |
+| -------------------------- | ---- | ---- |
+| `size`                     | ✔    |      |
+| `usage`                    | ✔    |      |
+| `as_entire_binding`        | ✔    |      |
+| `as_entire_buffer_binding` | ✔    |      |
+| slice                      | ×    |
+| unmap                      | ×    |
+| destroy                    | ×    |
+
+### `BufferSlice`
+
+| 函数                 | 支持 | 说明 |
+| -------------------- | ---- | ---- |
+| map_async            | ×    |
+| get_mapped_range     | ×    |
+| get_mapped_range_mut | ×    |
+
+### `Texture`
+
+| 函数                    | 支持 | 说明 |
+| ----------------------- | ---- | ---- |
+| `create_view`           | ✔    |      |
+| `size`                  | ✔    |      |
+| `width`                 | ✔    |      |
+| `height`                | ✔    |      |
+| `depth_or_array_layers` | ✔    |      |
+| `mip_level_count`       | ✔    |      |
+| `sample_count`          | ✔    |      |
+| `dimension`             | ✔    |      |
+| `format`                | ✔    |      |
+| `usage`                 | ✔    |      |
+| as_image_copy           | ×    |      |
+| as_hal                  | ×    |      |
+| destroy                 | ×    |      |
