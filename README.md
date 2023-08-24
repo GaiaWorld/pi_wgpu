@@ -114,8 +114,8 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | `set_viewport`                    | ✔    |
 | `set_stencil_reference`           | ✔    |
 | `draw`                            | ✔    | 参数 `first_instance` 必须为 0; `base_vertex` 必须为 0 |
-| `draw_indexed`                    | ✔    |
-| `set_push_constants`              | ×    |
+| `draw_indexed`                    | ✔    | 参数 `first_instance` 必须为 0; `base_vertex` 必须为 0 |
+| set_push_constants                | ×    |
 | insert_debug_marker               | ×    |
 | push_debug_group                  | ×    |
 | pop_debug_group                   | ×    |
