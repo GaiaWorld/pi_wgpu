@@ -4,6 +4,7 @@ pub mod api;
 
 mod egl_impl;
 mod gles;
+mod gl_state;
 
 mod instance;
 

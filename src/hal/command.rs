@@ -3,7 +3,7 @@ use std::{ops::Range, sync::Arc};
 use arrayvec::ArrayVec;
 use glow::HasContext;
 
-use super::{AdapterContextLock, AdapterShared};
+use super::{AdapterContextLock, AdapterShared, gl_state::GLState};
 use crate::{wgt, Extent3d, LoadOp};
 
 #[derive(Debug)]
@@ -11,8 +11,7 @@ pub(crate) struct CommandBuffer;
 
 #[derive(Debug)]
 pub(crate) struct CommandEncoder {
-    state: State,
-    gl: Arc<AdapterShared>,
+    state: GLState,
 }
 
 impl CommandEncoder {
@@ -260,21 +259,9 @@ impl CommandEncoder {
             }
         }
 
-        let rect = super::Rect {
-            x: 0,
-            y: 0,
-            w: extent.width as u32,
-            h: extent.height as u32,
-        };
-        self.set_scissor_rect(&rect);
+        self.set_scissor_impl(&gl, 0, 0, extent.width as i32, extent.height as i32);
 
-        let rect = super::Rect {
-            x: 0.0,
-            y: 0.0,
-            w: extent.width as f32,
-            h: extent.height as f32,
-        };
-        self.set_viewport(&rect, 0.0..1.0);
+        self.set_viewport_impl(&gl, 0, 0, extent.width as i32, extent.height as i32, 0.0, 1.0);
 
         // issue the clears
         for (i, cat) in desc
@@ -451,6 +438,8 @@ impl CommandEncoder {
     }
 
     pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
+        let gl = self.gl.context.lock();
+
         self.state.topology = conv::map_primitive_topology(pipeline.primitive.topology);
 
         if self
@@ -593,6 +582,8 @@ impl CommandEncoder {
         binding: super::BufferBinding<'a, super::Api>,
         format: wgt::IndexFormat,
     ) {
+        let gl = self.gl.context.lock();
+
         self.state.index_offset = binding.offset;
         self.state.index_format = format;
         self.cmd_buffer
@@ -605,6 +596,8 @@ impl CommandEncoder {
         index: u32,
         binding: super::BufferBinding<'a, super::Api>,
     ) {
+        let gl = self.gl.context.lock();
+
         self.state.dirty_vbuf_mask |= 1 << index;
         let (_, ref mut vb) = self.state.vertex_buffers[index as usize];
         *vb = Some(super::BufferBinding {
@@ -614,34 +607,21 @@ impl CommandEncoder {
     }
 
     pub(crate) unsafe fn set_viewport(&mut self, rect: &super::Rect<f32>, depth: Range<f32>) {
-        self.cmd_buffer.commands.push(C::SetViewport {
-            rect: super::Rect {
-                x: rect.x as i32,
-                y: rect.y as i32,
-                w: rect.w as i32,
-                h: rect.h as i32,
-            },
-            depth,
-        });
+        self.state.set_viewport(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+        
+        self.state.set_depth_range(depth.start, depth.end);
     }
 
     pub(crate) unsafe fn set_scissor_rect(&mut self, rect: &super::Rect<u32>) {
-        self.cmd_buffer.commands.push(C::SetScissor(super::Rect {
-            x: rect.x as i32,
-            y: rect.y as i32,
-            w: rect.w as i32,
-            h: rect.h as i32,
-        }));
+        self.state.set_scissor(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
     }
 
     pub(crate) unsafe fn set_stencil_reference(&mut self, value: u32) {
-        self.state.stencil.front.reference = value;
-        self.state.stencil.back.reference = value;
-        self.rebind_stencil_func();
+        self.state.set_stencil_reference(value, value);
     }
 
     pub(crate) unsafe fn set_blend_constants(&mut self, color: &[f32; 4]) {
-        self.cmd_buffer.commands.push(C::SetBlendConstant(*color));
+        self.state.set_blend_color(color);
     }
 
     pub(crate) unsafe fn draw(
@@ -651,13 +631,9 @@ impl CommandEncoder {
         start_instance: u32,
         instance_count: u32,
     ) {
-        self.prepare_draw(start_instance);
-        self.cmd_buffer.commands.push(C::Draw {
-            topology: self.state.topology,
-            start_vertex,
-            vertex_count,
-            instance_count,
-        });
+        debug_assert!(start_instance == 0);
+
+        self.state.draw(start_vertex, vertex_count, instance_count);
     }
 
     pub(crate) unsafe fn draw_indexed(
@@ -668,27 +644,27 @@ impl CommandEncoder {
         start_instance: u32,
         instance_count: u32,
     ) {
-        self.prepare_draw(start_instance);
-        let (index_size, index_type) = match self.state.index_format {
-            wgt::IndexFormat::Uint16 => (2, glow::UNSIGNED_SHORT),
-            wgt::IndexFormat::Uint32 => (4, glow::UNSIGNED_INT),
-        };
-        let index_offset = self.state.index_offset + index_size * start_index as wgt::BufferAddress;
-        self.cmd_buffer.commands.push(C::DrawIndexed {
-            topology: self.state.topology,
-            index_type,
-            index_offset,
-            index_count,
-            base_vertex,
-            instance_count,
-        });
+        debug_assert!(start_instance == 0);
+        debug_assert!(base_vertex == 0);
+
+        self.state.draw_indexed(start_index, index_count, instance_count);
+        
+        // let index_offset = self.state.index_offset + index_size * start_index as wgt::BufferAddress;
+        // self.cmd_buffer.commands.push(C::DrawIndexed {
+        //     topology: self.state.topology,
+        //     index_type,
+        //     index_offset,
+        //     index_count,
+        //     base_vertex,
+        //     instance_count,
+        // });
     }
 
     pub(crate) unsafe fn draw_indirect(
         &mut self,
         _buffer: &super::Buffer,
         _offset: wgt::BufferAddress,
-        _draw_count: u32,
+        _draw_count: u32,+
     ) {
         unreachable!()
     }
@@ -786,6 +762,7 @@ impl CommandEncoder {
         unsafe { gl.disable(glow::SCISSOR_TEST) };
     }
 
+    #[inline]
     fn bind_attachment(
         &self,
         gl: &AdapterContextLock<'_>,
@@ -824,6 +801,7 @@ impl CommandEncoder {
         unsafe { gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(self.gl.context.draw_fbo)) };
     }
 
+    #[inline]
     fn set_draw_color_bufers(&mut self, gl: &AdapterContextLock<'_>, count: u8) {
         self.draw_buffer_count = count;
 
@@ -834,6 +812,7 @@ impl CommandEncoder {
         unsafe { gl.draw_buffers(&indices) };
     }
 
+    #[inline]
     fn clear_color_f(
         &self,
         gl: &AdapterContextLock<'_>,
@@ -844,22 +823,27 @@ impl CommandEncoder {
         unsafe { gl.clear_buffer_f32_slice(glow::COLOR, draw_buffer, color) };
     }
 
+    #[inline]
     fn clear_color_u(&self, gl: &AdapterContextLock<'_>, draw_buffer: u32, color: &[u32; 4]) {
         unsafe { gl.clear_buffer_u32_slice(glow::COLOR, draw_buffer, color) };
     }
 
+    #[inline]
     fn clear_color_i(&self, gl: &AdapterContextLock<'_>, draw_buffer: u32, color: &[i32; 4]) {
         unsafe { gl.clear_buffer_i32_slice(glow::COLOR, draw_buffer, color) };
     }
 
+    #[inline]
     fn clear_depth(&self, gl: &AdapterContextLock<'_>, depth: f32) {
         unsafe { gl.clear_buffer_f32_slice(glow::DEPTH, 0, &[depth]) };
     }
 
+    #[inline]
     fn clear_stencil(&self, gl: &AdapterContextLock<'_>, value: i32) {
         unsafe { gl.clear_buffer_i32_slice(glow::STENCIL, 0, &[value as i32]) };
     }
 
+    #[inline]
     fn clear_color_depth_and_stencil(
         &self,
         gl: &AdapterContextLock<'_>,
@@ -943,9 +927,11 @@ impl CommandEncoder {
         }
     }
 
+    #[inline]
     fn unset_vertex_attribute(&self, gl: &AdapterContextLock<'_>, location: u32) {
         unsafe { gl.disable_vertex_attrib_array(location) };
     }
+    
 }
 
 const CUBEMAP_FACES: [u32; 6] = [
@@ -957,19 +943,3 @@ const CUBEMAP_FACES: [u32; 6] = [
     glow::TEXTURE_CUBE_MAP_NEGATIVE_Z,
 ];
 
-#[derive(Default, Debug)]
-struct State {
-    // begin_render_pass, end_render_pass
-    render_size: wgt::Extent3d,
-    resolve_attachments: ArrayVec<(u32, super::TextureView), { super::MAX_COLOR_ATTACHMENTS }>,
-    invalidate_attachments: ArrayVec<u32, { super::MAX_COLOR_ATTACHMENTS + 2 }>,
-
-    // end_render_pass
-    primitive: super::PrimitiveState,
-    vertex_attributes: ArrayVec<super::AttributeDesc, { super::MAX_VERTEX_ATTRIBUTES }>,
-
-    instance_vbuf_mask: usize,
-    dirty_vbuf_mask: usize,
-    active_first_instance: u32,
-    color_targets: ArrayVec<super::ColorTargetDesc, { super::MAX_COLOR_ATTACHMENTS }>,
-}
