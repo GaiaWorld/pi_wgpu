@@ -1,7 +1,8 @@
 - [pi\_wgpu](#pi_wgpu)
   - [1. Why](#1-why)
   - [2. 设计](#2-设计)
-  - [3. （如果 用）WebGL 模拟 WebGPU，要点在：](#3-如果-用webgl-模拟-webgpu要点在)
+  - [3. 用 `WebGL` 模拟 `WebGPU` 的 要点](#3-用-webgl-模拟-webgpu-的-要点)
+    - [3.1. 和 `WebGL2` 相比，缺失 的 功能](#31-和-webgl2-相比缺失-的-功能)
     - [3.1. `iOS` 的 `WebGL` / `WebGL2` 移植](#31-ios-的-webgl--webgl2-移植)
   - [4. 限制](#4-限制)
     - [4.1. 不支持](#41-不支持)
@@ -43,32 +44,35 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 + 录制 即是 提交，所谓的提交是空实现，为了以后的兼容性；
 + 性能优化：底层设置 状态机，做 OpenGL 的 全状态比较；所以 GL-Backend 的指令数量 预期 会比 [wgpu-rs](https://github.com/gfx-rs/wgpu) 少；
 
-## 3. （如果 用）WebGL 模拟 WebGPU，要点在：
+## 3. 用 `WebGL` 模拟 `WebGPU` 的 要点
 
-下面的东西，一旦没有，渲染功能就 要写 2套
+### 3.1. 和 `WebGL2` 相比，缺失 的 功能
 
-+ 缺少功能: 模拟
-    - VS / FS: 不能指定 layout
++ 代码 模拟
+    - `UBO`：用 uniform 模拟
+    - `Sampler`：用 texture 函数 模拟
+    - `VS` / `FS`: 不能指定 layout
         - **难点**：要找一套 WebGL Shader 的 编译转换工具，`naga`未必支持；
             * 将 UBO 转成 Uniform；
             * 去掉 所有的 layout，同时导出成 json文件，供 rust 设置；
-        - rust层，调用WebGL的 getXXXLocation 取 Uniform / Attribute 的 location，建议 layout的 hash-map；
-    - `UBO`：用 uniform 模拟
-    - `Sampler`：用 texture 函数 模拟
-+ 缺少功能: 看扩展有没有
-    - float 纹理
-    - 深度 纹理
+        - rust层，调用 WebGL 的 getXXXLocation 取 Uniform / Attribute 的 location，建立 layout 的 hash-map；
++ 看 **扩展** 有没有
+    - 很多纹理格式: 比如 float 纹理，深度 纹理
     - `VAO`
     - 几何实例化
-    - 多重采样
     - 多目标渲染 / drawBuffers
+    - 多重采样
     - ClearBuffer
     - FeedBack
 
 ### 3.1. [`iOS` 的 `WebGL` / `WebGL2` 移植](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)
 
+根据 微信小游戏 的 文档：
+
 + `WebGL`: iOS 版本 14.0 ~ iOS 15.3, 多个 drawcall 使用不同偏移 来 共享 `VB`/`IB`，性能非常糟糕 ！
 + `WebGL2`: 至少 iOS 版本 >= 15.5 才能开启 ！
+
+**注：** 微信小游戏运行时有问题，不完全等于 浏览器/WkWebview 有问题；如果要稳妥，**建议**请负责iOS的同事进行测试；
 
 ## 4. 限制
 
