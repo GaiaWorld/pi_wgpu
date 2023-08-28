@@ -3,7 +3,7 @@
   - [2. 设计](#2-设计)
   - [3. 用 `WebGL` 模拟 `WebGPU` 的 要点](#3-用-webgl-模拟-webgpu-的-要点)
     - [3.1. 和 `WebGL2` 相比，缺失 的 功能](#31-和-webgl2-相比缺失-的-功能)
-    - [3.1. `iOS` 的 `WebGL` / `WebGL2` 移植](#31-ios-的-webgl--webgl2-移植)
+    - [3.2. 微信小游戏: `iOS` 的 `WebGL` / `WebGL2` 移植](#32-微信小游戏-ios-的-webgl--webgl2-移植)
   - [4. 限制](#4-限制)
     - [4.1. 不支持](#41-不支持)
     - [4.2. `Device`](#42-device)
@@ -52,7 +52,7 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
     - `UBO`：用 uniform 模拟
     - `Sampler`：用 texture 函数 模拟
     - `VS` / `FS`: 不能指定 layout
-        - **难点**：要找一套 WebGL Shader 的 编译转换工具，`naga`未必支持；
+        - **难点，需要 `可行性测试`**：要找一套 WebGL Shader 的 编译转换工具，`naga`未必支持；
             * 将 UBO 转成 Uniform；
             * 去掉 所有的 layout，同时导出成 json文件，供 rust 设置；
         - rust层，调用 WebGL 的 getXXXLocation 取 Uniform / Attribute 的 location，建立 layout 的 hash-map；
@@ -65,14 +65,17 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
     - ClearBuffer
     - FeedBack
 
-### 3.1. [`iOS` 的 `WebGL` / `WebGL2` 移植](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)
+### 3.2. [微信小游戏: `iOS` 的 `WebGL` / `WebGL2` 移植](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)
 
 根据 微信小游戏 的 文档：
 
 + `WebGL`: iOS 版本 14.0 ~ iOS 15.3, 多个 drawcall 使用不同偏移 来 共享 `VB`/`IB`，性能非常糟糕 ！
 + `WebGL2`: 至少 iOS 版本 >= 15.5 才能开启 ！
 
-**注：** 微信小游戏运行时有问题，不完全等于 浏览器/WkWebview 有问题；如果要稳妥，**建议**请负责iOS的同事进行测试；
+注释：
+
++ **注1**: 微信小游戏运行时有问题，不完全等于 `Safari` / `WkWebview` 有问题；
++ **注2**: 要稳妥的话，**建议** 请 负责iOS的同事 进行 `Safari` / `WkWebview` 测试；
 
 ## 4. 限制
 
