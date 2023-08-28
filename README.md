@@ -67,15 +67,15 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 
 ### 3.2. [微信小游戏: `iOS` 的 `WebGL` / `WebGL2` 移植](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)
 
-根据 微信小游戏 的 文档：
-
++ `WebGL`: 如果发现 iOS 14 的 帧率提升不上去，试试 在 canvas.getContext 接口 将 antialias: true
 + `WebGL`: iOS 版本 14.0 ~ iOS 15.3, 多个 drawcall 使用不同偏移 来 共享 `VB`/`IB`，性能非常糟糕 ！
 + `WebGL2`: 至少 iOS 版本 >= 15.5 才能开启 ！
 
 注释：
 
-+ **注1**: 微信小游戏运行时有问题，不完全等于 `Safari` / `WkWebview` 有问题；
-+ **注2**: 要稳妥的话，**建议** 请 负责iOS的同事 进行 `Safari` / `WkWebview` 测试；
++ **注1**: 怀疑 微信小游戏 高性能模式，就是将 js 和 渲染 在 Safari 坏境跑，但仅仅是怀疑，没有证据；
++ **注2**: 微信小游戏运行时有问题，不完全等于 `Safari` / `WkWebview` 有问题；
++ **注3**: 要稳妥的话，**建议** 请 负责iOS的同事 进行 `Safari` / `WkWebview` 测试；
 
 ## 4. 限制
 

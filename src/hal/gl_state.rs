@@ -17,6 +17,7 @@ pub(crate) struct GLState {
     curr_geometry: Geometry,
 
     // 10s 清空一次
+
     vao: Option<glow::VertexArray>,
     vao_map: HashMap<Geometry, glow::VertexArray, RandomXxHashBuilder64>,
 
