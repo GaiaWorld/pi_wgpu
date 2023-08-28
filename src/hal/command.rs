@@ -1,9 +1,28 @@
-use std::{ops::Range, sync::Arc};
+//!
+//! + 仅 单线程
+//! + 录制 即为 调用 GL 指令
+//!
+//! `CommandEncoder` 目前 仅支持 如下接口：
+//!
+//! + begin_encoding / end_encoding
+//! + begin_render_pass / end_render_pass
+//! + set_render_pipeline
+//! + set_bind_group
+//! + set_vertex_buffer
+//! + set_index_buffer
+//! + set_viewport
+//! + set_scissor_rect
+//! + set_stencil_reference
+//! + set_blend_constants
+//! + draw / draw_indexed
+//!
+
+use std::ops::Range;
 
 use arrayvec::ArrayVec;
 use glow::HasContext;
 
-use super::{AdapterContextLock, AdapterShared, gl_state::GLState};
+use super::{gl_state::GLState, AdapterContextLock};
 use crate::{wgt, Extent3d, LoadOp};
 
 #[derive(Debug)]
@@ -22,140 +41,10 @@ impl CommandEncoder {
         Ok(())
     }
 
-    pub(crate) unsafe fn discard_encoding(&mut self) {
-        unreachable!()
-    }
-
     pub(crate) unsafe fn end_encoding(
         &mut self,
     ) -> Result<super::CommandBuffer, super::DeviceError> {
         Ok(CommandBuffer)
-    }
-
-    pub(crate) unsafe fn reset_all<I>(&mut self, _command_buffers: I) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn transition_buffers<'a, T>(&mut self, barriers: T)
-    where
-        T: Iterator<Item = super::BufferBarrier<'a, super::GL>>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn transition_textures<'a, T>(&mut self, barriers: T)
-    where
-        T: Iterator<Item = super::TextureBarrier<'a, super::GL>>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn clear_buffer(
-        &mut self,
-        buffer: &super::Buffer,
-        range: super::MemoryRange,
-    ) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn copy_buffer_to_buffer<T>(
-        &mut self,
-        src: &super::Buffer,
-        dst: &super::Buffer,
-        regions: T,
-    ) where
-        T: Iterator<Item = super::BufferCopy>,
-    {
-        unreachable!()
-    }
-
-    #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
-    pub(crate) unsafe fn copy_external_image_to_texture<T>(
-        &mut self,
-        src: &wgt::ImageCopyExternalImage,
-        dst: &super::Texture,
-        dst_premultiplication: bool,
-        regions: T,
-    ) where
-        T: Iterator<Item = super::TextureCopy>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn copy_texture_to_texture<T>(
-        &mut self,
-        src: &super::Texture,
-        _src_usage: super::TextureUses,
-        dst: &super::Texture,
-        regions: T,
-    ) where
-        T: Iterator<Item = super::TextureCopy>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn copy_buffer_to_texture<T>(
-        &mut self,
-        src: &super::Buffer,
-        dst: &super::Texture,
-        regions: T,
-    ) where
-        T: Iterator<Item = super::BufferTextureCopy>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn copy_texture_to_buffer<T>(
-        &mut self,
-        src: &super::Texture,
-        _src_usage: super::TextureUses,
-        dst: &super::Buffer,
-        regions: T,
-    ) where
-        T: Iterator<Item = super::BufferTextureCopy>,
-    {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn begin_query(&mut self, set: &super::QuerySet, index: u32) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn end_query(&mut self, set: &super::QuerySet, _index: u32) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn write_timestamp(&mut self, _set: &super::QuerySet, _index: u32) {
-        unimplemented!()
-    }
-
-    pub(crate) unsafe fn reset_queries(&mut self, _set: &super::QuerySet, _range: Range<u32>) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn copy_query_results(
-        &mut self,
-        set: &super::QuerySet,
-        range: Range<u32>,
-        buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
-        _stride: wgt::BufferSize,
-    ) {
-        unreachable!()
-    }
-
-    // render
-
-    pub(crate) unsafe fn insert_debug_marker(&mut self, label: &str) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn begin_debug_marker(&mut self, group_label: &str) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn end_debug_marker(&mut self) {
-        unreachable!()
     }
 
     // 绑定 FBO
@@ -258,11 +147,6 @@ impl CommandEncoder {
                 }
             }
         }
-
-        self.set_scissor_impl(&gl, 0, 0, extent.width as i32, extent.height as i32);
-
-        self.set_viewport_impl(&gl, 0, 0, extent.width as i32, extent.height as i32, 0.0, 1.0);
-
         // issue the clears
         for (i, cat) in desc
             .color_attachments
@@ -427,17 +311,7 @@ impl CommandEncoder {
         self.rebind_sampler_states(dirty_textures, dirty_samplers);
     }
 
-    pub(crate) unsafe fn set_push_constants(
-        &mut self,
-        _layout: &super::PipelineLayout,
-        _stages: wgt::ShaderStages,
-        start_offset: u32,
-        data: &[u32],
-    ) {
-        unimplemented!("hal::CommandEncoder set_push_constants isn't impl")
-    }
-
-    pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
+    pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &crate::RenderPipeline) {
         let gl = self.gl.context.lock();
 
         self.state.topology = conv::map_primitive_topology(pipeline.primitive.topology);
@@ -579,45 +453,37 @@ impl CommandEncoder {
 
     pub(crate) unsafe fn set_index_buffer<'a>(
         &mut self,
-        binding: super::BufferBinding<'a, super::Api>,
+        binding: crate::BufferBinding<'a>,
         format: wgt::IndexFormat,
     ) {
-        let gl = self.gl.context.lock();
-
-        self.state.index_offset = binding.offset;
-        self.state.index_format = format;
-        self.cmd_buffer
-            .commands
-            .push(C::SetIndexBuffer(binding.buffer.raw.unwrap()));
+        self.state
+            .set_index_buffer(binding.buffer.raw.raw, binding.offset, format)
     }
 
     pub(crate) unsafe fn set_vertex_buffer<'a>(
         &mut self,
         index: u32,
-        binding: super::BufferBinding<'a, super::Api>,
+        binding: crate::BufferBinding<'a>,
     ) {
-        let gl = self.gl.context.lock();
+        let buffer = binding.buffer.raw.raw;
 
-        self.state.dirty_vbuf_mask |= 1 << index;
-        let (_, ref mut vb) = self.state.vertex_buffers[index as usize];
-        *vb = Some(super::BufferBinding {
-            raw: binding.buffer.raw.unwrap(),
-            offset: binding.offset,
-        });
+        self.state.set_vertex_buffer(index, buffer, binding.offset);
     }
 
     pub(crate) unsafe fn set_viewport(&mut self, rect: &super::Rect<f32>, depth: Range<f32>) {
-        self.state.set_viewport(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
-        
+        self.state
+            .set_viewport(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+
         self.state.set_depth_range(depth.start, depth.end);
     }
 
     pub(crate) unsafe fn set_scissor_rect(&mut self, rect: &super::Rect<u32>) {
-        self.state.set_scissor(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+        self.state
+            .set_scissor(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
     }
 
     pub(crate) unsafe fn set_stencil_reference(&mut self, value: u32) {
-        self.state.set_stencil_reference(value, value);
+        self.state.set_stencil_reference(value as i32, value as i32);
     }
 
     pub(crate) unsafe fn set_blend_constants(&mut self, color: &[f32; 4]) {
@@ -647,81 +513,8 @@ impl CommandEncoder {
         debug_assert!(start_instance == 0);
         debug_assert!(base_vertex == 0);
 
-        self.state.draw_indexed(start_index, index_count, instance_count);
-        
-        // let index_offset = self.state.index_offset + index_size * start_index as wgt::BufferAddress;
-        // self.cmd_buffer.commands.push(C::DrawIndexed {
-        //     topology: self.state.topology,
-        //     index_type,
-        //     index_offset,
-        //     index_count,
-        //     base_vertex,
-        //     instance_count,
-        // });
-    }
-
-    pub(crate) unsafe fn draw_indirect(
-        &mut self,
-        _buffer: &super::Buffer,
-        _offset: wgt::BufferAddress,
-        _draw_count: u32,+
-    ) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn draw_indexed_indirect(
-        &mut self,
-        _buffer: &super::Buffer,
-        _offset: wgt::BufferAddress,
-        _draw_count: u32,
-    ) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn draw_indirect_count(
-        &mut self,
-        _buffer: &super::Buffer,
-        _offset: wgt::BufferAddress,
-        _count_buffer: &super::Buffer,
-        _count_offset: wgt::BufferAddress,
-        _max_count: u32,
-    ) {
-        unreachable!()
-    }
-    pub(crate) unsafe fn draw_indexed_indirect_count(
-        &mut self,
-        _buffer: &super::Buffer,
-        _offset: wgt::BufferAddress,
-        _count_buffer: &super::Buffer,
-        _count_offset: wgt::BufferAddress,
-        _max_count: u32,
-    ) {
-        unreachable!()
-    }
-
-    // compute
-
-    pub(crate) unsafe fn begin_compute_pass(&mut self, _desc: &crate::ComputePassDescriptor) {
-        unreachable!()
-    }
-    pub(crate) unsafe fn end_compute_pass(&mut self) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn set_compute_pipeline(&mut self, _pipeline: &crate::ComputePipeline) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn dispatch(&mut self, _count: [u32; 3]) {
-        unreachable!()
-    }
-
-    pub(crate) unsafe fn dispatch_indirect(
-        &mut self,
-        buffer: &super::Buffer,
-        offset: wgt::BufferAddress,
-    ) {
-        unreachable!()
+        self.state
+            .draw_indexed(start_index, index_count, instance_count);
     }
 }
 
@@ -931,7 +724,6 @@ impl CommandEncoder {
     fn unset_vertex_attribute(&self, gl: &AdapterContextLock<'_>, location: u32) {
         unsafe { gl.disable_vertex_attrib_array(location) };
     }
-    
 }
 
 const CUBEMAP_FACES: [u32; 6] = [
@@ -942,4 +734,3 @@ const CUBEMAP_FACES: [u32; 6] = [
     glow::TEXTURE_CUBE_MAP_POSITIVE_Z,
     glow::TEXTURE_CUBE_MAP_NEGATIVE_Z,
 ];
-

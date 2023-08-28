@@ -1,10 +1,27 @@
-use super::EglContext;
-use crate::wgt;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use glow::HasContext;
+use twox_hash::RandomXxHashBuilder64;
+
+use super::EglContext;
+use crate::{wgt, BufferAddress};
+
+const RESET_INTERVAL_SECS: u64 = 5;
 
 #[derive(Debug)]
 pub(crate) struct GLState {
+    // 每次Draw 之后，都会 重置 为 Default
+    curr_geometry: Geometry,
+
+    // 10s 清空一次
+    vao: Option<glow::VertexArray>,
+    vao_map: HashMap<Geometry, glow::VertexArray, RandomXxHashBuilder64>,
+
+    last_reset_vao_time: Instant,
+
     pub(crate) copy_fbo: glow::Framebuffer,
     pub(crate) draw_fbo: glow::Framebuffer,
 
@@ -12,11 +29,6 @@ pub(crate) struct GLState {
     egl: EglContext,
 
     topology: u32,
-
-    // index_format: wgt::IndexFormat,
-    index_size: u32,
-    index_type: u32,
-    index_offset: wgt::BufferAddress,
 
     blend_color: [f32; 4],
 
@@ -41,9 +53,9 @@ impl GLState {
 
             topology: glow::TRIANGLES,
 
-            index_size: 2,
-            index_offset: 0,
-            index_type: glow::UNSIGNED_SHORT,
+            vao: Default::default(),
+            vao_map: Default::default(),
+            curr_geometry: Default::default(),
 
             blend_color: [0.0; 4],
             viewport: Default::default(),
@@ -60,7 +72,37 @@ impl GLState {
         }
     }
 
+    pub fn set_vertex_buffer(&mut self, index: usize, buffer: glow::Buffer, offset: BufferAddress) {
+        let g = &mut self.curr_geometry;
+        if g.vertexs[index].is_none() {
+            g.vertexs[index] = Some(Default::default());
+        }
+
+        let v = g.vertexs[index].as_mut().unwrap();
+        v.buffer = Some(buffer);
+        v.offset = offset;
+    }
+
+    pub fn set_index_buffer(
+        &mut self,
+        buffer: glow::Buffer,
+        offset: BufferAddress,
+        format: wgt::IndexFormat,
+    ) {
+        let g = &mut self.curr_geometry;
+
+        g.index_buffer = Some(buffer);
+        g.index_offset = offset;
+
+        let (index_size, index_type) = map_index_format(format);
+        g.index_size = index_size;
+        g.index_type = index_type;
+    }
+
     pub fn draw(&mut self, start_vertex: u32, vertex_count: u32, instance_count: u32) {
+        profiling::scope!("hal::CommandEncoder::")
+        self.before_draw();
+
         if instance_count == 1 {
             unsafe {
                 self.gl
@@ -76,17 +118,23 @@ impl GLState {
                 )
             };
         }
+
+        self.after_draw();
     }
 
     pub fn draw_indexed(&mut self, start_index: u32, index_count: u32, instance_count: u32) {
-        let index_offset = self.index_offset + self.index_size as u64 * start_index as u64;
+        self.before_draw();
+
+        let g = &self.curr_geometry;
+
+        let index_offset = g.index_offset + g.index_size as u64 * start_index as u64;
 
         if instance_count == 1 {
             unsafe {
                 self.gl.draw_elements(
                     self.topology,
                     index_count as i32,
-                    self.index_type,
+                    g.index_type,
                     index_offset as i32,
                 )
             }
@@ -95,12 +143,14 @@ impl GLState {
                 self.gl.draw_elements_instanced(
                     self.topology,
                     index_count as i32,
-                    self.index_type,
+                    g.index_type,
                     index_offset as i32,
                     instance_count as i32,
                 )
             }
         }
+
+        self.after_draw();
     }
 
     pub fn set_viewport(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -208,6 +258,95 @@ impl GLState {
     }
 }
 
+impl GLState {
+    fn before_draw(&mut self) {
+        self.update_and_bind_vao();
+    }
+
+    fn after_draw(&mut self) {
+        self.curr_geometry = Default::default();
+
+        // 必须 清空 VAO 绑定，否则 之后 如果 bind_buffer 修改 vb / ib 的话 就会 误操作了
+        unsafe {
+            self.gl.bind_vertex_array(None);
+            self.vao = None;
+        }
+
+        self.reset_vao();
+    }
+
+    // 每过 几秒 就 清空一次 vao
+    fn reset_vao(&mut self) {
+        let now = Instant::now();
+        if now - self.last_reset_vao_time < Duration::from_secs(RESET_INTERVAL_SECS) {
+            return;
+        }
+
+        self.last_reset_vao_time = now;
+
+        self.vao = None;
+
+        for (geometry, vao) in &self.vao_map {
+            unsafe {
+                self.gl.delete_vertex_array(vao.clone());
+            }
+        }
+
+        self.vao_map.clear();
+    }
+
+    // 根据 curr_geometry 更新 vao
+    fn update_and_bind_vao(&mut self) {
+        self.vao = match self.vao_map.get(&self.curr_geometry) {
+            Some(vao) => {
+                unsafe {
+                    self.gl.bind_vertex_array(Some(vao.clone()));
+                }
+
+                Some(vao.clone())
+            }
+            None => unsafe {
+                let g = &self.curr_geometry;
+
+                let vao = self.gl.create_vertex_array().unwrap();
+
+                self.gl.bind_vertex_array(Some(vao));
+
+                if let Some(ib) = &g.index_buffer {
+                    self.gl
+                        .bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ib.clone()));
+                }
+
+                for (i, vb) in g.vertexs.iter().enumerate() {
+                    if vb.is_none() {
+                        self.gl.disable_vertex_attrib_array(i as u32);
+                    } else {
+                        let vb = vb.as_ref().unwrap();
+
+                        self.gl.enable_vertex_attrib_array(i as u32);
+
+                        self.gl.bind_buffer(glow::ARRAY_BUFFER, vb.buffer);
+
+                        // TODO: 如果有 int 作为 attribute 的话，需要加上 i32 函数
+                        self.gl.vertex_attrib_pointer_f32(
+                            i as u32,
+                            vb.item_count,
+                            vb.data_type,
+                            false,
+                            0,
+                            vb.offset as i32,
+                        );
+                    }
+                }
+
+                self.vao_map.insert(self.curr_geometry.clone(), vao.clone());
+
+                Some(vao)
+            },
+        };
+    }
+}
+
 #[derive(Debug, Default)]
 struct Viewport {
     x: i32,
@@ -285,6 +424,28 @@ impl Default for StencilFaceState {
             zpass_op: glow::KEEP,
         }
     }
+}
+
+#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
+struct VertexState {
+    buffer: Option<glow::Buffer>,
+    offset: BufferAddress,
+    stride: i32,
+
+    item_count: i32, // 1, 2, 3, 4
+    data_type: u32,  // glow::Float
+}
+
+#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
+struct Geometry {
+    // vertex
+    vertexs: [Option<VertexState>; super::MAX_VERTEX_BUFFERS],
+
+    // index_format: wgt::IndexFormat,
+    index_buffer: Option<glow::Buffer>,
+    index_size: u32,
+    index_type: u32,
+    index_offset: wgt::BufferAddress,
 }
 
 // ======================= convert to gl's const

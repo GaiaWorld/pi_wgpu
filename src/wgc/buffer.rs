@@ -8,7 +8,7 @@
 use std::ops::RangeBounds;
 
 use crate::{
-    BindingResource, BufferAddress, BufferSize, BufferUsages, Label,
+    BindingResource, BufferAddress, BufferSize, BufferUsages, Label, hal,
 };
 
 /// Describes a [`Buffer`].
@@ -32,6 +32,8 @@ pub struct Buffer {
     pub(crate) size: BufferAddress,
 
     pub(crate) device: crate::Device,
+
+    pub(crate) raw: hal::Buffer,
 }
 
 impl Drop for Buffer {

@@ -74,13 +74,13 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 
 | 函数                           | 支持 | 说明 |
 | ------------------------------ | ---- | ---- |
-| `write_buffer`                 | ✔    |
-| `write_texture`                | ✔    |
-| `submit`                       | ✔    |
-| on_submitted_work_done         | ×    |
-| write_buffer_with              | ×    |
-| copy_external_image_to_texture | ×    |
-| get_timestamp_period           | ×    |
+| `write_buffer`                 | ✔    |      |
+| `write_texture`                | ✔    |      |
+| `submit`                       | ✔    |      |
+| on_submitted_work_done         | ×    |      |
+| write_buffer_with              | ×    |      |
+| copy_external_image_to_texture | ×    |      |
+| get_timestamp_period           | ×    |      |
 
 ### `CommandEncoder`
 
@@ -88,73 +88,54 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | ----------------------- | ---- | ---- |
 | `finish`                | ✔    |      |
 | `begin_render_pass`     | ✔    |      |
-| `clear_texture`         | ✔    |
-| `clear_buffer`          | ✔    |
+| `clear_texture`         | ✔    |      |
+| `clear_buffer`          | ✔    |      |
 | begin_compute_pass      | ×    |      |
-| copy_buffer_to_buffer   | ×    |
-| copy_buffer_to_texture  | ×    |
-| copy_texture_to_buffer  | ×    |
-| copy_texture_to_texture | ×    |
-| insert_debug_marker     | ×    |
-| push_debug_group        | ×    |
-| pop_debug_group         | ×    |
-| write_timestamp         | ×    |
-| resolve_query_set       | ×    |
+| copy_buffer_to_buffer   | ×    |      |
+| copy_buffer_to_texture  | ×    |      |
+| copy_texture_to_buffer  | ×    |      |
+| copy_texture_to_texture | ×    |      |
+| insert_debug_marker     | ×    |      |
+| push_debug_group        | ×    |      |
+| pop_debug_group         | ×    |      |
+| write_timestamp         | ×    |      |
+| resolve_query_set       | ×    |      |
 
 ### `RenderPass`
 
 | 函数                              | 支持 | 说明                                                   |
 | --------------------------------- | ---- | ------------------------------------------------------ |
-| `set_bind_group`                  | ✔    |
-| `set_pipeline`                    | ✔    |
-| `set_blend_constant`              | ✔    |
-| `set_index_buffer`                | ✔    |
-| `set_vertex_buffer`               | ✔    |
-| `set_scissor_rect`                | ✔    |
-| `set_viewport`                    | ✔    |
-| `set_stencil_reference`           | ✔    |
+| `set_bind_group`                  | ✔    |                                                        |
+| `set_pipeline`                    | ✔    |                                                        |
+| `set_blend_constant`              | ✔    |                                                        |
+| `set_index_buffer`                | ✔    |                                                        |
+| `set_vertex_buffer`               | ✔    |                                                        |
+| `set_scissor_rect`                | ✔    |                                                        |
+| `set_viewport`                    | ✔    |                                                        |
+| `set_stencil_reference`           | ✔    |                                                        |
 | `draw`                            | ✔    | 参数 `first_instance` 必须为 0; `base_vertex` 必须为 0 |
 | `draw_indexed`                    | ✔    | 参数 `first_instance` 必须为 0; `base_vertex` 必须为 0 |
-| set_push_constants                | ×    |
-| insert_debug_marker               | ×    |
-| push_debug_group                  | ×    |
-| pop_debug_group                   | ×    |
-| draw_indirect                     | ×    |
-| draw_indexed_indirect             | ×    |
-| execute_bundles                   | ×    |
-| multi_draw_indirect               | ×    |
-| multi_draw_indexed_indirect       | ×    |
-| multi_draw_indirect_count         | ×    |
-| multi_draw_indexed_indirect_count | ×    |
-| write_timestamp                   | ×    |
-| begin_pipeline_statistics_query   | ×    |
-| end_pipeline_statistics_query     | ×    |
-
-### `Buffer`
-
-| 函数                       | 支持 | 说明 |
-| -------------------------- | ---- | ---- |
-| `size`                     | ✔    |      |
-| `usage`                    | ✔    |      |
-| `as_entire_binding`        | ✔    |      |
-| `as_entire_buffer_binding` | ✔    |      |
-| slice                      | ×    |
-| unmap                      | ×    |
-| destroy                    | ×    |
-
-### `BufferSlice`
-
-| 函数                 | 支持 | 说明 |
-| -------------------- | ---- | ---- |
-| map_async            | ×    |
-| get_mapped_range     | ×    |
-| get_mapped_range_mut | ×    |
+| set_push_constants                | ×    |                                                        |
+| insert_debug_marker               | ×    |                                                        |
+| push_debug_group                  | ×    |                                                        |
+| pop_debug_group                   | ×    |                                                        |
+| draw_indirect                     | ×    |                                                        |
+| draw_indexed_indirect             | ×    |                                                        |
+| execute_bundles                   | ×    |                                                        |
+| multi_draw_indirect               | ×    |                                                        |
+| multi_draw_indexed_indirect       | ×    |                                                        |
+| multi_draw_indirect_count         | ×    |                                                        |
+| multi_draw_indexed_indirect_count | ×    |                                                        |
+| write_timestamp                   | ×    |                                                        |
+| begin_pipeline_statistics_query   | ×    |                                                        |
+| end_pipeline_statistics_query     | ×    |                                                        |
 
 ### `Texture`
 
 | 函数                    | 支持 | 说明 |
 | ----------------------- | ---- | ---- |
 | `create_view`           | ✔    |      |
+| `as_image_copy`         | ✔    |      |
 | `size`                  | ✔    |      |
 | `width`                 | ✔    |      |
 | `height`                | ✔    |      |
@@ -164,6 +145,52 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | `dimension`             | ✔    |      |
 | `format`                | ✔    |      |
 | `usage`                 | ✔    |      |
-| as_image_copy           | ×    |      |
 | as_hal                  | ×    |      |
 | destroy                 | ×    |      |
+
+### `Buffer`
+
+| 函数                       | 支持 | 说明 |
+| -------------------------- | ---- | ---- |
+| `size`                     | ✔    |      |
+| `usage`                    | ✔    |      |
+| `as_entire_binding`        | ✔    |      |
+| `as_entire_buffer_binding` | ✔    |      |
+| slice                      | ×    |      |
+| unmap                      | ×    |      |
+| destroy                    | ×    |      |
+
+### `BufferSlice`
+
+| 函数                 | 支持 | 说明 |
+| -------------------- | ---- | ---- |
+| map_async            | ×    |      |
+| get_mapped_range     | ×    |      |
+| get_mapped_range_mut | ×    |      |
+
+## WebGL 模拟 WebGPU 的 难点
+
+下面的东西，一旦没有，渲染功能就 要写 2套
+
++ 缺少功能: 模拟
+    - VS / FS: 不能指定 layout
+        - **难点**：要找一套 WebGL Shader 的 编译转换工具，`naga`未必支持；
+            * 将 UBO 转成 Uniform；
+            * 去掉 所有的 layout，同时导出成 json文件，供 rust 设置；
+        - rust层，调用WebGL的 getXXXLocation 取 Uniform / Attribute 的 location，建议 layout的 hash-map；
+    - `UBO`：用 uniform 模拟
+    - `Sampler`：用 texture 函数 模拟
++ 缺少功能: 看扩展有没有
+    - float 纹理
+    - 深度 纹理
+    - `VAO`
+    - 几何实例化
+    - 多重采样
+    - 多目标渲染 / drawBuffers
+    - ClearBuffer
+    - FeedBack
+
+## [`iOS` 的 `WebGL` / `WebGL2` 移植](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)
+
++ `WebGL`: iOS 版本 14.0 ~ iOS 15.3, 多个 drawcall 使用不同偏移 来 共享 `VB`/`IB`，性能非常糟糕 ！
++ `WebGL2`: 至少 iOS 版本 >= 15.5 才能开启 ！
