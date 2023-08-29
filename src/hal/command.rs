@@ -28,7 +28,7 @@ use crate::{wgt, Extent3d, LoadOp};
 #[derive(Debug)]
 pub(crate) struct CommandBuffer;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CommandEncoder {
     state: GLState,
 }
@@ -50,7 +50,7 @@ impl CommandEncoder {
     // 绑定 FBO
     // 设 Viewport, Scissor
     // Clear
-    unsafe fn begin_render_pass(&mut self, desc: &crate::RenderPassDescriptor) {
+    pub(crate) unsafe fn begin_render_pass(&mut self, desc: &crate::RenderPassDescriptor) {
         let mut extent: Option<Extent3d> = None;
         desc.color_attachments
             .first()
@@ -240,7 +240,6 @@ impl CommandEncoder {
 
     pub(crate) unsafe fn set_bind_group(
         &mut self,
-        layout: &super::PipelineLayout,
         index: u32,
         group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
@@ -311,144 +310,8 @@ impl CommandEncoder {
         self.rebind_sampler_states(dirty_textures, dirty_samplers);
     }
 
-    pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &crate::RenderPipeline) {
-        let gl = self.gl.context.lock();
-
-        self.state.topology = conv::map_primitive_topology(pipeline.primitive.topology);
-
-        if self
-            .private_caps
-            .contains(super::PrivateCapabilities::VERTEX_BUFFER_LAYOUT)
-        {
-            for vat in pipeline.vertex_attributes.iter() {
-                let vb = &pipeline.vertex_buffers[vat.buffer_index as usize];
-                // set the layout
-                self.cmd_buffer.commands.push(C::SetVertexAttribute {
-                    buffer: None,
-                    buffer_desc: vb.clone(),
-                    attribute_desc: vat.clone(),
-                });
-            }
-        } else {
-            for index in 0..self.state.vertex_attributes.len() {
-                self.cmd_buffer
-                    .commands
-                    .push(C::UnsetVertexAttribute(index as u32));
-            }
-            self.state.vertex_attributes.clear();
-
-            self.state.dirty_vbuf_mask = 0;
-            // copy vertex attributes
-            for vat in pipeline.vertex_attributes.iter() {
-                //Note: we can invalidate more carefully here.
-                self.state.dirty_vbuf_mask |= 1 << vat.buffer_index;
-                self.state.vertex_attributes.push(vat.clone());
-            }
-        }
-
-        self.state.instance_vbuf_mask = 0;
-        // copy vertex state
-        for (index, (&mut (ref mut state_desc, _), pipe_desc)) in self
-            .state
-            .vertex_buffers
-            .iter_mut()
-            .zip(pipeline.vertex_buffers.iter())
-            .enumerate()
-        {
-            if pipe_desc.step == wgt::VertexStepMode::Instance {
-                self.state.instance_vbuf_mask |= 1 << index;
-            }
-            if state_desc != pipe_desc {
-                self.state.dirty_vbuf_mask |= 1 << index;
-                *state_desc = pipe_desc.clone();
-            }
-        }
-
-        self.set_pipeline_inner(&pipeline.inner);
-
-        // set primitive state
-        let prim_state = conv::map_primitive_state(&pipeline.primitive);
-        if prim_state != self.state.primitive {
-            self.cmd_buffer
-                .commands
-                .push(C::SetPrimitive(prim_state.clone()));
-            self.state.primitive = prim_state;
-        }
-
-        // set depth/stencil states
-        let mut aspects = super::FormatAspects::empty();
-        if pipeline.depth_bias != self.state.depth_bias {
-            self.state.depth_bias = pipeline.depth_bias;
-            self.cmd_buffer
-                .commands
-                .push(C::SetDepthBias(pipeline.depth_bias));
-        }
-        if let Some(ref depth) = pipeline.depth {
-            aspects |= super::FormatAspects::DEPTH;
-            self.cmd_buffer.commands.push(C::SetDepth(depth.clone()));
-        }
-        if let Some(ref stencil) = pipeline.stencil {
-            aspects |= super::FormatAspects::STENCIL;
-            self.state.stencil = stencil.clone();
-            self.rebind_stencil_func();
-            if stencil.front.ops == stencil.back.ops
-                && stencil.front.mask_write == stencil.back.mask_write
-            {
-                self.cmd_buffer.commands.push(C::SetStencilOps {
-                    face: glow::FRONT_AND_BACK,
-                    write_mask: stencil.front.mask_write,
-                    ops: stencil.front.ops.clone(),
-                });
-            } else {
-                self.cmd_buffer.commands.push(C::SetStencilOps {
-                    face: glow::FRONT,
-                    write_mask: stencil.front.mask_write,
-                    ops: stencil.front.ops.clone(),
-                });
-                self.cmd_buffer.commands.push(C::SetStencilOps {
-                    face: glow::BACK,
-                    write_mask: stencil.back.mask_write,
-                    ops: stencil.back.ops.clone(),
-                });
-            }
-        }
-        self.cmd_buffer
-            .commands
-            .push(C::ConfigureDepthStencil(aspects));
-
-        // set multisampling state
-        if pipeline.alpha_to_coverage_enabled != self.state.alpha_to_coverage_enabled {
-            self.state.alpha_to_coverage_enabled = pipeline.alpha_to_coverage_enabled;
-            self.cmd_buffer
-                .commands
-                .push(C::SetAlphaToCoverage(pipeline.alpha_to_coverage_enabled));
-        }
-
-        // set blend states
-        if self.state.color_targets[..] != pipeline.color_targets[..] {
-            if pipeline
-                .color_targets
-                .iter()
-                .skip(1)
-                .any(|ct| *ct != pipeline.color_targets[0])
-            {
-                for (index, ct) in pipeline.color_targets.iter().enumerate() {
-                    self.cmd_buffer.commands.push(C::SetColorTarget {
-                        draw_buffer_index: Some(index as u32),
-                        desc: ct.clone(),
-                    });
-                }
-            } else {
-                self.cmd_buffer.commands.push(C::SetColorTarget {
-                    draw_buffer_index: None,
-                    desc: pipeline.color_targets.first().cloned().unwrap_or_default(),
-                });
-            }
-        }
-        self.state.color_targets.clear();
-        for ct in pipeline.color_targets.iter() {
-            self.state.color_targets.push(ct.clone());
-        }
+    pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
+        self.state.set_render_pipeline(pipeline);
     }
 
     pub(crate) unsafe fn set_index_buffer<'a>(
@@ -465,21 +328,26 @@ impl CommandEncoder {
         index: u32,
         binding: crate::BufferBinding<'a>,
     ) {
-        let buffer = binding.buffer.raw.raw;
-
-        self.state.set_vertex_buffer(index, buffer, binding.offset);
+        self.state
+            .set_vertex_buffer(index as usize, &binding.buffer.raw, binding.offset as i32);
     }
 
-    pub(crate) unsafe fn set_viewport(&mut self, rect: &super::Rect<f32>, depth: Range<f32>) {
-        self.state
-            .set_viewport(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+    pub(crate) unsafe fn set_viewport(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        min_depth: f32,
+        max_depth: f32,
+    ) {
+        self.state.set_viewport(x, y, w, h);
 
-        self.state.set_depth_range(depth.start, depth.end);
+        self.state.set_depth_range(min_depth, max_depth);
     }
 
-    pub(crate) unsafe fn set_scissor_rect(&mut self, rect: &super::Rect<u32>) {
-        self.state
-            .set_scissor(rect.x as i32, rect.y as i32, rect.w as i32, rect.h as i32);
+    pub(crate) unsafe fn set_scissor_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        self.state.set_scissor(x, y, w, h);
     }
 
     pub(crate) unsafe fn set_stencil_reference(&mut self, value: u32) {

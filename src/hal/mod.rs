@@ -3,8 +3,8 @@ use thiserror::Error;
 pub mod api;
 
 mod egl_impl;
-mod gles;
 mod gl_state;
+mod gles;
 
 mod instance;
 
@@ -37,24 +37,28 @@ mod pipeline;
 pub use api::*;
 
 pub(crate) use adapter::*;
+pub(crate) use bind_group::*;
+pub(crate) use buffer::*;
+pub(crate) use command::*;
 pub(crate) use device::*;
 pub(crate) use egl_impl::*;
+pub(crate) use fence::*;
+pub(crate) use gl_state::*;
 pub(crate) use gles::*;
 pub(crate) use instance::*;
-pub(crate) use queue::*;
-pub(crate) use surface::*;
-pub(crate) use command::*;
-pub(crate) use buffer::*;
-pub(crate) use texture::*;
-pub(crate) use sampler::*;
-pub(crate) use query_set::*;
-pub(crate) use fence::*;
-pub(crate) use bind_group::*;
-pub(crate) use shader_module::*;
 pub(crate) use pipeline::*;
+pub(crate) use query_set::*;
+pub(crate) use queue::*;
+pub(crate) use sampler::*;
+pub(crate) use shader_module::*;
+pub(crate) use surface::*;
+pub(crate) use texture::*;
 
-
-use std::{ops::{RangeInclusive, Range}, sync::atomic::AtomicBool, ptr::NonNull};
+use std::{
+    ops::{Range, RangeInclusive},
+    ptr::NonNull,
+    sync::atomic::AtomicBool,
+};
 
 use bitflags::bitflags;
 
@@ -84,8 +88,8 @@ pub struct Alignments {
     pub buffer_copy_pitch: wgt::BufferSize,
 }
 
-pub(crate) type MemoryRange = Range<wgt::BufferAddress>;
 pub(crate) type FenceValue = u64;
+pub(crate) type MemoryRange = Range<wgt::BufferAddress>;
 
 pub(crate) const MAX_ANISOTROPY: u8 = 16;
 pub(crate) const MAX_BIND_GROUPS: usize = 8;
@@ -439,7 +443,6 @@ bitflags::bitflags! {
         const ORDERED = Self::INCLUSIVE.bits | Self::MAP_WRITE.bits;
     }
 }
-
 
 bitflags!(
     /// Texture format capability flags.

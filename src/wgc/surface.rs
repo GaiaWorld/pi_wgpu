@@ -14,14 +14,6 @@ pub struct Surface {
     pub(crate) inner: hal::Surface,
 }
 
-impl Drop for Surface {
-    fn drop(&mut self) {
-        unsafe {
-            self.instance.0.destroy_surface(self.inner);
-        }
-    }
-}
-
 impl Surface {
     /// Returns the capabilities of the surface when used with the given adapter.
     ///
@@ -81,20 +73,6 @@ impl Surface {
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
         unimplemented!("Surface::get_current_texture is not implemented")
     }
-
-    /// Returns the inner hal Surface using a callback. The hal surface will be `None` if the
-    /// backend type argument does not match with this wgpu Surface
-    ///
-    /// # Safety
-    ///
-    /// - The raw handle obtained from the hal Surface must not be manually destroyed
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub unsafe fn as_hal_mut<A: hal::HalApi, F: FnOnce(Option<&mut A::Surface>) -> R, R>(
-        &mut self,
-        hal_surface_callback: F,
-    ) -> R {
-        unimplemented!("Surface::as_hal_mut is not implemented")
-    }
 }
 
 /// Surface texture that can be rendered to.
@@ -120,12 +98,6 @@ impl SurfaceTexture {
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
         unimplemented!("SurfaceTexture::present is not implemented")
-    }
-}
-
-impl Drop for SurfaceTexture {
-    fn drop(&mut self) {
-        unimplemented!("SurfaceTexture::drop is not implemented")
     }
 }
 

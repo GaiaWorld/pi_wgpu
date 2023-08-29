@@ -1,6 +1,6 @@
-use crate::{
-   BindGroupLayout, BindingResource, Label,
-};
+use std::sync::Arc;
+
+use crate::{BindGroupLayout, BindingResource, Label};
 
 /// Handle to a binding group.
 ///
@@ -12,12 +12,13 @@ use crate::{
 /// Corresponds to [WebGPU `GPUBindGroup`](https://gpuweb.github.io/gpuweb/#gpubindgroup).
 #[derive(Debug)]
 pub struct BindGroup {
+    pub(crate) inner: crate::hal::BindGroup,
 }
 
-impl Drop for BindGroup {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::BindGroup::drop");
-       
+impl BindGroup {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::BindGroup) -> Self {
+        Self { inner }
     }
 }
 

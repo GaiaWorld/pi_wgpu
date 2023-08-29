@@ -8,11 +8,13 @@ use crate::{BindGroupLayout, Label, PushConstantRange};
 /// Corresponds to [WebGPU `GPUPipelineLayout`](https://gpuweb.github.io/gpuweb/#gpupipelinelayout).
 #[derive(Debug)]
 pub struct PipelineLayout {
+    pub(crate) inner: crate::hal::PipelineLayout,
 }
 
-impl Drop for PipelineLayout {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::PipelineLayout::drop");
+impl PipelineLayout {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::PipelineLayout) -> Self {
+        Self { inner }
     }
 }
 

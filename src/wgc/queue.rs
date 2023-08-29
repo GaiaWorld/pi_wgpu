@@ -1,10 +1,4 @@
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
-
-use crate::{hal, Buffer, BufferAddress, BufferSize, CommandBuffer, Extent3d, ImageDataLayout};
+use crate::{hal, Buffer, BufferAddress, CommandBuffer, Extent3d, ImageDataLayout};
 
 /// Handle to a command queue on a device.
 ///
@@ -13,8 +7,10 @@ use crate::{hal, Buffer, BufferAddress, BufferSize, CommandBuffer, Extent3d, Ima
 /// It can be created along with a [`Device`] by calling [`Adapter::request_device`].
 ///
 /// Corresponds to [WebGPU `GPUQueue`](https://gpuweb.github.io/gpuweb/#gpu-queue).
-#[derive(Debug, Clone)]
-pub struct Queue(pub(crate) Arc<hal::Queue>);
+#[derive(Debug)]
+pub struct Queue {
+    pub(crate) inner: hal::Queue,
+}
 
 impl Queue {
     /// Schedule a data write into `buffer` starting at `offset`.
@@ -26,26 +22,6 @@ impl Queue {
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
         unimplemented!("Queue::write_buffer is not implemented")
-    }
-
-    /// Schedule a data write into `buffer` starting at `offset` via the returned
-    /// [`QueueWriteBufferView`].
-    ///
-    /// Reading from this buffer is slow and will not yield the actual contents of the buffer.
-    ///
-    /// This method is intended to have low performance costs.
-    /// As such, the write is not immediately submitted, and instead enqueued
-    /// internally to happen at the start of the next `submit()` call.
-    ///
-    /// This method fails if `size` is greater than the size of `buffer` starting at `offset`.
-    #[must_use]
-    pub fn write_buffer_with<'a>(
-        &'a self,
-        buffer: &'a Buffer,
-        offset: BufferAddress,
-        size: BufferSize,
-    ) -> Option<QueueWriteBufferView<'a>> {
-        unimplemented!("Queue::write_buffer_with is not implemented")
     }
 
     /// Schedule a write of some data into a texture.
@@ -75,45 +51,12 @@ impl Queue {
         unimplemented!("Queue::write_texture is not implemented")
     }
 
-    /// Schedule a copy of data from `image` into `texture`.
-    #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
-    pub fn copy_external_image_to_texture(
-        &self,
-        source: &crate::wgt::ImageCopyExternalImage,
-        dest: ImageCopyTextureTagged,
-        size: Extent3d,
-    ) {
-        unimplemented!("Queue::copy_external_image_to_texture is not implemented")
-    }
-
     /// Submits a series of finished command buffers for execution.
     pub fn submit<I: IntoIterator<Item = CommandBuffer>>(
         &self,
         command_buffers: I,
     ) -> SubmissionIndex {
-        unimplemented!("Queue::submit is not implemented")
-    }
-
-    /// Gets the amount of nanoseconds each tick of a timestamp query represents.
-    ///
-    /// Returns zero if timestamp queries are unsupported.
-    pub fn get_timestamp_period(&self) -> f32 {
-        unimplemented!("Queue::get_timestamp_period is not implemented")
-    }
-
-    /// Registers a callback when the previous call to submit finishes running on the gpu. This callback
-    /// being called implies that all mapped buffer callbacks attached to the same submission have also
-    /// been called.
-    ///
-    /// For the callback to complete, either `queue.submit(..)`, `instance.poll_all(..)`, or `device.poll(..)`
-    /// must be called elsewhere in the runtime, possibly integrated into an event loop or run on a separate thread.
-    ///
-    /// The callback will be called on the thread that first calls the above functions after the gpu work
-    /// has completed. There are no restrictions on the code you can run in the callback, however on native the
-    /// call to the function will not complete until the callback returns, so prefer keeping callbacks short
-    /// and used to set flags, send messages, etc.
-    pub fn on_submitted_work_done(&self, callback: impl FnOnce() + Send + 'static) {
-        unimplemented!("Queue::on_submitted_work_done is not implemented")
+        SubmissionIndex
     }
 }
 
@@ -124,39 +67,4 @@ impl Queue {
 /// This type is unique to the Rust API of `wgpu`.
 /// There is no analogue in the WebGPU specification.
 #[derive(Debug, Clone)]
-pub struct SubmissionIndex(Arc<crate::Data>);
-
-/// A read-only view into a staging buffer.
-///
-/// Reading into this buffer won't yield the contents of the buffer from the
-/// GPU and is likely to be slow. Because of this, although [`AsMut`] is
-/// implemented for this type, [`AsRef`] is not.
-pub struct QueueWriteBufferView<'a> {
-    _data: PhantomData<&'a ()>,
-}
-
-impl Deref for QueueWriteBufferView<'_> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        unimplemented!("QueueWriteBufferView::deref is not implemented")
-    }
-}
-
-impl DerefMut for QueueWriteBufferView<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unimplemented!("QueueWriteBufferView::deref_mut is not implemented")
-    }
-}
-
-impl<'a> AsMut<[u8]> for QueueWriteBufferView<'a> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        unimplemented!("QueueWriteBufferView::as_mut is not implemented")
-    }
-}
-
-impl<'a> Drop for QueueWriteBufferView<'a> {
-    fn drop(&mut self) {
-        unimplemented!("QueueWriteBufferView::drop is not implemented")
-    }
-}
+pub struct SubmissionIndex;

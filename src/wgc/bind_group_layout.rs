@@ -59,11 +59,13 @@ pub enum BindingResource<'a> {
 /// https://gpuweb.github.io/gpuweb/#gpubindgrouplayout).
 #[derive(Debug)]
 pub struct BindGroupLayout {
+    pub(crate) inner: crate::hal::BindGroupLayout,
 }
 
-impl Drop for BindGroupLayout {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::BindGroupLayout::drop");
+impl BindGroupLayout {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::BindGroupLayout) -> Self {
+        Self { inner }
     }
 }
 

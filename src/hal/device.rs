@@ -21,19 +21,9 @@ pub(crate) struct OpenDevice<A: hal::Api> {
 }
 
 impl Device {
-    pub(crate) unsafe fn exit(self, queue: super::Queue) {
-        let gl = &self.shared.context.lock();
-
-        unsafe { gl.delete_vertex_array(self.main_vao) };
-
-        // unsafe { gl.delete_framebuffer(queue.draw_fbo) };
-        // unsafe { gl.delete_framebuffer(queue.copy_fbo) };
-        // unsafe { gl.delete_buffer(queue.zero_buffer) };
-    }
-
     pub(crate) unsafe fn create_buffer(
         &self,
-        desc: &super::BufferDescriptor,
+        desc: &crate::BufferDescriptor,
     ) -> Result<super::Buffer, super::DeviceError> {
         let target = if desc.usage.contains(super::BufferUses::INDEX) {
             glow::ELEMENT_ARRAY_BUFFER
@@ -147,39 +137,6 @@ impl Device {
             map_flags,
             data,
         })
-    }
-
-    pub(crate) unsafe fn destroy_buffer(&self, buffer: super::Buffer) {
-        if let Some(raw) = buffer.raw {
-            let gl = &self.shared.context.lock();
-            unsafe { gl.delete_buffer(raw) };
-        }
-    }
-
-    pub(crate) unsafe fn map_buffer(
-        &self,
-        buffer: &super::Buffer,
-        range: MemoryRange,
-    ) -> Result<super::BufferMapping, super::DeviceError> {
-        unimplemented!("hal::Device::map_buffer isn't impl!")
-    }
-
-    pub(crate) unsafe fn unmap_buffer(
-        &self,
-        buffer: &super::Buffer,
-    ) -> Result<(), super::DeviceError> {
-        unimplemented!("hal::Device::unmap_buffer isn't impl!")
-    }
-
-    pub(crate) unsafe fn flush_mapped_ranges<I>(&self, buffer: &super::Buffer, ranges: I)
-    where
-        I: Iterator<Item = super::MemoryRange>,
-    {
-        unimplemented!("hal::Device::flush_mapped_ranges isn't impl!")
-    }
-
-    pub(crate) unsafe fn invalidate_mapped_ranges<I>(&self, _buffer: &super::Buffer, _ranges: I) {
-        unimplemented!("hal::Device::invalidate_mapped_ranges isn't impl!")
     }
 
     pub(crate) unsafe fn create_texture(
@@ -321,31 +278,10 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_texture(&self, texture: super::Texture) {
-        if texture.drop_guard.is_none() {
-            let gl = &self.shared.context.lock();
-            match texture.inner {
-                super::TextureInner::Renderbuffer { raw, .. } => {
-                    unsafe { gl.delete_renderbuffer(raw) };
-                }
-                super::TextureInner::DefaultRenderbuffer => {}
-                super::TextureInner::Texture { raw, .. } => {
-                    unsafe { gl.delete_texture(raw) };
-                }
-                #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-                super::TextureInner::ExternalFramebuffer { .. } => {}
-            }
-        }
-
-        // For clarity, we explicitly drop the drop guard. Although this has no real semantic effect as the
-        // end of the scope will drop the drop guard since this function takes ownership of the texture.
-        drop(texture.drop_guard);
-    }
-
     pub(crate) unsafe fn create_texture_view(
         &self,
         texture: &super::Texture,
-        desc: &TextureViewDescriptor,
+        desc: &crate::TextureViewDescriptor,
     ) -> Result<super::TextureView, super::DeviceError> {
         let end_array_layer = match desc.range.array_layer_count {
             Some(count) => desc.range.base_array_layer + count.get(),
@@ -365,8 +301,6 @@ impl Device {
             format: texture.format,
         })
     }
-
-    pub(crate) unsafe fn destroy_texture_view(&self, _view: super::TextureView) {}
 
     pub(crate) unsafe fn create_sampler(
         &self,
@@ -456,14 +390,9 @@ impl Device {
         Ok(super::Sampler { raw })
     }
 
-    pub(crate) unsafe fn destroy_sampler(&self, sampler: super::Sampler) {
-        let gl = &self.shared.context.lock();
-        unsafe { gl.delete_sampler(sampler.raw) };
-    }
-
     pub(crate) unsafe fn create_command_encoder(
         &self,
-        _desc: &CommandEncoderDescriptor<super::Api>,
+        _desc: &crate::CommandEncoderDescriptor,
     ) -> Result<super::CommandEncoder, super::DeviceError> {
         Ok(super::CommandEncoder {
             cmd_buffer: super::CommandBuffer::default(),
@@ -471,8 +400,6 @@ impl Device {
             private_caps: self.shared.private_caps,
         })
     }
-
-    pub(crate) unsafe fn destroy_command_encoder(&self, _encoder: super::CommandEncoder) {}
 
     pub(crate) unsafe fn create_bind_group_layout(
         &self,
@@ -483,11 +410,9 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_bind_group_layout(&self, _bg_layout: super::BindGroupLayout) {}
-
     pub(crate) unsafe fn create_pipeline_layout(
         &self,
-        desc: &PipelineLayoutDescriptor<super::Api>,
+        desc: &crate::PipelineLayoutDescriptor,
     ) -> Result<super::PipelineLayout, super::DeviceError> {
         use naga::back::glsl;
 
@@ -559,12 +484,10 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_pipeline_layout(&self, _pipeline_layout: super::PipelineLayout) {}
-
     pub(crate) unsafe fn create_bind_group(
         &self,
-        desc: &BindGroupDescriptor<super::Api>,
-    ) -> Result<super::BindGroup, DeviceError> {
+        desc: &crate::BindGroupDescriptor,
+    ) -> Result<super::BindGroup, crate::DeviceError> {
         let mut contents = Vec::new();
 
         for (entry, layout) in desc.entries.iter().zip(desc.layout.entries.iter()) {
@@ -622,12 +545,9 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_bind_group(&self, _group: super::BindGroup) {}
-
     pub(crate) unsafe fn create_shader_module(
         &self,
-        desc: &ShaderModuleDescriptor,
-        shader: ShaderInput,
+        desc: &crate::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
         Ok(super::ShaderModule {
             naga: match shader {
@@ -641,11 +561,9 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_shader_module(&self, _module: super::ShaderModule) {}
-
     pub(crate) unsafe fn create_render_pipeline(
         &self,
-        desc: &RenderPipelineDescriptor<super::Api>,
+        desc: &crate::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
         let gl = &self.shared.context.lock();
         let mut shaders = ArrayVec::new();
@@ -713,74 +631,23 @@ impl Device {
         })
     }
 
-    pub(crate) unsafe fn destroy_render_pipeline(&self, pipeline: super::RenderPipeline) {
-        let mut program_cache = self.shared.program_cache.lock();
-        // If the pipeline only has 2 strong references remaining, they're `pipeline` and `program_cache`
-        // This is safe to assume as long as:
-        // - `RenderPipeline` can't be cloned
-        // - The only place that we can get a new reference is during `program_cache.lock()`
-        if Arc::strong_count(&pipeline.inner) == 2 {
-            program_cache.retain(|_, v| match *v {
-                Ok(ref p) => p.program != pipeline.inner.program,
-                Err(_) => false,
-            });
-            let gl = &self.shared.context.lock();
-            unsafe { gl.delete_program(pipeline.inner.program) };
-        }
-    }
+    pub(crate) unsafe fn destroy_command_encoder(&self, _encoder: super::CommandEncoder) {}
 
-    unsafe fn create_compute_pipeline(
-        &self,
-        desc: &ComputePipelineDescriptor<super::Api>,
-    ) -> Result<super::ComputePipeline, super::PipelineError> {
-        unimplemented!("hal::Device::create_compute_pipeline isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_buffer(&self, _buffer: super::Buffer) {}
 
-    pub(crate) unsafe fn destroy_compute_pipeline(&self, pipeline: super::ComputePipeline) {
-        unimplemented!("hal::Device::destroy_compute_pipeline isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_texture(&self, _texture: super::Texture) {}
 
-    #[cfg_attr(target_arch = "wasm32", allow(unused))]
-    pub(crate) unsafe fn create_query_set(
-        &self,
-        desc: &wgt::QuerySetDescriptor<Label>,
-    ) -> Result<super::QuerySet, super::DeviceError> {
-        unimplemented!("hal::Device::create_query_set isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_texture_view(&self, _view: super::TextureView) {}
 
-    pub(crate) unsafe fn destroy_query_set(&self, set: super::QuerySet) {
-        unimplemented!("hal::Device::destroy_query_set isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_sampler(&self, _sampler: super::Sampler) {}
 
-    pub(crate) unsafe fn create_fence(&self) -> Result<super::Fence, super::DeviceError> {
-        unimplemented!("hal::Device::create_fence isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_bind_group_layout(&self, _bg_layout: super::BindGroupLayout) {}
 
-    pub(crate) unsafe fn destroy_fence(&self, fence: super::Fence) {
-        unimplemented!("hal::Device::destroy_fence isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_bind_group(&self, _group: super::BindGroup) {}
 
-    pub(crate) unsafe fn get_fence_value(
-        &self,
-        fence: &super::Fence,
-    ) -> Result<super::FenceValue, super::DeviceError> {
-        unimplemented!("hal::Device::get_fence_value isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_shader_module(&self, _module: super::ShaderModule) {}
 
-    pub(crate) unsafe fn wait(
-        &self,
-        fence: &super::Fence,
-        wait_value: super::FenceValue,
-        timeout_ms: u32,
-    ) -> Result<bool, super::DeviceError> {
-        unimplemented!("hal::Device::wait isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_pipeline_layout(&self, _pipeline_layout: super::PipelineLayout) {}
 
-    pub(crate) unsafe fn start_capture(&self) -> bool {
-        unimplemented!("hal::Device::start_capture isn't impl!")
-    }
-
-    pub(crate) unsafe fn stop_capture(&self) {
-        unimplemented!("hal::Device::stop_capture isn't impl!")
-    }
+    pub(crate) unsafe fn destroy_render_pipeline(&self, _pipeline: super::RenderPipeline) {}
 }

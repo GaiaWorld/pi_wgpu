@@ -34,7 +34,6 @@ enum RawBinding {
     Texture {
         raw: glow::Texture,
         target: super::BindTarget,
-        //TODO: mip levels, array layers
     },
     Image(ImageBinding),
     Sampler(glow::Sampler),

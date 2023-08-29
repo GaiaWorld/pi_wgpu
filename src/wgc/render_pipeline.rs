@@ -1,6 +1,7 @@
 use crate::{
-    BindGroupLayout, BufferAddress, ColorTargetState, DepthStencilState, Label, MultisampleState,
-    PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute, VertexStepMode,
+    hal, BindGroupLayout, BufferAddress, ColorTargetState, DepthStencilState, Label,
+    MultisampleState, PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute,
+    VertexStepMode,
 };
 use std::num::NonZeroU32;
 
@@ -11,11 +12,14 @@ use std::num::NonZeroU32;
 ///
 /// Corresponds to [WebGPU `GPURenderPipeline`](https://gpuweb.github.io/gpuweb/#render-pipeline).
 #[derive(Debug)]
-pub struct RenderPipeline {}
+pub struct RenderPipeline {
+    pub(crate) inner: hal::RenderPipeline,
+}
 
-impl Drop for RenderPipeline {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::RenderPipeline::drop");
+impl RenderPipeline {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::RenderPipeline) -> Self {
+        Self { inner }
     }
 }
 

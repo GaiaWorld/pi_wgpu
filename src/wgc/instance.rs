@@ -62,35 +62,6 @@ impl Instance {
         Self(Arc::new(imp))
     }
 
-    /// Create an new instance of wgpu from a wgpu-hal instance.
-    ///
-    /// # Arguments
-    ///
-    /// - `hal_instance` - wgpu-hal instance.
-    ///
-    /// # Safety
-    ///
-    /// Refer to the creation of wgpu-hal Instance for every backend.
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub unsafe fn from_hal<A: crate::HalApi>(hal_instance: A::Instance) -> Self {
-        unimplemented!("Instance::from_hal is not implemented")
-    }
-
-    /// Return a reference to a specific backend instance, if available.
-    ///
-    /// If this `Instance` has a wgpu-hal [`Instance`] for backend
-    /// `A`, return a reference to it. Otherwise, return `None`.
-    ///
-    /// # Safety
-    ///
-    /// - The raw instance handle returned must not be manually destroyed.
-    ///
-    /// [`Instance`]: crate::wgpu_Api::Instance
-    #[cfg(any(not(target_arch = "wasm32"), feature = "webgl"))]
-    pub unsafe fn as_hal<A: crate::HalApi>(&self) -> Option<&A::Instance> {
-        unimplemented!("Instance::as_hal is not implemented")
-    }
-
     /// Retrieves all available [`Adapter`]s that match the given [`Backends`].
     ///
     /// # Arguments
@@ -190,19 +161,6 @@ impl Instance {
         return ready(None);
     }
 
-    /// Converts a wgpu-hal `ExposedAdapter` to a wgpu [`Adapter`].
-    ///
-    /// # Safety
-    ///
-    /// `hal_adapter` must be created from this instance internal handle.
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub unsafe fn create_adapter_from_hal<A: crate::HalApi>(
-        &self,
-        hal_adapter: crate::ExposedAdapter<A>,
-    ) -> crate::Adapter {
-        unimplemented!("Instance::create_adapter_from_hal is not implemented")
-    }
-
     /// Creates a surface from a raw window handle.
     ///
     /// If the specified display and window handle are not supported by any of the backends, then the surface
@@ -240,105 +198,5 @@ impl Instance {
             inner: raw.unwrap(),
             instance: self.clone(),
         })
-    }
-
-    /// Creates a surface from `CoreAnimationLayer`.
-    ///
-    /// # Safety
-    ///
-    /// - layer must be a valid object to create a surface upon.
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
-    pub unsafe fn create_surface_from_core_animation_layer(
-        &self,
-        layer: *mut std::ffi::c_void,
-    ) -> Surface {
-        unimplemented!("Instance::create_surface_from_core_animation_layer is not implemented")
-    }
-
-    /// Creates a surface from `IDCompositionVisual`.
-    ///
-    /// # Safety
-    ///
-    /// - visual must be a valid IDCompositionVisual to create a surface upon.
-    #[cfg(target_os = "windows")]
-    pub unsafe fn create_surface_from_visual(&self, visual: *mut std::ffi::c_void) -> Surface {
-        profiling::scope!("Instance::create_surface_from_visual");
-
-        unimplemented!("Instance::create_surface_from_visual is not implemented")
-    }
-
-    /// Creates a surface from `SurfaceHandle`.
-    ///
-    /// # Safety
-    ///
-    /// - surface_handle must be a valid SurfaceHandle to create a surface upon.
-    #[cfg(target_os = "windows")]
-    pub unsafe fn create_surface_from_surface_handle(
-        &self,
-        surface_handle: *mut std::ffi::c_void,
-    ) -> Surface {
-        profiling::scope!("Instance::create_surface_from_surface_handle");
-
-        unimplemented!("Instance::create_surface_from_surface_handle is not implemented")
-    }
-
-    /// Creates a surface from a `web_sys::HtmlCanvasElement`.
-    ///
-    /// The `canvas` argument must be a valid `<canvas>` element to
-    /// create a surface upon.
-    ///
-    /// # Errors
-    ///
-    /// - On WebGL2: Will return an error if the browser does not support WebGL2,
-    ///   or declines to provide GPU access (such as due to a resource shortage).
-    #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
-    pub fn create_surface_from_canvas(
-        &self,
-        canvas: &web_sys::HtmlCanvasElement,
-    ) -> Result<Surface, CreateSurfaceError> {
-        profiling::scope!("Instance::create_surface_from_canvas");
-
-        unimplemented!("Instance::create_surface_from_canvas is not implemented")
-    }
-
-    /// Creates a surface from a `web_sys::OffscreenCanvas`.
-    ///
-    /// The `canvas` argument must be a valid `OffscreenCanvas` object
-    /// to create a surface upon.
-    ///
-    /// # Errors
-    ///
-    /// - On WebGL2: Will return an error if the browser does not support WebGL2,
-    ///   or declines to provide GPU access (such as due to a resource shortage).
-    #[cfg(all(target_arch = "wasm32", not(feature = "emscripten")))]
-    pub fn create_surface_from_offscreen_canvas(
-        &self,
-        canvas: &web_sys::OffscreenCanvas,
-    ) -> Result<Surface, CreateSurfaceError> {
-        profiling::scope!("Instance::create_surface_from_offscreen_canvas");
-
-        unimplemented!("Instance::create_surface_from_offscreen_canvas is not implemented")
-    }
-
-    /// Polls all devices.
-    ///
-    /// If `force_wait` is true and this is not running on the web, then this
-    /// function will block until all in-flight buffers have been mapped and
-    /// all submitted commands have finished execution.
-    ///
-    /// Return `true` if all devices' queues are empty, or `false` if there are
-    /// queue submissions still in flight. (Note that, unless access to all
-    /// [`Queue`s] associated with this [`Instance`] is coordinated somehow,
-    /// this information could be out of date by the time the caller receives
-    /// it. `Queue`s can be shared between threads, and other threads could
-    /// submit new work at any time.)
-    ///
-    /// On the web, this is a no-op. `Device`s are automatically polled.
-    ///
-    /// [`Queue`s]: Queue
-    pub fn poll_all(&self, force_wait: bool) -> bool {
-        profiling::scope!("Instance::poll_all");
-
-        unimplemented!("Instance::poll_all is not implemented")
     }
 }

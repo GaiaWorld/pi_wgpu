@@ -27,12 +27,6 @@ pub type RequestAdapterOptions<'a> = RequestAdapterOptionsBase<&'a Surface>;
 #[derive(Debug)]
 pub struct Adapter(pub(crate) Arc<hal::Adapter>);
 
-impl Drop for Adapter {
-    fn drop(&mut self) {
-        unimplemented!("Adapter::drop is not implemented")
-    }
-}
-
 impl Adapter {
     /// Requests a connection to a physical device, creating a logical device.
     ///
@@ -59,49 +53,6 @@ impl Adapter {
 
         use futures::future::FutureExt;
         async { Err(RequestDeviceError) }.boxed()
-    }
-
-    /// Create a wgpu [`Device`] and [`Queue`] from a wgpu-hal `OpenDevice`
-    ///
-    /// # Safety
-    ///
-    /// - `hal_device` must be created from this adapter internal handle.
-    /// - `desc.features` must be a subset of `hal_device` features.
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub unsafe fn create_device_from_hal<A: HalApi>(
-        &self,
-        hal_device: hal::OpenDevice<A>,
-        desc: &DeviceDescriptor,
-        trace_path: Option<&std::path::Path>,
-    ) -> Result<(Device, Queue), RequestDeviceError> {
-        unimplemented!("Adapter::create_device_from_hal is not implemented")
-    }
-
-    /// Apply a callback to this `Adapter`'s underlying backend adapter.
-    ///
-    /// If this `Adapter` is implemented by the backend API given by `A` (Vulkan,
-    /// Dx12, etc.), then apply `hal_adapter_callback` to `Some(&adapter)`, where
-    /// `adapter` is the underlying backend adapter type, [`A::Adapter`].
-    ///
-    /// If this `Adapter` uses a different backend, apply `hal_adapter_callback`
-    /// to `None`.
-    ///
-    /// The adapter is locked for reading while `hal_adapter_callback` runs. If
-    /// the callback attempts to perform any `wgpu` operations that require
-    /// write access to the adapter, deadlock will occur. The locks are
-    /// automatically released when the callback returns.
-    ///
-    /// # Safety
-    ///
-    /// - The raw handle passed to the callback must not be manually destroyed.
-    ///
-    /// [`A::Adapter`]: wgpu_hal::Api::Adapter
-    #[cfg(any(not(target_arch = "wasm32"), feature = "webgl"))]
-    pub unsafe fn as_hal<A: HalApi, F: FnOnce(Option<&A::Adapter>) -> R, R>(
-        &self,
-        hal_adapter_callback: F,
-    ) -> R {
-        unimplemented!("Adapter::as_hal is not implemented")
     }
 
     /// Returns whether this adapter may present to the passed surface.
@@ -141,31 +92,6 @@ impl Adapter {
     /// To disable these restrictions on a device, request the [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] feature.
     pub fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
         unimplemented!("Adapter::get_texture_format_features is not implemented")
-    }
-
-    /// Generates a timestamp using the clock used by the presentation engine.
-    ///
-    /// When comparing completely opaque timestamp systems, we need a way of generating timestamps that signal
-    /// the exact same time. You can do this by calling your own timestamp function immediately after a call to
-    /// this function. This should result in timestamps that are 0.5 to 5 microseconds apart. There are locks
-    /// that must be taken during the call, so don't call your function before.
-    ///
-    /// ```no_run
-    /// # let adapter: wgpu::Adapter = panic!();
-    /// # let some_code = || wgpu::PresentationTimestamp::INVALID_TIMESTAMP;
-    /// use std::time::{Duration, Instant};
-    /// let presentation = adapter.get_presentation_timestamp();
-    /// let instant = Instant::now();
-    ///
-    /// // We can now turn a new presentation timestamp into an Instant.
-    /// let some_pres_timestamp = some_code();
-    /// let duration = Duration::from_nanos((some_pres_timestamp.0 - presentation.0) as u64);
-    /// let new_instant: Instant = instant + duration;
-    /// ```
-    //
-    /// [Instant]: std::time::Instant
-    pub fn get_presentation_timestamp(&self) -> PresentationTimestamp {
-        unimplemented!("Adapter::get_presentation_timestamp is not implemented")
     }
 }
 

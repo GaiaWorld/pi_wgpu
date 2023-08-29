@@ -30,37 +30,42 @@ pub(crate) struct ColorTargetDesc {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AttributeDesc {
-    location: u32,
-    offset: u32,
-    buffer_index: u32,
-    format_desc: VertexFormatDesc,
+    pub(crate) location: u32,
+    pub(crate) offset: u32,
+    pub(crate) buffer_index: u32,
+    pub(crate) format_desc: VertexFormatDesc,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BlendComponent {
-    src: u32,
-    dst: u32,
-    equation: u32,
+    pub(crate) src: u32,
+    pub(crate) dst: u32,
+    pub(crate) equation: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BlendDesc {
-    alpha: BlendComponent,
-    color: BlendComponent,
+    pub(crate) alpha: BlendComponent,
+    pub(crate) color: BlendComponent,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct VertexFormatDesc {
-    element_count: i32,
-    element_format: u32,
-    attrib_kind: VertexAttribKind,
+    pub(crate) element_count: i32,
+    pub(crate) element_format: u32,
+    pub(crate) attrib_kind: VertexAttribKind,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub(crate) enum VertexAttribKind {
-    Float, // glVertexAttribPointer
+    Float,   // glVertexAttribPointer
     Integer, // glVertexAttribIPointer
-           //Double,  // glVertexAttribLPointer
+}
+
+impl Default for VertexAttribKind {
+    fn default() -> Self {
+        Self::Float
+    }
 }
 
 bitflags::bitflags! {

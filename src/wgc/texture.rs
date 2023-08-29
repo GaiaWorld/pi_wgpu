@@ -15,35 +15,17 @@ pub struct Texture {
     pub(crate) inner: hal::Texture,
 }
 
-impl Drop for Texture {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::Texture::drop");
+impl Texture {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::Texture) -> Self {
+        Self { inner }
     }
 }
 
 impl Texture {
-    /// Returns the inner hal Texture using a callback. The hal texture will be `None` if the
-    /// backend type argument does not match with this wgpu Texture
-    ///
-    /// # Safety
-    ///
-    /// - The raw handle obtained from the hal Texture must not be manually destroyed
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub unsafe fn as_hal<A: hal::HalApi, F: FnOnce(Option<&A::Texture>)>(
-        &self,
-        hal_texture_callback: F,
-    ) {
-        unimplemented!("Texture::as_hal is not implemented")
-    }
-
     /// Creates a view of this texture.
     pub fn create_view(&self, desc: &TextureViewDescriptor) -> TextureView {
         unimplemented!("Texture::create_view is not implemented")
-    }
-
-    /// Destroy the associated native resources as soon as possible.
-    pub fn destroy(&self) {
-        unimplemented!("Texture::destroy is not implemented")
     }
 
     /// Make an `ImageCopyTexture` representing the whole texture.
@@ -123,15 +105,7 @@ impl Texture {
 /// Corresponds to [WebGPU `GPUTextureView`](https://gpuweb.github.io/gpuweb/#gputextureview).
 #[derive(Debug)]
 pub struct TextureView {
-    pub(crate) render_extent: wgt::Extent3d,
-    
     pub(crate) inner: hal::TextureView,
-}
-
-impl Drop for TextureView {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::TextureView::drop");
-    }
 }
 
 /// Describes a [`TextureView`].

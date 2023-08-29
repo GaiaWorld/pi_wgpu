@@ -4,6 +4,9 @@ use crate::wgt;
 
 use super::{CopyExtent, TextureFormatDesc};
 
+pub(crate) type ShaderID = u64;
+pub(crate) type TextureID = u64;
+
 #[derive(Debug)]
 pub(crate) struct Texture {
     pub inner: TextureInner,

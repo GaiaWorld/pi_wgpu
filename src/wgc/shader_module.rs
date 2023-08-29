@@ -2,7 +2,7 @@ use std::{borrow::Cow, marker::PhantomData};
 
 use thiserror::Error;
 
-use crate::{Label, MissingFeatures, DeviceError};
+use crate::{DeviceError, Label, MissingFeatures};
 
 /// Handle to a compiled shader module.
 ///
@@ -14,11 +14,13 @@ use crate::{Label, MissingFeatures, DeviceError};
 /// Corresponds to [WebGPU `GPUShaderModule`](https://gpuweb.github.io/gpuweb/#shader-module).
 #[derive(Debug)]
 pub struct ShaderModule {
+    pub(crate) inner: crate::hal::ShaderModule,
 }
 
-impl Drop for ShaderModule {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::ShaderModule::drop");
+impl ShaderModule {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::ShaderModule) -> Self {
+        Self { inner }
     }
 }
 

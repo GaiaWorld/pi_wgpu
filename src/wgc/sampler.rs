@@ -12,11 +12,13 @@ use std::num::NonZeroU8;
 /// Corresponds to [WebGPU `GPUSampler`](https://gpuweb.github.io/gpuweb/#sampler-interface).
 #[derive(Debug)]
 pub struct Sampler {
+    pub(crate) inner: crate::hal::Sampler,
 }
 
-impl Drop for Sampler {
-    fn drop(&mut self) {
-        profiling::scope!("wgc::Sampler::drop");
+impl Sampler {
+    #[inline]
+    pub(crate) fn from_hal(inner: crate::hal::Sampler) -> Self {
+        Self { inner }
     }
 }
 

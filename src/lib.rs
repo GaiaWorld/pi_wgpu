@@ -111,18 +111,4 @@ impl std::fmt::Display for Error {
     }
 }
 
-/// Filter for error scopes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
-pub enum ErrorFilter {
-    /// Catch only out-of-memory errors.
-    OutOfMemory,
-    /// Catch only validation errors.
-    Validation,
-}
-
-/// Type for the callback of uncaptured error handler
-pub trait UncapturedErrorHandler: Fn(Error) + Send + 'static {}
-
-impl<T> UncapturedErrorHandler for T where T: Fn(Error) + Send + 'static {}
-
 pub(crate) type Data = dyn Any + Send + Sync;

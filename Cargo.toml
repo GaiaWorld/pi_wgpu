@@ -14,12 +14,15 @@ wgsl = []
 gl = ["naga/glsl-out"]
 
 [dependencies]
+pi_share = "0.4"
+
 log = "0.4"
 futures = "0.3"
 arrayvec = "0.7"
 bitflags = "1"
 thiserror = "1.0"
 twox-hash = "1.6"
+ordered-float = "3.9"
 parking_lot = "0.12"
 codespan-reporting = "0.11"
 raw-window-handle = "0.5"

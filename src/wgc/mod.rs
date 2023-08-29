@@ -17,10 +17,6 @@ mod texture;
 
 mod sampler;
 
-mod query_set;
-
-mod compute_pipeline;
-
 mod shader_module;
 
 mod bind_group;
@@ -41,12 +37,10 @@ pub use buffer::*;
 pub use sampler::*;
 pub use texture::*;
 
-pub use query_set::*;
 pub use shader_module::*;
 
 pub use bind_group::*;
 pub use bind_group_layout::*;
 pub use pipeline_layout::*;
 
-pub use compute_pipeline::*;
 pub use render_pipeline::*;
