@@ -13,22 +13,43 @@ use crate::{
 #[derive(Debug)]
 pub struct Texture {
     pub(crate) inner: hal::Texture,
+
+    pub size: Extent3d,
+    /// Mip count of texture. For a texture with no extra mips, this must be 1.
+    pub mip_level_count: u32,
+    /// Sample count of texture. If this is not 1, texture must have [`BindingType::Texture::multisampled`] set to true.
+    pub sample_count: u32,
+    /// Dimensions of the texture.
+    pub dimension: TextureDimension,
+    /// Format of the texture.
+    pub format: TextureFormat,
+    /// Allowed usages of the texture. If used in other ways, the operation will panic.
+    pub usage: TextureUsages,
+    /// Specifies what view formats will be allowed when calling create_view() on this texture.
+    ///
+    /// View formats of the same format as the texture are always allowed.
+    ///
+    /// Note: currently, only the srgb-ness is allowed to change. (ex: Rgba8Unorm texture + Rgba8UnormSrgb view)
+    pub view_formats: V,
 }
 
 impl Texture {
     #[inline]
-    pub(crate) fn from_hal(inner: crate::hal::Texture) -> Self {
+    pub(crate) fn from_hal(inner: crate::hal::Texture, desc: &crate::TextureDescriptor) -> Self {
         Self { inner }
     }
 }
 
 impl Texture {
     /// Creates a view of this texture.
+    #[inline]
     pub fn create_view(&self, desc: &TextureViewDescriptor) -> TextureView {
-        unimplemented!("Texture::create_view is not implemented")
+        let inner = hal::TextureView::new(&self.inner, desc).unwrap();
+        TextureView { inner }
     }
 
     /// Make an `ImageCopyTexture` representing the whole texture.
+    #[inline]
     pub fn as_image_copy(&self) -> ImageCopyTexture {
         unimplemented!("Texture::as_image_copy is not implemented")
     }
@@ -36,20 +57,23 @@ impl Texture {
     /// Returns the size of this `Texture`.
     ///
     /// This is always equal to the `size` that was specified when creating the texture.
+    #[inline]
     pub fn size(&self) -> Extent3d {
-        unimplemented!("Texture::size is not implemented")
+        self.inner.copy_size
     }
 
     /// Returns the width of this `Texture`.
     ///
     /// This is always equal to the `size.width` that was specified when creating the texture.
+    #[inline]
     pub fn width(&self) -> u32 {
-        unimplemented!("Texture::width is not implemented")
+        todo!("Texture::width is not implemented")
     }
 
     /// Returns the height of this `Texture`.
     ///
     /// This is always equal to the `size.height` that was specified when creating the texture.
+    #[inline]
     pub fn height(&self) -> u32 {
         unimplemented!("Texture::height is not implemented")
     }
@@ -57,6 +81,7 @@ impl Texture {
     /// Returns the depth or layer count of this `Texture`.
     ///
     /// This is always equal to the `size.depth_or_array_layers` that was specified when creating the texture.
+    #[inline]
     pub fn depth_or_array_layers(&self) -> u32 {
         unimplemented!("Texture::depth_or_array_layers is not implemented")
     }
@@ -64,6 +89,7 @@ impl Texture {
     /// Returns the mip_level_count of this `Texture`.
     ///
     /// This is always equal to the `mip_level_count` that was specified when creating the texture.
+    #[inline]
     pub fn mip_level_count(&self) -> u32 {
         unimplemented!("Texture::mip_level_count is not implemented")
     }
@@ -71,6 +97,7 @@ impl Texture {
     /// Returns the sample_count of this `Texture`.
     ///
     /// This is always equal to the `sample_count` that was specified when creating the texture.
+    #[inline]
     pub fn sample_count(&self) -> u32 {
         unimplemented!("Texture::sample_count is not implemented")
     }
@@ -78,6 +105,7 @@ impl Texture {
     /// Returns the dimension of this `Texture`.
     ///
     /// This is always equal to the `dimension` that was specified when creating the texture.
+    #[inline]
     pub fn dimension(&self) -> TextureDimension {
         unimplemented!("Texture::dimension is not implemented")
     }
@@ -85,6 +113,7 @@ impl Texture {
     /// Returns the format of this `Texture`.
     ///
     /// This is always equal to the `format` that was specified when creating the texture.
+    #[inline]
     pub fn format(&self) -> TextureFormat {
         unimplemented!("Texture::format is not implemented")
     }
@@ -92,6 +121,7 @@ impl Texture {
     /// Returns the allowed usages of this `Texture`.
     ///
     /// This is always equal to the `usage` that was specified when creating the texture.
+    #[inline]
     pub fn usage(&self) -> TextureUsages {
         unimplemented!("Texture::usage is not implemented")
     }

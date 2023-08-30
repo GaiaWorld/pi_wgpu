@@ -1,9 +1,10 @@
 use thiserror::Error;
 
 use crate::{
-    wgt, BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, Buffer, CommandEncoder, Label,
-    PipelineLayout, PipelineLayoutDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, SubmissionIndex, Texture,
+    wgt, BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, Buffer, BufferUsages,
+    CommandEncoder, Label, PipelineLayout, PipelineLayoutDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, Sampler, SamplerDescriptor, ShaderModule, ShaderModuleDescriptor,
+    SubmissionIndex, Texture, TextureUsages,
 };
 
 /// Open connection to a graphics and/or compute device.
@@ -91,6 +92,36 @@ impl Device {
     /// Creates a [`Buffer`].
     #[inline]
     pub fn create_buffer(&self, desc: &crate::BufferDescriptor) -> Buffer {
+        #[cfg(debug_assertions)]
+        {
+            // 判断 Buffer 的 用途 只能有一个
+            fn is_usage_valid(usage: &BufferUsages) -> bool {
+                let has_uniform = if usage.contains(BufferUsages::UNIFORM) {
+                    1
+                } else {
+                    0
+                };
+                let has_vertex = if usage.contains(BufferUsages::VERTEX) {
+                    1
+                } else {
+                    0
+                };
+                let has_index = if usage.contains(BufferUsages::INDEX) {
+                    1
+                } else {
+                    0
+                };
+
+                let count = has_uniform + has_vertex + has_index;
+
+                count == 1
+            }
+
+            debug_assert!(is_usage_valid(&desc.usage));
+            debug_assert!(!desc.usage.contains(BufferUsages::STORAGE));
+            debug_assert!(!desc.usage.contains(BufferUsages::INDIRECT));
+        }
+
         let r = unsafe { self.inner.create_buffer(&desc) };
         let r = r.unwrap();
         Buffer::from_hal(r, desc.usage, desc.size)
@@ -101,9 +132,14 @@ impl Device {
     /// `desc` specifies the general format of the texture.
     #[inline]
     pub fn create_texture(&self, desc: &crate::TextureDescriptor) -> Texture {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(!desc.usage.contains(TextureUsages::STORAGE_BINDING));
+        }
+
         let r = unsafe { self.inner.create_texture(&desc) };
         let r = r.unwrap();
-        Texture::from_hal(r)
+        Texture::from_hal(r, desc)
     }
 
     /// Creates a new [`Sampler`].
@@ -137,7 +173,7 @@ impl std::fmt::Display for RequestDeviceError {
 
 impl std::error::Error for RequestDeviceError {}
 
-#[derive(Clone, Debug, Error)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum DeviceError {
     #[error("parent device is invalid")]
     Invalid,

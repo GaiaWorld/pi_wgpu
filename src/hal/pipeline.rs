@@ -2,6 +2,8 @@ use pi_share::Share;
 
 use crate::wgt;
 
+use super::GLState;
+
 #[derive(Debug)]
 pub(crate) struct ComputePipeline {}
 
@@ -10,6 +12,15 @@ pub(crate) struct PipelineLayout {
     pub group_infos: Box<[super::BindGroupLayoutInfo]>,
     pub naga_options: naga::back::glsl::Options,
 }
+
+impl PipelineLayout {
+    pub fn new(
+        state: GLState,
+        desc: &crate::PipelineLayoutDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+    }
+}
+
 
 pub(crate) type PipelineID = u64;
 
@@ -29,4 +40,12 @@ pub(crate) struct RenderPipeline {
     pub(crate) ds: Share<super::DepthState>,
     pub(crate) bs: Share<super::BlendState>,
     pub(crate) ss: Share<super::StencilState>,
+}
+
+impl RenderPipeline {
+    pub fn new(
+        state: GLState,
+        desc: &crate::RenderPipelineDescriptor,
+    ) -> Result<Self, super::PipelineError> {
+    }
 }

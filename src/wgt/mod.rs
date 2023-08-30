@@ -3797,6 +3797,7 @@
      ///
      /// If this is `true`, [`size`](#structfield.size) must be a multiple of
      /// [`COPY_BUFFER_ALIGNMENT`].
+     /// 暂时没有用到
      pub mapped_at_creation: bool,
  }
  

@@ -5,11 +5,11 @@ use std::{
 
 use glow::HasContext;
 use ordered_float::OrderedFloat;
-use pi_share::{Share, ShareWeak};
+use pi_share::{Share, ShareWeak, ShareCell};
 use twox_hash::RandomXxHashBuilder64;           
 
 use super::{EglContext, PipelineID, ShaderID, TextureID, VertexAttribKind};
-use crate::{wgt, BufferAddress, BufferSize};
+use crate::{wgt, BufferAddress};
 
 const RESET_INTERVAL_SECS: u64 = 5;
 
@@ -17,8 +17,43 @@ pub(crate) struct CreateRenderPipelineError {
 
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct GLState(pub Share<ShareCell<GLStateImpl>>);
+
+impl GLState {
+    #[inline]
+    pub fn get_gl(&self) -> &glow::Context {
+        &self.0.borrow().gl
+    }
+
+    #[inline]
+    pub fn get_egl(&self) -> &EglContext {
+        &self.0.borrow().egl
+    }
+
+    // TODO 到 TextureCache 删除 槽位
+    pub fn remove_sampler(&self, sampler: glow::Sampler) {
+        profiling::scope!("hal::GLState::remove_sampler");
+    }
+
+    // TODO 到 TextureCache 删除 槽位
+    pub fn remove_texture(&self, texture: glow::Texture) {
+        profiling::scope!("hal::GLState::remove_texture");
+    }
+
+    // TODO 到 FBO 删除 槽位
+    pub fn remove_render_buffer(&self, rb: glow::Renderbuffer) {
+        profiling::scope!("hal::GLState::remove_render_buffer");
+    }
+    
+    // TODO 到 VAO 删除槽位
+    pub fn remove_buffer(&self, buffer: glow::Buffer) {
+        profiling::scope!("hal::GLState::remove_buffer");
+    }
+}
+
 #[derive(Debug)]
-pub(crate) struct GLState {
+pub(crate) struct GLStateImpl {
     gl: glow::Context,
     egl: EglContext,
 
@@ -64,7 +99,7 @@ pub(crate) struct GLState {
     textures: [Option<(super::Texture, super::Sampler)>; super::MAX_TEXTURE_SLOTS],
 }
 
-impl GLState {
+impl GLStateImpl {
     pub fn new(gl: glow::Context, egl: EglContext) -> Self {
         let copy_fbo = unsafe { gl.create_framebuffer().unwrap() };
 
@@ -160,7 +195,7 @@ impl GLState {
             ss,
         })
     }
-
+    
     // ==================== 渲染相关
 
     pub fn begin_encoding(&mut self) {}
@@ -768,24 +803,6 @@ impl Default for BlendState {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct BlendComponent {
-    equation: u32, // glow::FUNC_ADD,
-
-    src_factor: u32, // glow::SRC_ALPHA,
-    dst_factor: u32, // glow::ONE_MINUS_SRC_ALPHA,
-}
-
-impl Default for BlendComponent {
-    fn default() -> Self {
-        Self {
-            equation: glow::FUNC_ADD,
-            src_factor: glow::ONE,
-            dst_factor: glow::ZERO,
-        }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct DepthState {
     is_test_enable: bool,
     is_write_enable: bool,
@@ -912,136 +929,3 @@ pub(crate) struct Program {
     fs_id: ShaderID,
 }
 
-// ======================= convert to gl's const
-
-#[inline]
-fn map_compare_func(fun: wgt::CompareFunction) -> u32 {
-    use wgt::CompareFunction as Cf;
-
-    match fun {
-        Cf::Never => glow::NEVER,
-        Cf::Less => glow::LESS,
-        Cf::LessEqual => glow::LEQUAL,
-        Cf::Equal => glow::EQUAL,
-        Cf::GreaterEqual => glow::GEQUAL,
-        Cf::Greater => glow::GREATER,
-        Cf::NotEqual => glow::NOTEQUAL,
-        Cf::Always => glow::ALWAYS,
-    }
-}
-
-#[inline]
-fn map_stencil_op(operation: wgt::StencilOperation) -> u32 {
-    use wgt::StencilOperation as So;
-
-    match operation {
-        So::Keep => glow::KEEP,
-        So::Zero => glow::ZERO,
-        So::Replace => glow::REPLACE,
-        So::Invert => glow::INVERT,
-        So::IncrementClamp => glow::INCR,
-        So::DecrementClamp => glow::DECR,
-        So::IncrementWrap => glow::INCR_WRAP,
-        So::DecrementWrap => glow::DECR_WRAP,
-    }
-}
-
-#[inline]
-fn map_primitive_topology(topology: wgt::PrimitiveTopology) -> u32 {
-    use wgt::PrimitiveTopology as Pt;
-    match topology {
-        Pt::PointList => glow::POINTS,
-        Pt::LineList => glow::LINES,
-        Pt::LineStrip => glow::LINE_STRIP,
-        Pt::TriangleList => glow::TRIANGLES,
-        Pt::TriangleStrip => glow::TRIANGLE_STRIP,
-    }
-}
-
-#[inline]
-fn map_index_format(format: wgt::IndexFormat) -> (u32, u32) {
-    match format {
-        wgt::IndexFormat::Uint16 => (2, glow::UNSIGNED_SHORT),
-        wgt::IndexFormat::Uint32 => (4, glow::UNSIGNED_INT),
-    }
-}
-
-#[inline]
-fn map_blend_factor(factor: wgt::BlendFactor) -> u32 {
-    use wgt::BlendFactor as Bf;
-    match factor {
-        Bf::Zero => glow::ZERO,
-        Bf::One => glow::ONE,
-        Bf::Src => glow::SRC_COLOR,
-        Bf::OneMinusSrc => glow::ONE_MINUS_SRC_COLOR,
-        Bf::Dst => glow::DST_COLOR,
-        Bf::OneMinusDst => glow::ONE_MINUS_DST_COLOR,
-        Bf::SrcAlpha => glow::SRC_ALPHA,
-        Bf::OneMinusSrcAlpha => glow::ONE_MINUS_SRC_ALPHA,
-        Bf::DstAlpha => glow::DST_ALPHA,
-        Bf::OneMinusDstAlpha => glow::ONE_MINUS_DST_ALPHA,
-        Bf::Constant => glow::CONSTANT_COLOR,
-        Bf::OneMinusConstant => glow::ONE_MINUS_CONSTANT_COLOR,
-        Bf::SrcAlphaSaturated => glow::SRC_ALPHA_SATURATE,
-    }
-}
-
-#[inline]
-fn map_blend_component(component: &wgt::BlendComponent) -> BlendComponent {
-    BlendComponent {
-        src_factor: map_blend_factor(component.src_factor),
-        dst_factor: map_blend_factor(component.dst_factor),
-        equation: match component.operation {
-            wgt::BlendOperation::Add => glow::FUNC_ADD,
-            wgt::BlendOperation::Subtract => glow::FUNC_SUBTRACT,
-            wgt::BlendOperation::ReverseSubtract => glow::FUNC_REVERSE_SUBTRACT,
-            wgt::BlendOperation::Min => glow::MIN,
-            wgt::BlendOperation::Max => glow::MAX,
-        },
-    }
-}
-
-pub(super) fn describe_vertex_format(vertex_format: wgt::VertexFormat) -> super::VertexFormatDesc {
-    use super::VertexAttribKind as Vak;
-    use wgt::VertexFormat as Vf;
-
-    let (element_count, element_format, attrib_kind) = match vertex_format {
-        Vf::Unorm8x2 => (2, glow::UNSIGNED_BYTE, Vak::Float),
-        Vf::Snorm8x2 => (2, glow::BYTE, Vak::Float),
-        Vf::Uint8x2 => (2, glow::UNSIGNED_BYTE, Vak::Integer),
-        Vf::Sint8x2 => (2, glow::BYTE, Vak::Integer),
-        Vf::Unorm8x4 => (4, glow::UNSIGNED_BYTE, Vak::Float),
-        Vf::Snorm8x4 => (4, glow::BYTE, Vak::Float),
-        Vf::Uint8x4 => (4, glow::UNSIGNED_BYTE, Vak::Integer),
-        Vf::Sint8x4 => (4, glow::BYTE, Vak::Integer),
-        Vf::Unorm16x2 => (2, glow::UNSIGNED_SHORT, Vak::Float),
-        Vf::Snorm16x2 => (2, glow::SHORT, Vak::Float),
-        Vf::Uint16x2 => (2, glow::UNSIGNED_SHORT, Vak::Integer),
-        Vf::Sint16x2 => (2, glow::SHORT, Vak::Integer),
-        Vf::Float16x2 => (2, glow::HALF_FLOAT, Vak::Float),
-        Vf::Unorm16x4 => (4, glow::UNSIGNED_SHORT, Vak::Float),
-        Vf::Snorm16x4 => (4, glow::SHORT, Vak::Float),
-        Vf::Uint16x4 => (4, glow::UNSIGNED_SHORT, Vak::Integer),
-        Vf::Sint16x4 => (4, glow::SHORT, Vak::Integer),
-        Vf::Float16x4 => (4, glow::HALF_FLOAT, Vak::Float),
-        Vf::Uint32 => (1, glow::UNSIGNED_INT, Vak::Integer),
-        Vf::Sint32 => (1, glow::INT, Vak::Integer),
-        Vf::Float32 => (1, glow::FLOAT, Vak::Float),
-        Vf::Uint32x2 => (2, glow::UNSIGNED_INT, Vak::Integer),
-        Vf::Sint32x2 => (2, glow::INT, Vak::Integer),
-        Vf::Float32x2 => (2, glow::FLOAT, Vak::Float),
-        Vf::Uint32x3 => (3, glow::UNSIGNED_INT, Vak::Integer),
-        Vf::Sint32x3 => (3, glow::INT, Vak::Integer),
-        Vf::Float32x3 => (3, glow::FLOAT, Vak::Float),
-        Vf::Uint32x4 => (4, glow::UNSIGNED_INT, Vak::Integer),
-        Vf::Sint32x4 => (4, glow::INT, Vak::Integer),
-        Vf::Float32x4 => (4, glow::FLOAT, Vak::Float),
-        Vf::Float64 | Vf::Float64x2 | Vf::Float64x3 | Vf::Float64x4 => unimplemented!(),
-    };
-
-    super::VertexFormatDesc {
-        element_count,
-        element_format,
-        attrib_kind,
-    }
-}

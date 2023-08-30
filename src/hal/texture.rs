@@ -1,29 +1,362 @@
 use std::ops::Range;
 
-use crate::wgt;
+use glow::HasContext;
+use pi_share::Share;
 
-use super::{CopyExtent, TextureFormatDesc};
+use super::{GLState, TextureFormatDesc};
+use crate::{hal::gl_conv as conv, wgt};
 
-pub(crate) type ShaderID = u64;
 pub(crate) type TextureID = u64;
 
 #[derive(Debug)]
 pub(crate) struct Texture {
-    pub inner: TextureInner,
+    pub state: GLState,
+    pub inner: Share<TextureInner>,
+
     pub mip_level_count: u32,
     pub array_layer_count: u32,
     pub format: wgt::TextureFormat,
-    
-    #[allow(unused)]
+
+    pub copy_size: super::CopyExtent,
+
     pub format_desc: TextureFormatDesc,
-    
-    pub copy_size: CopyExtent,
+
     pub is_cubemap: bool,
 }
 
+impl Texture {
+    pub fn new(
+        state: GLState,
+        desc: &crate::TextureDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+        profiling::scope!("hal::Texture::new");
+
+        let gl = state.get_gl();
+
+        let usage = conv::map_texture_usage(desc.usage, desc.format.into());
+
+        let render_usage = super::TextureUses::COLOR_TARGET
+            | super::TextureUses::DEPTH_STENCIL_WRITE
+            | super::TextureUses::DEPTH_STENCIL_READ;
+
+        let format_desc = conv::map_texture_format(desc.format);
+
+        let mut copy_size = super::CopyExtent {
+            width: desc.size.width,
+            height: desc.size.height,
+            depth: 1,
+        };
+
+        let (inner, is_cubemap) = if render_usage.contains(usage)
+            && desc.dimension == wgt::TextureDimension::D2
+            && desc.size.depth_or_array_layers == 1
+        {
+            // 纹理 仅作为 渲染目标，不作为 Sampler 或 Storage 或 Copy，则直接创建 RenderBuffer
+            let raw = unsafe { gl.create_renderbuffer().unwrap() };
+
+            unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(raw)) };
+
+            if desc.sample_count > 1 {
+                unsafe {
+                    gl.renderbuffer_storage_multisample(
+                        glow::RENDERBUFFER,
+                        desc.sample_count as i32,
+                        format_desc.internal,
+                        desc.size.width as i32,
+                        desc.size.height as i32,
+                    )
+                };
+            } else {
+                unsafe {
+                    gl.renderbuffer_storage(
+                        glow::RENDERBUFFER,
+                        format_desc.internal,
+                        desc.size.width as i32,
+                        desc.size.height as i32,
+                    )
+                };
+            }
+            unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, None) };
+
+            (
+                TextureInner::Renderbuffer {
+                    raw,
+                    state: state.clone(),
+                },
+                false,
+            )
+        } else {
+            let raw = unsafe { gl.create_texture().unwrap() };
+            let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
+
+            unsafe { gl.bind_texture(target, Some(raw)) };
+
+            //Note: this has to be done before defining the storage!
+            match desc.format.describe().sample_type {
+                wgt::TextureSampleType::Float { filterable: false }
+                | wgt::TextureSampleType::Uint
+                | wgt::TextureSampleType::Sint => {
+                    // reset default filtering mode
+                    unsafe {
+                        gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32)
+                    };
+                    unsafe {
+                        gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32)
+                    };
+                }
+                wgt::TextureSampleType::Float { filterable: true }
+                | wgt::TextureSampleType::Depth => {}
+            }
+
+            if is_3d {
+                unsafe {
+                    gl.tex_storage_3d(
+                        target,
+                        desc.mip_level_count as i32,
+                        format_desc.internal,
+                        desc.size.width as i32,
+                        desc.size.height as i32,
+                        desc.size.depth_or_array_layers as i32,
+                    )
+                };
+            } else if desc.sample_count > 1 {
+                unimplemented!()
+            } else {
+                unsafe {
+                    gl.tex_storage_2d(
+                        target,
+                        desc.mip_level_count as i32,
+                        format_desc.internal,
+                        desc.size.width as i32,
+                        desc.size.height as i32,
+                    )
+                };
+            }
+
+            unsafe { gl.bind_texture(target, None) };
+
+            (
+                TextureInner::Texture {
+                    raw,
+                    target,
+                    state: state.clone(),
+                },
+                is_cubemap,
+            )
+        };
+
+        Ok(Texture {
+            inner: Share::new(inner),
+            state,
+            mip_level_count: desc.mip_level_count,
+            array_layer_count: if desc.dimension == wgt::TextureDimension::D2 {
+                desc.size.depth_or_array_layers
+            } else {
+                1
+            },
+            format: desc.format,
+            copy_size,
+            format_desc,
+            is_cubemap,
+        })
+    }
+}
+
+impl Texture {
+    pub fn write_data(
+        copy: crate::ImageCopyTexture,
+        data: &[u8],
+        data_layout: crate::ImageDataLayout,
+        size: crate::Extent3d,
+    ) {
+        profiling::scope!("hal::Texture::write_data");
+
+        let inner = &copy.texture.inner;
+        let format_info = inner.format.describe();
+
+        let gl = inner.state.get_gl();
+
+        let (raw, dst_target) = match inner.inner.as_ref() {
+            TextureInner::Texture { raw, target, .. } => (*raw, *target),
+            _ => unreachable!(),
+        };
+
+        let format_desc = &inner.format_desc;
+
+        unsafe {
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(dst_target, Some(raw));
+        }
+
+        if !format_info.is_compressed() {
+            let data = glow::PixelUnpackData::Slice(data);
+
+            match dst_target {
+                glow::TEXTURE_3D => {
+                    unsafe {
+                        gl.tex_sub_image_3d(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            copy.origin.z as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            size.depth_or_array_layers as i32,
+                            format_desc.external,
+                            format_desc.data_type,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_2D_ARRAY => {
+                    unsafe {
+                        gl.tex_sub_image_3d(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            copy.origin.z as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            size.depth_or_array_layers as i32,
+                            format_desc.external,
+                            format_desc.data_type,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_2D => {
+                    unsafe {
+                        gl.tex_sub_image_2d(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.external,
+                            format_desc.data_type,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_CUBE_MAP => {
+                    unsafe {
+                        gl.tex_sub_image_2d(
+                            super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.external,
+                            format_desc.data_type,
+                            data,
+                        )
+                    };
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            let data = glow::CompressedPixelUnpackData::Slice(data);
+            match dst_target {
+                glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_3d(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            copy.origin.z as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            size.depth_or_array_layers as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_2D => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_2d(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_CUBE_MAP => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_2d(
+                            super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        unsafe {
+            gl.bind_texture(dst_target, None);
+        }
+    }
+}
+
+impl Texture {
+    /// Returns the `target`, whether the image is 3d and whether the image is a cubemap.
+    #[inline]
+    fn get_info_from_desc(
+        copy_size: &mut super::CopyExtent,
+        desc: &crate::TextureDescriptor,
+    ) -> (u32, bool, bool) {
+        match desc.dimension {
+            wgt::TextureDimension::D1 | wgt::TextureDimension::D2 => {
+                if desc.size.depth_or_array_layers > 1 {
+                    //HACK: detect a cube map
+                    let cube_count = if desc.size.width == desc.size.height
+                        && desc.size.depth_or_array_layers % 6 == 0
+                        && desc.sample_count == 1
+                    {
+                        Some(desc.size.depth_or_array_layers / 6)
+                    } else {
+                        None
+                    };
+                    match cube_count {
+                        None => (glow::TEXTURE_2D_ARRAY, true, false),
+                        Some(1) => (glow::TEXTURE_CUBE_MAP, false, true),
+                        Some(_) => unimplemented!(),
+                    }
+                } else {
+                    (glow::TEXTURE_2D, false, false)
+                }
+            }
+            wgt::TextureDimension::D3 => {
+                copy_size.depth = desc.size.depth_or_array_layers;
+                (glow::TEXTURE_3D, true, false)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct TextureView {
-    pub(crate) inner: TextureInner,
+pub(crate) struct TextureView {
+    pub(crate) state: GLState,
+    pub(crate) inner: Share<TextureInner>,
+
+    pub(crate) format_desc: TextureFormatDesc,
     pub(crate) sample_type: wgt::TextureSampleType,
     pub(crate) aspects: super::FormatAspects,
     pub(crate) mip_levels: Range<u32>,
@@ -31,37 +364,79 @@ pub struct TextureView {
     pub(crate) format: wgt::TextureFormat,
 }
 
+impl TextureView {
+    pub fn new(
+        texture: &Texture,
+        desc: &crate::TextureViewDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+        profiling::scope!("hal::TextureView::new");
+
+        let mip_count = match desc.mip_level_count {
+            Some(count) => count.into(),
+            None => texture.mip_level_count,
+        };
+        let mip_levels = desc.base_mip_level..(mip_count - desc.base_mip_level);
+
+        let layer_count = match desc.array_layer_count {
+            Some(count) => count.into(),
+            None => texture.array_layer_count,
+        };
+        let array_layers = desc.base_array_layer..(layer_count - desc.base_array_layer);
+
+        Ok(TextureView {
+            state: texture.state.clone(),
+            inner: texture.inner.clone(),
+
+            mip_levels,
+            array_layers,
+
+            format: texture.format,
+            sample_type: texture.format.describe().sample_type,
+
+            format_desc: texture.format_desc.clone(),
+
+            aspects: super::FormatAspects::from(texture.format)
+                & super::FormatAspects::from(desc.aspect),
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum TextureInner {
+    DefaultRenderbuffer,
+
     Renderbuffer {
+        state: GLState,
         raw: glow::Renderbuffer,
     },
-    DefaultRenderbuffer,
+
     Texture {
+        state: GLState,
         raw: glow::Texture,
         target: super::BindTarget,
     },
-    #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-    ExternalFramebuffer {
-        inner: web_sys::WebGlFramebuffer,
-    },
 }
 
-// SAFE: WASM doesn't have threads
-#[cfg(target_arch = "wasm32")]
-unsafe impl Send for TextureInner {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for TextureInner {}
+impl Drop for TextureInner {
+    fn drop(&mut self) {
+        profiling::scope!("hal::TextureInner::drop");
 
-impl TextureInner {
-    fn as_native(&self) -> (glow::Texture, super::BindTarget) {
         match *self {
-            Self::Renderbuffer { .. } | Self::DefaultRenderbuffer => {
-                panic!("Unexpected renderbuffer");
+            TextureInner::Renderbuffer { state, raw } => {
+                let gl = state.get_gl();
+                unsafe {
+                    gl.delete_renderbuffer(raw);
+                }
+                state.remove_render_buffer(raw);
             }
-            Self::Texture { raw, target } => (raw, target),
-            #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-            Self::ExternalFramebuffer { .. } => panic!("Unexpected external framebuffer"),
+            TextureInner::Texture { state, raw, target } => {
+                let gl = state.get_gl();
+                unsafe {
+                    gl.delete_texture(raw);
+                }
+                state.remove_texture(raw);
+            }
+            TextureInner::DefaultRenderbuffer => {}
         }
     }
 }

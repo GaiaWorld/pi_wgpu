@@ -21,7 +21,7 @@ impl Queue {
     ///
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        unimplemented!("Queue::write_buffer is not implemented")
+        buffer.inner.write_buffer(offset as i32, data);
     }
 
     /// Schedule a write of some data into a texture.
@@ -48,7 +48,7 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        unimplemented!("Queue::write_texture is not implemented")
+        hal::Texture::write_data(texture, data, data_layout, size);
     }
 
     /// Submits a series of finished command buffers for execution.

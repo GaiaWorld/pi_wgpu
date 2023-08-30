@@ -36,11 +36,23 @@ pub(crate) struct AttributeDesc {
     pub(crate) format_desc: VertexFormatDesc,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct BlendComponent {
-    pub(crate) src: u32,
-    pub(crate) dst: u32,
-    pub(crate) equation: u32,
+    equation: u32, // glow::FUNC_ADD,
+
+    src_factor: u32, // glow::SRC_ALPHA,
+    dst_factor: u32, // glow::ONE_MINUS_SRC_ALPHA,
+}
+
+impl Default for BlendComponent {
+    fn default() -> Self {
+        Self {
+            equation: glow::FUNC_ADD,
+            src_factor: glow::ONE,
+            dst_factor: glow::ZERO,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

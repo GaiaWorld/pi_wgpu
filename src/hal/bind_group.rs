@@ -2,14 +2,35 @@ use std::sync::Arc;
 
 use crate::wgt;
 
+use super::GLState;
+
 #[derive(Debug)]
 pub struct BindGroupLayout {
+    state: GLState,
     entries: Arc<[wgt::BindGroupLayoutEntry]>,
+}
+
+
+impl BindGroupLayout {
+    pub fn new(
+        state: GLState,
+        desc: &crate::BindGroupLayoutDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct BindGroup {
+    state: GLState,
     contents: Box<[RawBinding]>,
+}
+
+impl BindGroup {
+    pub fn new(
+        state: GLState,
+        desc: &crate::BindGroupDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+    }
 }
 
 #[derive(Debug)]

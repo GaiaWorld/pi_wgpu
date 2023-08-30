@@ -3,36 +3,22 @@ use thiserror::Error;
 pub mod api;
 
 mod egl_impl;
+mod gl_conv;
 mod gl_state;
 mod gles;
 
-mod instance;
-
 mod adapter;
-
-mod surface;
-
-mod device;
-
-mod queue;
-
-mod command;
-
-mod buffer;
-
-mod texture;
-
-mod sampler;
-
-mod query_set;
-
-mod fence;
-
 mod bind_group;
-
-mod shader_module;
-
+mod buffer;
+mod command;
+mod device;
+mod instance;
 mod pipeline;
+mod queue;
+mod sampler;
+mod shader_module;
+mod surface;
+mod texture;
 
 pub use api::*;
 
@@ -42,12 +28,10 @@ pub(crate) use buffer::*;
 pub(crate) use command::*;
 pub(crate) use device::*;
 pub(crate) use egl_impl::*;
-pub(crate) use fence::*;
 pub(crate) use gl_state::*;
 pub(crate) use gles::*;
 pub(crate) use instance::*;
 pub(crate) use pipeline::*;
-pub(crate) use query_set::*;
 pub(crate) use queue::*;
 pub(crate) use sampler::*;
 pub(crate) use shader_module::*;
@@ -97,12 +81,21 @@ pub(crate) const MAX_VERTEX_BUFFERS: usize = 16;
 pub(crate) const MAX_COLOR_ATTACHMENTS: usize = 8;
 pub(crate) const MAX_MIP_LEVELS: u32 = 16;
 
+pub(crate) const CUBEMAP_FACES: [u32; 6] = [
+    glow::TEXTURE_CUBE_MAP_POSITIVE_X,
+    glow::TEXTURE_CUBE_MAP_NEGATIVE_X,
+    glow::TEXTURE_CUBE_MAP_POSITIVE_Y,
+    glow::TEXTURE_CUBE_MAP_NEGATIVE_Y,
+    glow::TEXTURE_CUBE_MAP_POSITIVE_Z,
+    glow::TEXTURE_CUBE_MAP_NEGATIVE_Z,
+];
+
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub(crate) enum ShaderError {
     #[error("compilation failed: {0:?}")]
     Compilation(String),
     #[error(transparent)]
-    Device(#[from] DeviceError),
+    Device(#[from] crate::DeviceError),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
@@ -112,7 +105,7 @@ pub(crate) enum PipelineError {
     #[error("entry point for stage {0:?} is invalid")]
     EntryPoint(naga::ShaderStage),
     #[error(transparent)]
-    Device(#[from] DeviceError),
+    Device(#[from] crate::DeviceError),
 }
 
 #[derive(Debug)]
@@ -265,14 +258,6 @@ pub(crate) enum SrgbFrameBufferKind {
     Khr,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
-pub(crate) enum DeviceError {
-    #[error("out of memory")]
-    OutOfMemory,
-    #[error("device is lost")]
-    Lost,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub(crate) enum SurfaceError {
     #[error("surface is lost")]
@@ -280,7 +265,7 @@ pub(crate) enum SurfaceError {
     #[error("surface is outdated, needs to be re-created")]
     Outdated,
     #[error(transparent)]
-    Device(#[from] DeviceError),
+    Device(#[from] crate::DeviceError),
     #[error("other reason: {0}")]
     Other(&'static str),
 }
@@ -452,3 +437,27 @@ bitflags!(
         const STENCIL = 1 << 2;
     }
 );
+
+impl From<wgt::TextureAspect> for FormatAspects {
+    fn from(aspect: wgt::TextureAspect) -> Self {
+        match aspect {
+            wgt::TextureAspect::All => Self::all(),
+            wgt::TextureAspect::DepthOnly => Self::DEPTH,
+            wgt::TextureAspect::StencilOnly => Self::STENCIL,
+        }
+    }
+}
+
+impl From<wgt::TextureFormat> for FormatAspects {
+    fn from(format: wgt::TextureFormat) -> Self {
+        match format {
+            wgt::TextureFormat::Stencil8 => Self::STENCIL,
+            wgt::TextureFormat::Depth16Unorm => Self::DEPTH,
+            wgt::TextureFormat::Depth32Float | wgt::TextureFormat::Depth24Plus => Self::DEPTH,
+            wgt::TextureFormat::Depth32FloatStencil8 | wgt::TextureFormat::Depth24PlusStencil8 => {
+                Self::DEPTH | Self::STENCIL
+            }
+            _ => Self::COLOR,
+        }
+    }
+}

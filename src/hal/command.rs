@@ -17,8 +17,6 @@
 //! + draw / draw_indexed
 //!
 
-use std::ops::Range;
-
 use arrayvec::ArrayVec;
 use glow::HasContext;
 
@@ -34,16 +32,25 @@ pub(crate) struct CommandEncoder {
 }
 
 impl CommandEncoder {
+    pub fn new(
+        state: GLState,
+        desc: &crate::CommandEncoderDescriptor,
+    ) -> Result<Self, crate::DeviceError> {
+        Ok(Self { state })
+    }
+}
+
+impl CommandEncoder {
     pub(crate) unsafe fn begin_encoding(
         &mut self,
         label: super::Label,
-    ) -> Result<(), super::DeviceError> {
+    ) -> Result<(), crate::DeviceError> {
         Ok(())
     }
 
     pub(crate) unsafe fn end_encoding(
         &mut self,
-    ) -> Result<super::CommandBuffer, super::DeviceError> {
+    ) -> Result<super::CommandBuffer, crate::DeviceError> {
         Ok(CommandBuffer)
     }
 
@@ -594,11 +601,3 @@ impl CommandEncoder {
     }
 }
 
-const CUBEMAP_FACES: [u32; 6] = [
-    glow::TEXTURE_CUBE_MAP_POSITIVE_X,
-    glow::TEXTURE_CUBE_MAP_NEGATIVE_X,
-    glow::TEXTURE_CUBE_MAP_POSITIVE_Y,
-    glow::TEXTURE_CUBE_MAP_NEGATIVE_Y,
-    glow::TEXTURE_CUBE_MAP_POSITIVE_Z,
-    glow::TEXTURE_CUBE_MAP_NEGATIVE_Z,
-];

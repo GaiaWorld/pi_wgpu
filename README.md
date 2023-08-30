@@ -5,17 +5,19 @@
     - [3.1. 和 `WebGL2` 相比，缺失 的 功能](#31-和-webgl2-相比缺失-的-功能)
     - [3.2. 微信小游戏: `iOS` 的 `WebGL` / `WebGL2` 移植](#32-微信小游戏-ios-的-webgl--webgl2-移植)
   - [4. 限制](#4-限制)
-    - [4.1. 不支持](#41-不支持)
+    - [4.1. **不** 支持](#41-不-支持)
     - [4.2. `Instance`](#42-instance)
     - [4.3. `Adapter`](#43-adapter)
     - [4.4. `Surface`](#44-surface)
-    - [4.5. `Device`](#45-device)
-    - [4.6. `Queue`](#46-queue)
-    - [4.7. `CommandEncoder`](#47-commandencoder)
-    - [4.8. `RenderPass`](#48-renderpass)
-    - [4.9. `Texture`](#49-texture)
-    - [4.10. `Buffer`](#410-buffer)
-    - [4.11. `BufferSlice`](#411-bufferslice)
+    - [4.5. `SurfaceTexture`](#45-surfacetexture)
+    - [4.6. `Device`](#46-device)
+    - [4.7. `Queue`](#47-queue)
+    - [4.8. `CommandEncoder`](#48-commandencoder)
+    - [4.9. `CommandBuffer` 空内容，空实现](#49-commandbuffer-空内容空实现)
+    - [4.10. `RenderPass`](#410-renderpass)
+    - [4.11. `Texture`](#411-texture)
+    - [4.12. `Buffer`](#412-buffer)
+    - [4.13. `BufferSlice` 空实现](#413-bufferslice-空实现)
 
 # pi_wgpu
 
@@ -82,11 +84,10 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 
 ## 4. 限制
 
-**不支持** 意味着：调用相关函数时，运行时 会 panic
+只支持 GLSL 格式的 Shader，glsl 450
 
-### 4.1. 不支持
+### 4.1. **不** 支持
 
-+ 非 GLSL 格式的 Shader
 + `ComputePipeline`
 + `ComputePass`
 + `RenderBundle`
@@ -107,11 +108,11 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | 函数                          | 支持 | 说明 |
 | ----------------------------- | ---- | ---- |
 | `request_device`              | ✔    |      |
-| `is_surface_supported`        | ✔    |      |
 | `features`                    | ✔    |      |
 | `limits`                      | ✔    |      |
 | `get_info`                    | ✔    |      |
 | `get_downlevel_capabilities`  | ✔    |      |
+| `is_surface_supported`        | ✔    |      |
 | `get_texture_format_features` | ✔    |      |
 
 ### 4.4. `Surface`
@@ -123,7 +124,13 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | `configure`           | ✔    |      |
 | `get_current_texture` | ✔    |      |
 
-### 4.5. `Device`
+### 4.5. `SurfaceTexture`
+
+| 函数      | 支持 | 说明 |
+| --------- | ---- | ---- |
+| `present` | ✔    |      |
+
+### 4.6. `Device`
 
 | 函数                           | 支持 | 说明 |
 | ------------------------------ | ---- | ---- |
@@ -138,13 +145,13 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | `create_buffer`                | ✔    |      |
 | `create_texture`               | ✔    |      |
 | `create_sampler`               | ✔    |      |
-| poll                           | ×    |      |
 | create_shader_module_unchecked | ×    |      |
 | create_shader_module_spirv     | ×    |      |
 | create_render_bundle_encoder   | ×    |      |
 | create_compute_pipeline        | ×    |      |
 | create_texture_from_hal        | ×    |      |
 | create_query_set               | ×    |      |
+| poll                           | ×    |      |
 | on_uncaptured_error            | ×    |      |
 | push_error_scope               | ×    |      |
 | pop_error_scope                | ×    |      |
@@ -152,38 +159,40 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | stop_capture                   | ×    |      |
 | as_hal                         | ×    |      |
 
-### 4.6. `Queue`
+### 4.7. `Queue`
 
-| 函数                           | 支持 | 说明 |
-| ------------------------------ | ---- | ---- |
-| `write_buffer`                 | ✔    |      |
-| `write_texture`                | ✔    |      |
-| `submit`                       | ✔    |      |
-| on_submitted_work_done         | ×    |      |
-| write_buffer_with              | ×    |      |
-| copy_external_image_to_texture | ×    |      |
-| get_timestamp_period           | ×    |      |
+| 函数                           | 支持 | 说明   |
+| ------------------------------ | ---- | ------ |
+| `write_buffer`                 | ✔    |        |
+| `write_texture`                | ✔    |        |
+| `submit`                       | ✔    | 空实现 |
+| on_submitted_work_done         | ×    |        |
+| write_buffer_with              | ×    |        |
+| copy_external_image_to_texture | ×    |        |
+| get_timestamp_period           | ×    |        |
 
-### 4.7. `CommandEncoder`
+### 4.8. `CommandEncoder`
 
-| 函数                    | 支持 | 说明 |
-| ----------------------- | ---- | ---- |
-| `finish`                | ✔    |      |
-| `begin_render_pass`     | ✔    |      |
-| clear_texture           | ×    |      |
-| clear_buffer            | ×    |      |
-| begin_compute_pass      | ×    |      |
-| copy_buffer_to_buffer   | ×    |      |
-| copy_buffer_to_texture  | ×    |      |
-| copy_texture_to_buffer  | ×    |      |
-| copy_texture_to_texture | ×    |      |
-| insert_debug_marker     | ×    |      |
-| push_debug_group        | ×    |      |
-| pop_debug_group         | ×    |      |
-| write_timestamp         | ×    |      |
-| resolve_query_set       | ×    |      |
+| 函数                    | 支持 | 说明   |
+| ----------------------- | ---- | ------ |
+| `finish`                | ✔    | 空实现 |
+| `begin_render_pass`     | ✔    |        |
+| clear_texture           | ×    |        |
+| clear_buffer            | ×    |        |
+| begin_compute_pass      | ×    |        |
+| copy_buffer_to_buffer   | ×    |        |
+| copy_buffer_to_texture  | ×    |        |
+| copy_texture_to_buffer  | ×    |        |
+| copy_texture_to_texture | ×    |        |
+| insert_debug_marker     | ×    |        |
+| push_debug_group        | ×    |        |
+| pop_debug_group         | ×    |        |
+| write_timestamp         | ×    |        |
+| resolve_query_set       | ×    |        |
 
-### 4.8. `RenderPass`
+### 4.9. `CommandBuffer` 空内容，空实现
+
+### 4.10. `RenderPass`
 
 | 函数                              | 支持 | 说明                                                   |
 | --------------------------------- | ---- | ------------------------------------------------------ |
@@ -212,7 +221,7 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | begin_pipeline_statistics_query   | ×    |                                                        |
 | end_pipeline_statistics_query     | ×    |                                                        |
 
-### 4.9. `Texture`
+### 4.11. `Texture`
 
 | 函数                    | 支持 | 说明 |
 | ----------------------- | ---- | ---- |
@@ -230,7 +239,7 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | as_hal                  | ×    |      |
 | destroy                 | ×    |      |
 
-### 4.10. `Buffer`
+### 4.12. `Buffer`
 
 | 函数                       | 支持 | 说明 |
 | -------------------------- | ---- | ---- |
@@ -238,11 +247,11 @@ Vulkan / WebGPU 因为渲染驱动兼容性问题，近期内 不能广泛 在�
 | `usage`                    | ✔    |      |
 | `as_entire_binding`        | ✔    |      |
 | `as_entire_buffer_binding` | ✔    |      |
-| slice                      | ×    |      |
+| `slice`                    | ✔    |      |
 | unmap                      | ×    |      |
 | destroy                    | ×    |      |
 
-### 4.11. `BufferSlice`
+### 4.13. `BufferSlice` 空实现
 
 | 函数                 | 支持 | 说明 |
 | -------------------- | ---- | ---- |

@@ -33,19 +33,9 @@ impl ShaderModule {
 ///
 /// This type is unique to the Rust API of `wgpu`. In the WebGPU specification,
 /// only WGSL source code strings are accepted.
-#[cfg_attr(feature = "naga", allow(clippy::large_enum_variant))]
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum ShaderSource<'a> {
-    /// SPIR-V module represented as a slice of words.
-    ///
-    /// See also: [`util::make_spirv`], [`include_spirv`]
-    #[cfg(feature = "spirv")]
-    SpirV(Cow<'a, [u32]>),
-    /// GLSL module as a string slice.
-    ///
-    /// Note: GLSL is not yet fully supported and must be a specific ShaderStage.
-    #[cfg(feature = "glsl")]
     Glsl {
         /// The source code of the shader.
         shader: Cow<'a, str>,
@@ -53,17 +43,26 @@ pub enum ShaderSource<'a> {
         stage: naga::ShaderStage,
         /// Defines to unlock configured shader features.
         defines: naga::FastHashMap<String, String>,
+
+        // pi_wgpu 特有 字段: 每个索引 都是 set 的 索引
+        bind_group_layout: Vec<ShaderBindGroupInfo>,
     },
-    /// WGSL module as a string slice.
-    #[cfg(feature = "wgsl")]
-    Wgsl(Cow<'a, str>),
-    /// Naga module.
-    #[cfg(feature = "naga")]
-    Naga(Cow<'static, naga::Module>),
-    /// Dummy variant because `Naga` doesn't have a lifetime and without enough active features it
-    /// could be the last one active.
-    #[doc(hidden)]
-    Dummy(PhantomData<&'a ()>),
+}
+
+#[derive(Clone)]
+pub struct ShaderBindGroupInfo {
+    set: u32,
+    binding: u32,
+    name: String,
+    ty: BindingType,
+}
+
+#[derive(Clone)]
+#[repr(C)]
+pub enum BindingType {
+    Buffer,
+    Texture,
+    Sampler,
 }
 
 /// Descriptor for use with [`Device::create_shader_module`].

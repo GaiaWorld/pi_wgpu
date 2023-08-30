@@ -44,6 +44,7 @@ impl Buffer {
     /// Returns the length of the buffer allocation in bytes.
     ///
     /// This is always equal to the `size` that was specified when creating the buffer.
+    #[inline]
     pub fn size(&self) -> BufferAddress {
         self.size
     }
@@ -51,16 +52,19 @@ impl Buffer {
     /// Returns the allowed usages for this `Buffer`.
     ///
     /// This is always equal to the `usage` that was specified when creating the buffer.
+    #[inline]
     pub fn usage(&self) -> BufferUsages {
         self.usage
     }
 
     /// Return the binding view of the entire buffer.
+    #[inline]
     pub fn as_entire_binding(&self) -> BindingResource {
         BindingResource::Buffer(self.as_entire_buffer_binding())
     }
 
     /// Return the binding view of the entire buffer.
+    #[inline]
     pub fn as_entire_buffer_binding(&self) -> BufferBinding {
         BufferBinding {
             buffer: self,
@@ -71,8 +75,30 @@ impl Buffer {
 
     /// Use only a portion of this Buffer for a given operation. Choosing a range with no end
     /// will use the rest of the buffer. Using a totally unbounded range will use the entire buffer.
-    pub fn slice<S: RangeBounds<BufferAddress>>(&self, _bounds: S) -> BufferSlice {
-        unimplemented!("wgc::Buffer::slice is not implemented")
+    #[inline]
+    pub fn slice<S: RangeBounds<BufferAddress>>(&self, bounds: S) -> BufferSlice {
+        let s = bounds.start_bound();
+        let e = bounds.end_bound();
+
+        let offset = match s {
+            std::ops::Bound::Included(s) => *s,
+            std::ops::Bound::Excluded(s) => *s,
+            std::ops::Bound::Unbounded => 0,
+        };
+
+        let end = match e {
+            std::ops::Bound::Included(e) => *e,
+            std::ops::Bound::Excluded(e) => *e,
+            std::ops::Bound::Unbounded => self.size,
+        };
+
+        let size = std::num::NonZeroU64::try_from(end - offset).ok();
+
+        BufferSlice {
+            buffer: &self,
+            offset,
+            size,
+        }
     }
 }
 
