@@ -23,21 +23,21 @@
 
 # pi_wgpu
 
-用`Rust`实现的`WebGPU`接口子集的`OpenGL`后端；
-
-接口基于[wgpu-rs](https://github.com/gfx-rs/wgpu) 0.15版本 进行修改；
++ 用`Rust`实现的`WebGPU`接口子集的`OpenGL`后端；
++ 接口基于[wgpu-rs](https://github.com/gfx-rs/wgpu) 0.15版本 进行修改；
 
 ## 1. 设计
 
 **注**：根据微信小游戏的开发者文档，在 iPhone / iPad 上，`WebGL2` 至少要 `iOS`版本 >= 15.5 才能开启
 
-+ 支持平台：
-    - Windows: OpenGL 3.3
-    - Android / PC-Android 模拟器: GLES 3.0
-    - 浏览器 / 微信小游戏: WebGL 2.0
-+ 仅 实现 `单线程` 版本；
 + `CommandEncoder` 录制即提交，提交是空实现；
-+ 性能优化：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
++ `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
+
+支持平台：
+
++ `Windows`: `OpenGL 3.3`
++ `Android` / PC-Android 模拟器: `GLES 3.0`
++ 浏览器 / 微信小游戏: `WebGL2`
 
 **注：** 为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
 
@@ -46,7 +46,8 @@
 
 ## 2. 限制
 
-只支持 GLSL 格式的 Shader，glsl 450
++ 只支持 GLSL 格式的 Shader，glsl 450
++ 仅 实现 `单线程` 版本；
 
 ### 2.1. **不** 支持
 
