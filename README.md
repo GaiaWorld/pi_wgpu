@@ -50,11 +50,14 @@
 
 ### 2.1. **不** 支持
 
-+ `ComputePipeline`
-+ `ComputePass`
-+ `RenderBundle`
-+ `QuerySet`
-+ `hal::Fence`
+| 函数            | 支持 | 说明 |
+| --------------- | ---- | ---- |
+| ComputePipeline | ×    |      |
+| ComputePass     | ×    |      |
+| RenderBundle    | ×    |      |
+| QuerySet        | ×    |      |
+| hal::Fence      | ×    |      |
+| hal::Barrier    | ×    |      |
 
 ### 2.2. `Instance`
 
