@@ -49,7 +49,7 @@ pub enum ShaderSource<'a> {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ShaderBindGroupInfo {
     set: u32,
     binding: u32,
@@ -57,7 +57,7 @@ pub struct ShaderBindGroupInfo {
     ty: BindingType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub enum BindingType {
     Buffer,

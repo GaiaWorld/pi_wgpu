@@ -92,6 +92,8 @@ pub(crate) const CUBEMAP_FACES: [u32; 6] = [
 
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub(crate) enum ShaderError {
+    #[error("program linking failed: {0:?}")]
+    LinkProgram(String),
     #[error("compilation failed: {0:?}")]
     Compilation(String),
     #[error(transparent)]

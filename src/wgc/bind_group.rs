@@ -1,13 +1,10 @@
-use std::sync::Arc;
-
 use crate::{BindGroupLayout, BindingResource, Label};
 
 /// Handle to a binding group.
 ///
 /// A `BindGroup` represents the set of resources bound to the bindings described by a
 /// [`BindGroupLayout`]. It can be created with [`Device::create_bind_group`]. A `BindGroup` can
-/// be bound to a particular [`RenderPass`] with [`RenderPass::set_bind_group`], or to a
-/// [`ComputePass`] with [`ComputePass::set_bind_group`].
+/// be bound to a particular [`RenderPass`] with [`RenderPass::set_bind_group`]
 ///
 /// Corresponds to [WebGPU `GPUBindGroup`](https://gpuweb.github.io/gpuweb/#gpubindgroup).
 #[derive(Debug)]

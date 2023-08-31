@@ -1,24 +1,10 @@
 use glow::HasContext;
+use pi_share::Share;
 
-use super::{GLState, gl_conv as conv};
+use super::{gl_conv as conv, GLState};
 
-#[derive(Debug)]
-pub(crate) struct Sampler {
-    raw: glow::Sampler,
-    state: GLState,
-}
-
-impl Drop for Sampler {
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            let gl = self.state.get_gl();
-            gl.delete_sampler(self.raw);
-        }
-
-        self.state.remove_sampler(self.raw);
-    }
-}
+#[derive(Debug, Clone)]
+pub(crate) struct Sampler(pub(crate) Share<SamplerImpl>);
 
 impl Sampler {
     pub fn new(
@@ -29,7 +15,8 @@ impl Sampler {
 
         let raw = unsafe { gl.create_sampler().unwrap() };
 
-        let (min, mag) = conv::map_filter_modes(desc.min_filter, desc.mag_filter, desc.mipmap_filter);
+        let (min, mag) =
+            conv::map_filter_modes(desc.min_filter, desc.mag_filter, desc.mipmap_filter);
 
         unsafe { gl.sampler_parameter_i32(raw, glow::TEXTURE_MIN_FILTER, min as i32) };
         unsafe { gl.sampler_parameter_i32(raw, glow::TEXTURE_MAG_FILTER, mag as i32) };
@@ -76,7 +63,25 @@ impl Sampler {
             };
         }
 
-        Ok(Self { raw, state })
+        let imp = SamplerImpl { raw, state };
+        Ok(Self(Share::new(imp)))
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct SamplerImpl {
+    raw: glow::Sampler,
+    state: GLState,
+}
+
+impl Drop for SamplerImpl {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            let gl = self.state.get_gl();
+            gl.delete_sampler(self.raw);
+        }
+
+        self.state.remove_sampler(self.raw);
+    }
+}

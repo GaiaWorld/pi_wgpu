@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub(crate) struct Device {
     pub(crate) state: super::GLState,
@@ -12,7 +11,7 @@ impl Device {
     ) -> Result<super::Buffer, crate::DeviceError> {
         super::Buffer::new(self.state.clone(), desc)
     }
-    
+
     #[inline]
     pub(crate) unsafe fn create_texture(
         &self,
@@ -27,7 +26,7 @@ impl Device {
         texture: &super::Texture,
         desc: &crate::TextureViewDescriptor,
     ) -> Result<super::TextureView, crate::DeviceError> {
-        super::TextureView::new(self.state.clone(), texture, desc)
+        super::TextureView::new(texture, desc)
     }
 
     #[inline]
@@ -51,7 +50,7 @@ impl Device {
         &self,
         desc: &crate::BindGroupLayoutDescriptor,
     ) -> Result<super::BindGroupLayout, crate::DeviceError> {
-        super::BindGroupLayout::new(self.state.clone(), desc)
+        super::BindGroupLayout::new(desc)
     }
 
     #[inline]
@@ -67,7 +66,7 @@ impl Device {
         &self,
         desc: &crate::BindGroupDescriptor,
     ) -> Result<super::BindGroup, crate::DeviceError> {
-        super::BindGroup::new(self.state.clone(), desc)
+        super::BindGroup::new(desc)
     }
 
     #[inline]

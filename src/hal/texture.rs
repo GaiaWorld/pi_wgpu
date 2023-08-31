@@ -9,20 +9,7 @@ use crate::{hal::gl_conv as conv, wgt};
 pub(crate) type TextureID = u64;
 
 #[derive(Debug)]
-pub(crate) struct Texture {
-    pub state: GLState,
-    pub inner: Share<TextureInner>,
-
-    pub mip_level_count: u32,
-    pub array_layer_count: u32,
-    pub format: wgt::TextureFormat,
-
-    pub copy_size: super::CopyExtent,
-
-    pub format_desc: TextureFormatDesc,
-
-    pub is_cubemap: bool,
-}
+pub(crate) struct Texture(pub(crate) Share<TextureImpl>);
 
 impl Texture {
     pub fn new(
@@ -145,8 +132,8 @@ impl Texture {
             )
         };
 
-        Ok(Texture {
-            inner: Share::new(inner),
+        let imp = TextureImpl {
+            inner,
             state,
             mip_level_count: desc.mip_level_count,
             array_layer_count: if desc.dimension == wgt::TextureDimension::D2 {
@@ -158,7 +145,9 @@ impl Texture {
             copy_size,
             format_desc,
             is_cubemap,
-        })
+        };
+
+        Ok(Self(Share::new(imp)))
     }
 }
 
@@ -171,12 +160,13 @@ impl Texture {
     ) {
         profiling::scope!("hal::Texture::write_data");
 
-        let inner = &copy.texture.inner;
+        let inner = copy.texture.inner.0.as_ref();
+
         let format_info = inner.format.describe();
 
         let gl = inner.state.get_gl();
 
-        let (raw, dst_target) = match inner.inner.as_ref() {
+        let (raw, dst_target) = match &inner.inner {
             TextureInner::Texture { raw, target, .. } => (*raw, *target),
             _ => unreachable!(),
         };
@@ -354,7 +344,7 @@ impl Texture {
 #[derive(Clone, Debug)]
 pub(crate) struct TextureView {
     pub(crate) state: GLState,
-    pub(crate) inner: Share<TextureInner>,
+    pub(crate) inner: Share<TextureImpl>,
 
     pub(crate) format_desc: TextureFormatDesc,
     pub(crate) sample_type: wgt::TextureSampleType,
@@ -371,37 +361,55 @@ impl TextureView {
     ) -> Result<Self, crate::DeviceError> {
         profiling::scope!("hal::TextureView::new");
 
+        let imp = texture.0.as_ref();
+
         let mip_count = match desc.mip_level_count {
             Some(count) => count.into(),
-            None => texture.mip_level_count,
+            None => imp.mip_level_count,
         };
         let mip_levels = desc.base_mip_level..(mip_count - desc.base_mip_level);
 
         let layer_count = match desc.array_layer_count {
             Some(count) => count.into(),
-            None => texture.array_layer_count,
+            None => imp.array_layer_count,
         };
         let array_layers = desc.base_array_layer..(layer_count - desc.base_array_layer);
 
         Ok(TextureView {
-            state: texture.state.clone(),
-            inner: texture.inner.clone(),
+            state: imp.state.clone(),
+            inner: texture.0.clone(),
 
             mip_levels,
             array_layers,
 
-            format: texture.format,
-            sample_type: texture.format.describe().sample_type,
+            format: imp.format,
+            sample_type: imp.format.describe().sample_type,
 
-            format_desc: texture.format_desc.clone(),
+            format_desc: imp.format_desc.clone(),
 
-            aspects: super::FormatAspects::from(texture.format)
+            aspects: super::FormatAspects::from(imp.format)
                 & super::FormatAspects::from(desc.aspect),
         })
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+pub(crate) struct TextureImpl {
+    pub state: GLState,
+    pub inner: TextureInner,
+
+    pub mip_level_count: u32,
+    pub array_layer_count: u32,
+    pub format: wgt::TextureFormat,
+
+    pub copy_size: super::CopyExtent,
+
+    pub format_desc: TextureFormatDesc,
+
+    pub is_cubemap: bool,
+}
+
+#[derive(Debug)]
 pub(crate) enum TextureInner {
     DefaultRenderbuffer,
 

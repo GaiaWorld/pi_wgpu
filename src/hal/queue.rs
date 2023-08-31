@@ -1,5 +1,4 @@
 use super::GLState;
-use crate::wgt;
 
 #[derive(Debug)]
 pub(crate) struct Queue {

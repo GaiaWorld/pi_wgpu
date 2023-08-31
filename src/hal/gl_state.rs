@@ -50,6 +50,12 @@ impl GLState {
     pub fn remove_buffer(&self, buffer: glow::Buffer) {
         profiling::scope!("hal::GLState::remove_buffer");
     }
+
+    // TODO 到 Shader Cache 删除槽位
+    pub fn remove_shader(&self, buffer: glow::Shader) {
+        profiling::scope!("hal::GLState::remove_shader");
+    }
+
 }
 
 #[derive(Debug)]
@@ -921,11 +927,5 @@ struct Geometry {
 struct RenderTarget {
     depth: Option<TextureID>,
     colors: [TextureID; super::MAX_COLOR_ATTACHMENTS],
-}
-
-#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-pub(crate) struct Program {
-    vs_id: ShaderID,
-    fs_id: ShaderID,
 }
 
