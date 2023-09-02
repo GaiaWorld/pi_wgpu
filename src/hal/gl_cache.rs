@@ -159,7 +159,73 @@ impl GLCache {
         self.program_map.remove(id);
     }
 
+    pub fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) {
+        profiling::scope!("hal::GLCache::bind_fbo");
+
+        match self.fbo_map.get(render_target) {
+            Some(fbo) => unsafe {
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(*fbo));
+            },
+            None => unsafe {
+                let fbo = gl.create_framebuffer().unwrap();
+
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fbo));
+
+                match render_target.colors.as_ref().unwrap() {
+                    crate::hal::GLTextureInfo::Renderbuffer(raw) => {
+                        gl.framebuffer_renderbuffer(
+                            glow::DRAW_FRAMEBUFFER,
+                            glow::COLOR_ATTACHMENT0,
+                            glow::RENDERBUFFER,
+                            Some(*raw),
+                        );
+                    }
+                    crate::hal::GLTextureInfo::Texture(raw) => {
+                        gl.framebuffer_texture_2d(
+                            glow::DRAW_FRAMEBUFFER,
+                            glow::COLOR_ATTACHMENT0,
+                            glow::TEXTURE_2D,
+                            Some(*raw),
+                            0,
+                        );
+                    }
+                }
+
+                if let Some(depth_stencil) = &render_target.depth_stencil {
+                    match depth_stencil {
+                        crate::hal::GLTextureInfo::Renderbuffer(raw) => {
+                            gl.framebuffer_renderbuffer(
+                                glow::DRAW_FRAMEBUFFER,
+                                glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
+                                glow::RENDERBUFFER,
+                                Some(*raw),
+                            );
+                        }
+                        crate::hal::GLTextureInfo::Texture(raw) => {
+                            gl.framebuffer_texture_2d(
+                                glow::DRAW_FRAMEBUFFER,
+                                glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
+                                glow::TEXTURE_2D,
+                                Some(*raw),
+                                0,
+                            );
+                        }
+                    }
+                }
+
+                let status = gl.check_framebuffer_status(glow::DRAW_FRAMEBUFFER);
+                if status != glow::FRAMEBUFFER_COMPLETE {
+                    panic!("bind_fbo error, reason = {}", status);
+                }
+
+                self.fbo_map.insert(render_target.clone(), fbo);
+            },
+        }
+    }
+
     pub fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
+        profiling::scope!("hal::GLCache::bind_vao");
+
         match self.vao_map.get(geometry) {
             Some(vao) => unsafe {
                 gl.bind_vertex_array(Some(*vao));
@@ -225,12 +291,18 @@ impl GLCache {
             .fbo_map
             .drain_filter(|k, fbo| {
                 if let Some(super::GLTextureInfo::Renderbuffer(b)) = k.colors.as_ref() {
-                    *b == rb
-                } else if let Some(super::GLTextureInfo::Renderbuffer(b)) = k.depth.as_ref() {
-                    *b == rb
-                } else {
-                    false
+                    if *b == rb {
+                        return true;
+                    }
                 }
+
+                if let Some(super::GLTextureInfo::Renderbuffer(b)) = k.depth_stencil.as_ref() {
+                    if *b == rb {
+                        return true;
+                    }
+                }
+
+                return false;
             })
             .map(|(k, v)| v)
             .collect::<HashSet<_>>();
@@ -249,12 +321,18 @@ impl GLCache {
             .fbo_map
             .drain_filter(|k, _| {
                 if let Some(super::GLTextureInfo::Texture(t)) = k.colors.as_ref() {
-                    *t == texture
-                } else if let Some(super::GLTextureInfo::Texture(t)) = k.depth.as_ref() {
-                    *t == texture
-                } else {
-                    false
+                    if *t == texture {
+                        return true;
+                    }
                 }
+
+                if let Some(super::GLTextureInfo::Texture(t)) = k.depth_stencil.as_ref() {
+                    if *t == texture {
+                        return true;
+                    }
+                }
+
+                return false;
             })
             .map(|(k, v)| v)
             .collect::<HashSet<_>>();

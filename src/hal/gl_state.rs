@@ -111,8 +111,9 @@ impl GLState {
         s.cache.remove_render_buffer(&s.gl, rb);
     }
 
-    #[inline]
     pub fn remove_buffer(&mut self, bind_target: u32, buffer: glow::Buffer) {
+        profiling::scope!("hal::GLState::remove_buffer");
+
         if bind_target == glow::UNIFORM_BUFFER {
             return;
         }
@@ -167,7 +168,9 @@ pub(crate) struct GLStateImpl {
     vertex_buffers: Box<[Option<VBState>]>, // 长度 不会 超过 max_attribute_slots
     index_buffer: Option<IBState>,
 
-    clear_color: [f32; 4],
+    bind_group_state: Option<BindGroupState>,
+
+    clear_color: wgt::Color,
     clear_depth: f32,
     clear_stencil: u32,
 
@@ -210,10 +213,12 @@ impl GLStateImpl {
             vertex_buffers: vec![None; max_attribute_slots].into_boxed_slice(),
             index_buffer: None,
 
+            bind_group_state: None,
+
             viewport: Default::default(),
             scissor: Default::default(),
 
-            clear_color: [0.0; 4],
+            clear_color: crate::Color::default(),
             clear_depth: 1.0,
             clear_stencil: 0,
 
@@ -269,6 +274,7 @@ impl GLStateImpl {
 
         if self.render_pipeline.is_none() {
             // 旧的没有，全部设置
+            profiling::scope!("hal::GLState::apply_render_pipeline");
 
             let new = pipeline.0.as_ref();
 
@@ -325,177 +331,64 @@ impl GLStateImpl {
 
     // 设置 FBO，设置 Viewport & Scissor，清屏
     pub fn set_render_target(&mut self, desc: &crate::RenderPassDescriptor) {
-        let mut extent: Option<Extent3d> = None;
-        desc.color_attachments
-            .first()
-            .filter(|at| at.is_some())
-            .and_then(|at| {
-                at.as_ref().map(|at| {
-                    extent = Some(at.view.render_extent);
-                })
-            });
+        profiling::scope!("hal::GLState::set_render_target");
 
-        let extent = extent.unwrap();
-        self.state.render_size = extent;
+        // TODO 不支持 多目标 渲染
+        assert!(desc.color_attachments.len() == 1);
 
-        self.state.resolve_attachments.clear();
-        self.state.invalidate_attachments.clear();
+        let color = desc.color_attachments[0].as_ref().unwrap();
 
-        let rendering_to_external_framebuffer = desc
-            .color_attachments
-            .iter()
-            .filter_map(|at| at.as_ref())
-            .any(|at| match at.view.inner {
-                #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-                super::TextureInner::ExternalFramebuffer { .. } => true,
-                _ => false,
-            });
+        // TODO 不支持 多重采样
+        assert!(color.resolve_target.is_none());
 
-        if rendering_to_external_framebuffer && desc.color_attachments.len() != 1 {
-            panic!("Multiple render attachments with external framebuffers are not supported.");
+        let colors = GLTextureInfo::try_from(color.view).ok();
+
+        let (depth_stencil, depth_ops, stencil_ops) = match desc.depth_stencil_attachment {
+            None => (None, None, None),
+            Some(ds) => (
+                GLTextureInfo::try_from(ds.view).ok(),
+                ds.depth_ops,
+                ds.stencil_ops,
+            ),
+        };
+
+        if colors.is_none() {
+            unsafe {
+                self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            }
+        } else {
+            let render_target = super::RenderTarget {
+                depth_stencil,
+                colors,
+            };
+            self.cache.bind_fbo(&self.gl, &render_target);
         }
 
-        let gl = self.gl.context.lock();
+        // 视口 & 裁剪
+        let size = color.view.get_size();
+        self.set_viewport(0, 0, size.0 as i32, size.1 as i32);
+        self.set_scissor(0, 0, size.0 as i32, size.1 as i32);
 
-        match desc
-            .color_attachments
-            .first()
-            .filter(|at| at.is_some())
-            .and_then(|at| at.as_ref().map(|at| &at.view.inner.inner))
-        {
-            // default framebuffer (provided externally)
-            Some(&super::TextureInner::DefaultRenderbuffer) => {
-                self.reset_framebuffer(&gl, true);
-            }
-            _ => {
-                // set the framebuffer
-                self.reset_framebuffer(&gl, false);
-
-                for (i, cat) in desc.color_attachments.iter().enumerate() {
-                    if let Some(cat) = cat.as_ref() {
-                        let attachment = glow::COLOR_ATTACHMENT0 + i as u32;
-
-                        self.bind_attachment(&gl, attachment, &cat.view.inner);
-
-                        if let Some(ref rat) = cat.resolve_target {
-                            self.state
-                                .resolve_attachments
-                                .push((attachment, rat.inner.clone()));
-                        }
-
-                        if !cat.ops.store {
-                            self.state.invalidate_attachments.push(attachment);
-                        }
-                    }
-                }
-                if let Some(ref dsat) = desc.depth_stencil_attachment {
-                    let aspects = dsat.view.inner.aspects;
-                    let attachment = match aspects {
-                        super::FormatAspects::DEPTH => glow::DEPTH_ATTACHMENT,
-                        super::FormatAspects::STENCIL => glow::STENCIL_ATTACHMENT,
-                        _ => glow::DEPTH_STENCIL_ATTACHMENT,
-                    };
-
-                    self.bind_attachment(&gl, attachment, &dsat.view.inner);
-
-                    let contain_store =
-                        dsat.depth_ops.is_some() && dsat.depth_ops.as_ref().unwrap().store;
-                    if aspects.contains(super::FormatAspects::DEPTH) && !contain_store {
-                        self.state
-                            .invalidate_attachments
-                            .push(glow::DEPTH_ATTACHMENT);
-                    }
-
-                    let contain_store =
-                        dsat.stencil_ops.is_some() && dsat.stencil_ops.as_ref().unwrap().store;
-                    if aspects.contains(super::FormatAspects::STENCIL) && !contain_store {
-                        self.state
-                            .invalidate_attachments
-                            .push(glow::STENCIL_ATTACHMENT);
-                    }
-                }
-
-                if !rendering_to_external_framebuffer {
-                    // set the draw buffers and states
-                    self.set_draw_color_bufers(&gl, desc.color_attachments.len() as u8);
-                }
-            }
-        }
-        // issue the clears
-        for (i, cat) in desc
-            .color_attachments
-            .iter()
-            .filter_map(|at| at.as_ref())
-            .enumerate()
-        {
-            if let LoadOp::Clear(ref c) = cat.ops.load {
-                match cat.view.inner.sample_type {
-                    wgt::TextureSampleType::Float { .. } => {
-                        self.clear_color_f(
-                            &gl,
-                            i as u32,
-                            &[c.r as f32, c.g as f32, c.b as f32, c.a as f32],
-                            cat.view.inner.format.describe().srgb,
-                        );
-                    }
-                    wgt::TextureSampleType::Depth => {
-                        unreachable!()
-                    }
-                    wgt::TextureSampleType::Uint => {
-                        self.clear_color_u(
-                            &gl,
-                            i as u32,
-                            &[c.r as u32, c.g as u32, c.b as u32, c.a as u32],
-                        );
-                    }
-                    wgt::TextureSampleType::Sint => {
-                        self.clear_color_i(
-                            &gl,
-                            i as u32,
-                            &[c.r as i32, c.g as i32, c.b as i32, c.a as i32],
-                        );
-                    }
-                }
-            }
-        }
-        if let Some(ref dsat) = desc.depth_stencil_attachment {
-            match (dsat.depth_ops, dsat.stencil_ops) {
-                (Some(ref dops), Some(ref sops)) => match (dops.load, sops.load) {
-                    (LoadOp::Clear(d), LoadOp::Clear(s)) => {
-                        self.clear_color_depth_and_stencil(&gl, d, s);
-                    }
-                    (LoadOp::Clear(d), LoadOp::Load) => {
-                        self.clear_depth(&gl, d);
-                    }
-                    (LoadOp::Load, LoadOp::Clear(s)) => {
-                        self.clear_stencil(&gl, s as i32);
-                    }
-                    (LoadOp::Load, LoadOp::Load) => {}
-                },
-                (Some(ref dops), None) => {
-                    if let LoadOp::Clear(d) = dops.load {
-                        self.clear_depth(&gl, d);
-                    }
-                }
-                (None, Some(ref sops)) => {
-                    if let LoadOp::Clear(s) = sops.load {
-                        self.clear_stencil(&gl, s as i32);
-                    }
-                }
-                (None, None) => {}
-            }
-        }
+        // 清屏
+        self.clear_render_target(
+            &color.ops.load,
+            depth_ops.map(|d| &d.load),
+            stencil_ops.map(|s| &s.load),
+        );
     }
 
     pub fn set_bind_group(
         &mut self,
         index: u32,
-        group: &super::BindGroup,
+        bind_group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        todo!()
+        self.bind_group_state = Some(BindGroupState {
+            bind_group: bind_group.contents.clone(),
+            dynamic_offsets: dynamic_offsets.to_vec().into_boxed_slice(),
+        });
     }
 
     pub fn set_vertex_buffer(
@@ -721,14 +614,13 @@ impl GLStateImpl {
 impl GLStateImpl {
     #[inline]
     fn before_draw(&mut self) {
-        profiling::scope!("hal::GLState::after_draw");
-
         self.update_vao();
+
+        // TODO: 结合 pipeline 和 bind_group_state 处理 UBO
+        todo!(); // self.bind_group_state
     }
 
     fn after_draw(&mut self) {
-        profiling::scope!("hal::GLState::after_draw");
-
         // 必须 清空 VAO 绑定，否则 之后 如果 bind_buffer 修改 vb / ib 的话 就会 误操作了
         unsafe {
             self.gl.bind_vertex_array(None);
@@ -771,6 +663,62 @@ impl GLStateImpl {
         // 回收 vbs
         self.last_vbs = Some(geometry.vbs);
     }
+
+    fn clear_render_target(
+        &mut self,
+        color: &crate::LoadOp<crate::Color>,
+        depth: Option<&crate::LoadOp<f32>>,
+        stencil: Option<&crate::LoadOp<u32>>,
+    ) {
+        profiling::scope!("hal::GLState::clear_render_target");
+
+        let mut clear_mask = 0;
+
+        if let crate::LoadOp::Clear(color) = color {
+            clear_mask |= glow::COLOR_BUFFER_BIT;
+            if self.clear_color != *color {
+                unsafe {
+                    self.gl.clear_color(
+                        color.r as f32,
+                        color.g as f32,
+                        color.b as f32,
+                        color.a as f32,
+                    );
+                }
+                self.clear_color = *color;
+            }
+        }
+
+        if let Some(ds_ops) = depth {
+            if let crate::LoadOp::Clear(depth) = ds_ops {
+                clear_mask |= glow::DEPTH_BUFFER_BIT;
+                if self.clear_depth != *depth {
+                    unsafe {
+                        self.gl.clear_depth_f32(*depth);
+                    }
+                    self.clear_depth = *depth;
+                }
+            }
+        }
+
+        if let Some(stencil_ops) = stencil {
+            if let crate::LoadOp::Clear(stencil) = &stencil_ops {
+                clear_mask |= glow::STENCIL_BUFFER_BIT;
+                if self.clear_stencil != *stencil {
+                    unsafe {
+                        self.gl.clear_stencil(*stencil as i32);
+                    }
+                    self.clear_stencil = *stencil;
+                }
+            }
+        }
+
+        if clear_mask != 0 {
+            unsafe {
+                self.gl.clear(clear_mask);
+            }
+        }
+    }
 }
 
 impl GLStateImpl {
@@ -783,8 +731,6 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_alpha_to_coverage(gl: &glow::Context, alpha_to_coverage_enabled: bool) {
-        profiling::scope!("hal::GLStateImpl::apply_alpha_to_coverage");
-
         if alpha_to_coverage_enabled {
             unsafe { gl.enable(glow::SAMPLE_ALPHA_TO_COVERAGE) };
         } else {
@@ -888,6 +834,8 @@ impl GLStateImpl {
         new: &super::StencilStateImpl,
         old: &super::StencilStateImpl,
     ) {
+        profiling::scope!("hal::GLState::set_stencil");
+
         Self::set_stencil_test(&gl, new, old);
 
         Self::set_stencil_face(
@@ -1064,8 +1012,6 @@ impl GLStateImpl {
         old: &super::StencilStateImpl,
         old_face: &super::StencilFaceState,
     ) {
-        profiling::scope!("hal::GLState::set_stencil_face");
-
         if new_face.test_func != old_face.test_func || new.mask_read != old.mask_read {
             Self::apply_stencil_func(gl, face, stencil_ref, new_face.test_func, new.mask_read);
         }
@@ -1198,7 +1144,7 @@ pub(crate) struct AttributeInfo {
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct RenderTarget {
-    pub(crate) depth: Option<GLTextureInfo>,
+    pub(crate) depth_stencil: Option<GLTextureInfo>,
     pub(crate) colors: Option<GLTextureInfo>,
 }
 
@@ -1207,4 +1153,23 @@ pub(crate) enum GLTextureInfo {
     Renderbuffer(glow::Renderbuffer),
 
     Texture(glow::Texture),
+}
+
+impl TryFrom<&crate::TextureView> for GLTextureInfo {
+    type Error = ();
+
+    fn try_from(value: &crate::TextureView) -> Result<Self, Self::Error> {
+        match &value.inner.inner.inner {
+            super::TextureInner::DefaultRenderbuffer => Err(()),
+            super::TextureInner::Renderbuffer { raw, .. } => Ok(GLTextureInfo::Renderbuffer(*raw)),
+            super::TextureInner::Texture { raw, .. } => Ok(GLTextureInfo::Texture(*raw)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BindGroupState {
+    bind_group: Box<[super::RawBinding]>,
+
+    dynamic_offsets: Box<[wgt::DynamicOffset]>,
 }

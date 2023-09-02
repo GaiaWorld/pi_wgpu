@@ -17,7 +17,7 @@ impl BindGroupLayout {
 
 #[derive(Debug)]
 pub(crate) struct BindGroup {
-    contents: Box<[RawBinding]>,
+    pub(crate) contents: Box<[RawBinding]>,
 }
 
 impl BindGroup {
@@ -53,8 +53,8 @@ impl BindGroup {
     }
 }
 
-#[derive(Debug)]
-enum RawBinding {
+#[derive(Debug, Clone)]
+pub(crate) enum RawBinding {
     Buffer {
         raw: super::Buffer,
         offset: i32,

@@ -135,6 +135,15 @@ pub struct TextureView {
     pub(crate) inner: hal::TextureView,
 }
 
+impl TextureView {
+    // 返回 (w, h, d)
+    #[inline]
+    pub(crate) fn get_size(&self) -> (u32, u32, u32) {
+        let size  = &self.inner.inner.copy_size;
+        (size.width, size.height, size.depth)
+    }
+}
+
 /// Describes a [`TextureView`].
 ///
 /// For use with [`Texture::create_view`].
