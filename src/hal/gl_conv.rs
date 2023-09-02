@@ -45,7 +45,7 @@ pub(crate) fn map_primitive_topology(topology: wgt::PrimitiveTopology) -> u32 {
 }
 
 #[inline]
-pub(crate) fn map_index_format(format: wgt::IndexFormat) -> (u32, u32) {
+pub(crate) fn map_index_format(format: wgt::IndexFormat) -> (i32, u32) {
     match format {
         wgt::IndexFormat::Uint16 => (2, glow::UNSIGNED_SHORT),
         wgt::IndexFormat::Uint32 => (4, glow::UNSIGNED_INT),

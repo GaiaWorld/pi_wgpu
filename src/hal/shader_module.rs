@@ -4,8 +4,12 @@ use crate::ShaderBindGroupInfo;
 
 use super::GLState;
 
+pub(crate) type ShaderID = u64;
+
 #[derive(Debug)]
 pub(crate) struct ShaderModule {
+    pub(crate) id: ShaderID,
+
     pub(crate) raw: glow::Shader,
     pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
     pub(crate) state: GLState,
@@ -18,7 +22,6 @@ impl Drop for ShaderModule {
         unsafe {
             gl.delete_shader(self.raw);
         }
-        self.state.remove_shader(self.raw);
     }
 }
 
@@ -73,6 +76,7 @@ impl ShaderModule {
                 };
 
                 Ok(Self {
+                    id: state.next_shader_id(),
                     raw,
                     shader_type,
                     state: state.clone(),

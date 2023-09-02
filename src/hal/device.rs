@@ -1,3 +1,5 @@
+use pi_share::Share;
+
 #[derive(Debug)]
 pub(crate) struct Device {
     pub(crate) state: super::GLState,
@@ -82,6 +84,7 @@ impl Device {
         &self,
         desc: &crate::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
-        super::RenderPipeline::new(self.state.clone(), desc)
+        let imp = super::RenderPipelineImpl::new(self.state.clone(), desc)?;
+        Ok(super::RenderPipeline(Share::new(imp)))
     }
 }

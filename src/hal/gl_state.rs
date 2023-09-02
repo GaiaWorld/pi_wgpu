@@ -1,26 +1,22 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
-
 use glow::HasContext;
-use ordered_float::OrderedFloat;
-use pi_share::{Share, ShareWeak, ShareCell};
-use twox_hash::RandomXxHashBuilder64;           
+use pi_share::{Share, ShareCell};
 
-use super::{EglContext, PipelineID, ShaderID, TextureID, VertexAttribKind};
-use crate::{wgt, BufferAddress};
-
-const RESET_INTERVAL_SECS: u64 = 5;
-
-pub(crate) struct CreateRenderPipelineError {
-
-}
+use super::{gl_cache::GLCache, gl_conv as conv, EglContext, ShaderID, VertexAttribKind};
+use crate::{wgt, BufferSize};
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState(pub Share<ShareCell<GLStateImpl>>);
 
 impl GLState {
+    #[inline]
+    pub fn next_shader_id(&self) -> ShaderID {
+        let mut s = self.0.borrow_mut();
+
+        s.global_shader_id += 1;
+
+        s.global_shader_id
+    }
+
     #[inline]
     pub fn get_gl(&self) -> &glow::Context {
         &self.0.borrow().gl
@@ -31,31 +27,124 @@ impl GLState {
         &self.0.borrow().egl
     }
 
-    // TODO 到 TextureCache 删除 槽位
-    pub fn remove_sampler(&self, sampler: glow::Sampler) {
-        profiling::scope!("hal::GLState::remove_sampler");
+    #[inline]
+    pub fn max_attribute_slots(&self) -> usize {
+        self.0.borrow().max_attribute_slots
+    }
+    #[inline]
+    pub fn max_textures_slots(&self) -> usize {
+        self.0.borrow().max_textures_slots
     }
 
-    // TODO 到 TextureCache 删除 槽位
-    pub fn remove_texture(&self, texture: glow::Texture) {
-        profiling::scope!("hal::GLState::remove_texture");
+    #[inline]
+    pub fn max_color_attachments(&self) -> usize {
+        self.0.borrow().max_color_attachments
     }
 
-    // TODO 到 FBO 删除 槽位
+    #[inline]
+    pub fn get_program(&self, id: &super::ProgramID) -> Option<Share<super::Program>> {
+        self.0.borrow().cache.get_program(id)
+    }
+
+    #[inline]
+    pub fn insert_program(&self, id: super::ProgramID, program: Share<super::Program>) {
+        self.0.borrow_mut().cache.insert_program(id, program)
+    }
+
+    #[inline]
+    pub fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
+        let mut s = self.0.borrow_mut();
+        s.cache.get_or_insert_rs(self.clone(), rs)
+    }
+
+    #[inline]
+    pub fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
+        let mut s = self.0.borrow_mut();
+        s.cache.get_or_insert_ds(self.clone(), ds)
+    }
+
+    #[inline]
+    pub fn get_or_insert_ss(&self, rs: super::StencilStateImpl) -> Share<super::StencilState> {
+        let mut s = self.0.borrow_mut();
+        s.cache.get_or_insert_ss(self.clone(), rs)
+    }
+
+    #[inline]
+    pub fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
+        let mut s = self.0.borrow_mut();
+        s.cache.get_or_insert_bs(self.clone(), bs)
+    }
+
+    #[inline]
+    pub fn remove_bs(&self, bs: &super::BlendStateImpl) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_bs(bs);
+    }
+
+    #[inline]
+    pub fn remove_rs(&self, rs: &super::RasterStateImpl) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_rs(rs);
+    }
+
+    #[inline]
+    pub fn remove_ds(&self, ds: &super::DepthStateImpl) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_ds(ds);
+    }
+
+    #[inline]
+    pub fn remove_ss(&self, ss: &super::StencilStateImpl) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_ss(ss);
+    }
+
+    #[inline]
+    pub fn remove_program(&self, id: &super::ProgramID) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_program(id);
+    }
+
+    #[inline]
     pub fn remove_render_buffer(&self, rb: glow::Renderbuffer) {
-        profiling::scope!("hal::GLState::remove_render_buffer");
-    }
-    
-    // TODO 到 VAO 删除槽位
-    pub fn remove_buffer(&self, buffer: glow::Buffer) {
-        profiling::scope!("hal::GLState::remove_buffer");
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_render_buffer(&s.gl, rb);
     }
 
-    // TODO 到 Shader Cache 删除槽位
-    pub fn remove_shader(&self, buffer: glow::Shader) {
-        profiling::scope!("hal::GLState::remove_shader");
+    #[inline]
+    pub fn remove_buffer(&mut self, bind_target: u32, buffer: glow::Buffer) {
+        if bind_target == glow::UNIFORM_BUFFER {
+            return;
+        }
+
+        let mut imp = self.0.borrow_mut();
+
+        if bind_target == glow::ELEMENT_ARRAY_BUFFER {
+            if let Some(ib) = imp.index_buffer.as_ref() {
+                if ib.raw == buffer {
+                    imp.index_buffer = None;
+                }
+            }
+            return;
+        }
+
+        imp.cache.remove_buffer(&imp.gl, bind_target, buffer);
     }
 
+    #[inline]
+    pub fn remove_texture(&self, texture: glow::Texture) {
+        let mut s = self.0.borrow_mut();
+        s.cache.remove_texture(&s.gl, texture);
+
+        // TODO 到 TextureCache 移除 对应的 槽位
+        todo!();
+    }
+
+    #[inline]
+    pub fn remove_sampler(&self, sampler: glow::Sampler) {
+        // TODO 到 TextureCache 移除 对应的 槽位
+        todo!();
+    }
 }
 
 #[derive(Debug)]
@@ -63,46 +152,33 @@ pub(crate) struct GLStateImpl {
     gl: glow::Context,
     egl: EglContext,
 
-    last_reset_time: Instant,
+    cache: GLCache,
+    global_shader_id: ShaderID,
+    last_vbs: Option<Box<[Option<VBState>]>>,
 
-    global_render_pipeline_id: PipelineID,
+    // 各种 MAX
+    max_attribute_slots: usize,   // glow::MAX_VERTEX_ATTRIBS
+    max_textures_slots: usize,    // glow::MAX_TEXTURE_IMAGE_UNITS
+    max_color_attachments: usize, // glow::MAX_COLOR_ATTACHMENTS
 
-    vao_map: HashMap<Geometry, glow::VertexArray, RandomXxHashBuilder64>,
-    fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
-    program_map: HashMap<Program, ShareWeak<glow::Program>, RandomXxHashBuilder64>,
-
-    bs_map: HashMap<BlendState, ShareWeak<BlendState>, RandomXxHashBuilder64>,
-    rs_map: HashMap<RasterState, ShareWeak<RasterState>, RandomXxHashBuilder64>,
-    ds_map: HashMap<DepthState, ShareWeak<DepthState>, RandomXxHashBuilder64>,
-    ss_map: HashMap<StencilState, ShareWeak<StencilState>, RandomXxHashBuilder64>,
-
-    // 每次Draw 之后，都会 重置 为 Default
-    geometry: Geometry,
-    vao: Option<glow::VertexArray>,
-
-    topology: u32,
+    // 全局 GL 状态
+    // VAO = render_pipeline.attributes + vertex_buffers
+    render_pipeline: Option<super::RenderPipeline>,
+    vertex_buffers: Box<[Option<VBState>]>, // 长度 不会 超过 max_attribute_slots
+    index_buffer: Option<IBState>,
 
     clear_color: [f32; 4],
     clear_depth: f32,
     clear_stencil: u32,
 
+    // begin_pass 时，会自动设置为渲染目标的 宽 / 高
     viewport: Viewport,
     scissor: Scissor,
 
-    blend_color: [f32; 4],
-    bs: Share<super::BlendState>,
-    
-    alpha_to_coverage_enabled: bool,
-    color_writes: wgt::ColorWrites,
-
     stencil_ref: i32,
-    ss: Share<StencilState>,
-    rs: Share<RasterState>,
-    ds: Share<DepthState>,
+    blend_color: [f32; 4],
 
-    render_pipeline_id: PipelineID,
-
-    textures: [Option<(super::Texture, super::Sampler)>; super::MAX_TEXTURE_SLOTS],
+    textures: Box<[(Option<super::Texture>, Option<super::Sampler>)]>, // 长度 不会 超过 max_textures_slots
 }
 
 impl GLStateImpl {
@@ -111,29 +187,28 @@ impl GLStateImpl {
 
         let draw_fbo = unsafe { gl.create_framebuffer().unwrap() };
 
+        let max_attribute_slots =
+            unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIBS) as usize };
+        let max_textures_slots =
+            unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_IMAGE_UNITS) as usize };
+        let max_color_attachments =
+            unsafe { gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS) as usize };
+
         Self {
             gl,
             egl,
+            global_shader_id: 0,
+            last_vbs: None,
 
-            last_reset_time: Instant::now(),
-            global_render_pipeline_id: 1,
+            max_attribute_slots,
+            max_textures_slots,
+            max_color_attachments,
 
-            vao_map: Default::default(),
-            fbo_map: Default::default(),
-            program_map: Default::default(),
+            cache: Default::default(),
 
-            bs_map: Default::default(),
-            rs_map: Default::default(),
-            ds_map: Default::default(),
-            ss_map: Default::default(),
-
-            topology: glow::TRIANGLES,
-
-            alpha_to_coverage_enabled: false,
-            color_writes: Default::default(),
-
-            vao: Default::default(),
-            geometry: Default::default(),
+            render_pipeline: None,
+            vertex_buffers: vec![None; max_attribute_slots].into_boxed_slice(),
+            index_buffer: None,
 
             viewport: Default::default(),
             scissor: Default::default(),
@@ -142,176 +217,366 @@ impl GLStateImpl {
             clear_depth: 1.0,
             clear_stencil: 0,
 
-            render_pipeline_id: 0,
-
             blend_color: [0.0; 4],
-            bs: Share::new(Default::default()),
-
             stencil_ref: 0,
-            ss: Share::new(Default::default()),
-
-            rs: Share::new(Default::default()),
-            ds: Share::new(Default::default()),
 
             textures: Default::default(),
         }
     }
 
-    // ==================== 创建 && 销毁
+    #[inline]
+    pub fn set_buffer_size(&self, buffer: &super::BufferImpl, size: i32) {
+        profiling::scope!("hal::GLState::set_buffer_size");
 
-    pub fn create_render_pipeline(
-        &mut self,
-        desc: &crate::RenderPipelineDescriptor,
-    ) -> Result<super::RenderPipeline, CreateRenderPipelineError> {
-        let pipeline_id = self.global_render_pipeline_id;
-        self.global_render_pipeline_id += 1;
+        let gl = &self.gl;
 
-        let topology = map_primitive_topology(desc.primitive.topology);
+        unsafe {
+            gl.bind_buffer(buffer.gl_target, Some(buffer.raw));
 
-        let primitive: wgt::PrimitiveState,
-        let vertex_attributes: [Option<super::AttributeDesc>; super::MAX_VERTEX_ATTRIBUTES],
-    
-        let depth_bias: super::DepthBiasState,
-    
-        let alpha_to_coverage_enabled: bool,
-        let color_writes: [Option<Share<super::BlendState>>; super::MAX_COLOR_ATTACHMENTS],
-    
-        pub(crate) program: Share<super::Program>,
-    
-       let ds: Share<super::DepthState>,
-       let bs: [Option<Share<super::BlendState>>; super::MAX_COLOR_ATTACHMENTS],
-       let rs: Share<super::RasterState>,
-       let ss: Share<super::StencilState>,
-    
+            gl.buffer_data_size(buffer.gl_target, size, buffer.gl_usage);
 
-        Ok(super::RenderPipeline {
-            pipeline_id,
-            topology,
+            if buffer.gl_target == glow::ELEMENT_ARRAY_BUFFER {
+                // 还原回 当前 状态机的状态
 
-            vertex_attributes,
-        
-            alpha_to_coverage_enabled,
-            color_writes,
-        
-            program,
-        
-            ds,
-            bs,
-            rs,
-            ss,
-        })
-    }
-    
-    // ==================== 渲染相关
+                let curr = self.index_buffer.map(|ref v| v.raw);
 
-    pub fn begin_encoding(&mut self) {}
-
-    // 每过 几秒 就 清空一次 vao
-    pub fn end_encoding(&mut self) {
-        profiling::scope!("hal::GLState::end_encoding");
-
-        let now = Instant::now();
-        if now - self.last_reset_time < Duration::from_secs(RESET_INTERVAL_SECS) {
-            return;
+                gl.bind_buffer(buffer.gl_target, curr);
+            }
         }
-        self.last_reset_time = now;
-
-        self.reset_vao();
-        self.reset_fbo();
-        self.reset_program();
     }
 
-    pub fn set_bind_group(&mut self, pipeline: &super::BindGroup) {}
+    #[inline]
+    pub fn set_buffer_sub_data(&self, buffer: &super::BufferImpl, offset: i32, data: &[u8]) {
+        profiling::scope!("hal::GLState::set_buffer_sub_data");
+
+        let gl = &self.gl;
+
+        unsafe {
+            gl.bind_buffer(buffer.gl_target, Some(buffer.raw));
+            gl.buffer_sub_data_u8_slice(buffer.gl_target, offset, data);
+
+            if buffer.gl_target == glow::ELEMENT_ARRAY_BUFFER {
+                // 还原回 当前 状态机的状态
+                let curr = self.index_buffer.map(|ref v| v.raw);
+
+                gl.bind_buffer(buffer.gl_target, curr);
+            }
+        }
+    }
 
     pub fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
-        profiling::scope!("hal::GLState::SetRenderPipeline");
+        profiling::scope!("hal::GLState::set_render_pipeline");
 
-        if pipeline.pipeline_id == self.render_pipeline_id {
-            return;
+        if self.render_pipeline.is_none() {
+            // 旧的没有，全部设置
+
+            let new = pipeline.0.as_ref();
+
+            Self::apply_alpha_to_coverage(&self.gl, new.alpha_to_coverage_enabled);
+            Self::apply_color_mask(&self.gl, &new.color_writes);
+            Self::apply_program(&self.gl, &new.program);
+
+            Self::apply_raster(&self.gl, &new.rs.imp);
+            Self::apply_depth(&self.gl, &new.ds.imp);
+            Self::apply_stencil(&self.gl, self.stencil_ref, &new.ss.imp);
+            Self::apply_blend(&self.gl, &new.bs.imp);
+        } else {
+            // 有旧的，比较 Arc 指针
+
+            let old = self.render_pipeline.as_ref().unwrap();
+            if Share::ptr_eq(&pipeline.0, &old.0) {
+                return;
+            }
+
+            let new = pipeline.0.as_ref();
+            let old = old.0.as_ref();
+
+            if new.alpha_to_coverage_enabled != old.alpha_to_coverage_enabled {
+                Self::apply_alpha_to_coverage(&self.gl, new.alpha_to_coverage_enabled);
+            }
+
+            if new.color_writes != old.color_writes {
+                Self::apply_color_mask(&self.gl, &new.color_writes);
+            }
+
+            if new.program.raw != old.program.raw {
+                Self::apply_program(&self.gl, &new.program);
+            }
+
+            if !Share::ptr_eq(&new.rs, &old.rs) {
+                Self::set_raster(&self.gl, &new.rs.imp, &old.rs.imp);
+            }
+
+            if !Share::ptr_eq(&new.ds, &old.ds) {
+                Self::set_depth(&self.gl, &new.ds.imp, &old.ds.imp);
+            }
+
+            if !Share::ptr_eq(&new.ss, &old.ss) {
+                Self::set_stencil(&self.gl, self.stencil_ref, &new.ss.imp, &old.ss.imp);
+            }
+
+            if !Share::ptr_eq(&new.bs, &old.bs) {
+                Self::set_blend(&self.gl, &new.bs.imp, &old.bs.imp);
+            }
         }
 
-        self.topology = pipeline.topology;
-        
-        self.set_alpha_to_coverage(pipeline.alpha_to_coverage_enabled);
-
-        // TODO Program
-
-        self.set_attribute(&pipeline.vertex_attributes);
-
-        if !Share::eq(&self.rs, &pipeline.rs) {
-            self.set_raster(pipeline.rs.as_ref(), self.rs.as_ref());
-            self.rs = pipeline.rs.clone();
-        }
-
-        if !Share::eq(&self.ds, &pipeline.ds) {
-            self.set_depth(pipeline.ds.as_ref(), self.ds.as_ref());
-            self.ds = pipeline.ds.clone();
-        }
-
-        if !Share::eq(&self.ss, &pipeline.ss) {
-            self.set_stencil_test(pipeline.ss.as_ref(), self.ss.as_ref());
-            self.set_stencil_face(glow::FRONT, &pipeline.ss.front, &self.ss.front);
-            self.set_stencil_face(glow::BACK, &pipeline.ss.back, &self.ss.back);
-            self.ss = pipeline.ss.clone();
-        }
-
-        if !Share::eq(&self.bs, &pipeline.bs) {
-            self.set_blend(pipeline.bs.as_ref(), self.bs.as_ref());
-            self.bs = pipeline.bs.clone();
-        }
-
-        if self.color_writes != pipeline.color_writes {
-            self.set_color_mask(&pipeline.color_writes);
-            self.color_writes = pipeline.color_writes;
-        }
-
+        self.render_pipeline = Some(pipeline.clone());
     }
 
-    pub fn set_vertex_buffer(&mut self, index: usize, buffer: &super::Buffer, offset: i32) {
-        
-        let g = &mut self.geometry;
-        if g.vertexs[index].is_none() {
-            g.vertexs[index] = Some(Default::default());
+    // 设置 FBO，设置 Viewport & Scissor，清屏
+    pub fn set_render_target(&mut self, desc: &crate::RenderPassDescriptor) {
+        let mut extent: Option<Extent3d> = None;
+        desc.color_attachments
+            .first()
+            .filter(|at| at.is_some())
+            .and_then(|at| {
+                at.as_ref().map(|at| {
+                    extent = Some(at.view.render_extent);
+                })
+            });
+
+        let extent = extent.unwrap();
+        self.state.render_size = extent;
+
+        self.state.resolve_attachments.clear();
+        self.state.invalidate_attachments.clear();
+
+        let rendering_to_external_framebuffer = desc
+            .color_attachments
+            .iter()
+            .filter_map(|at| at.as_ref())
+            .any(|at| match at.view.inner {
+                #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+                super::TextureInner::ExternalFramebuffer { .. } => true,
+                _ => false,
+            });
+
+        if rendering_to_external_framebuffer && desc.color_attachments.len() != 1 {
+            panic!("Multiple render attachments with external framebuffers are not supported.");
         }
 
-        let v = g.vertexs[index].as_mut().unwrap();
-        
-        v.buffer = Some(buffer.raw);
-        v.offset += offset;
-        v.stride = buffer.stride;
-        v.divisor_step = buffer.divisor_step;
+        let gl = self.gl.context.lock();
+
+        match desc
+            .color_attachments
+            .first()
+            .filter(|at| at.is_some())
+            .and_then(|at| at.as_ref().map(|at| &at.view.inner.inner))
+        {
+            // default framebuffer (provided externally)
+            Some(&super::TextureInner::DefaultRenderbuffer) => {
+                self.reset_framebuffer(&gl, true);
+            }
+            _ => {
+                // set the framebuffer
+                self.reset_framebuffer(&gl, false);
+
+                for (i, cat) in desc.color_attachments.iter().enumerate() {
+                    if let Some(cat) = cat.as_ref() {
+                        let attachment = glow::COLOR_ATTACHMENT0 + i as u32;
+
+                        self.bind_attachment(&gl, attachment, &cat.view.inner);
+
+                        if let Some(ref rat) = cat.resolve_target {
+                            self.state
+                                .resolve_attachments
+                                .push((attachment, rat.inner.clone()));
+                        }
+
+                        if !cat.ops.store {
+                            self.state.invalidate_attachments.push(attachment);
+                        }
+                    }
+                }
+                if let Some(ref dsat) = desc.depth_stencil_attachment {
+                    let aspects = dsat.view.inner.aspects;
+                    let attachment = match aspects {
+                        super::FormatAspects::DEPTH => glow::DEPTH_ATTACHMENT,
+                        super::FormatAspects::STENCIL => glow::STENCIL_ATTACHMENT,
+                        _ => glow::DEPTH_STENCIL_ATTACHMENT,
+                    };
+
+                    self.bind_attachment(&gl, attachment, &dsat.view.inner);
+
+                    let contain_store =
+                        dsat.depth_ops.is_some() && dsat.depth_ops.as_ref().unwrap().store;
+                    if aspects.contains(super::FormatAspects::DEPTH) && !contain_store {
+                        self.state
+                            .invalidate_attachments
+                            .push(glow::DEPTH_ATTACHMENT);
+                    }
+
+                    let contain_store =
+                        dsat.stencil_ops.is_some() && dsat.stencil_ops.as_ref().unwrap().store;
+                    if aspects.contains(super::FormatAspects::STENCIL) && !contain_store {
+                        self.state
+                            .invalidate_attachments
+                            .push(glow::STENCIL_ATTACHMENT);
+                    }
+                }
+
+                if !rendering_to_external_framebuffer {
+                    // set the draw buffers and states
+                    self.set_draw_color_bufers(&gl, desc.color_attachments.len() as u8);
+                }
+            }
+        }
+        // issue the clears
+        for (i, cat) in desc
+            .color_attachments
+            .iter()
+            .filter_map(|at| at.as_ref())
+            .enumerate()
+        {
+            if let LoadOp::Clear(ref c) = cat.ops.load {
+                match cat.view.inner.sample_type {
+                    wgt::TextureSampleType::Float { .. } => {
+                        self.clear_color_f(
+                            &gl,
+                            i as u32,
+                            &[c.r as f32, c.g as f32, c.b as f32, c.a as f32],
+                            cat.view.inner.format.describe().srgb,
+                        );
+                    }
+                    wgt::TextureSampleType::Depth => {
+                        unreachable!()
+                    }
+                    wgt::TextureSampleType::Uint => {
+                        self.clear_color_u(
+                            &gl,
+                            i as u32,
+                            &[c.r as u32, c.g as u32, c.b as u32, c.a as u32],
+                        );
+                    }
+                    wgt::TextureSampleType::Sint => {
+                        self.clear_color_i(
+                            &gl,
+                            i as u32,
+                            &[c.r as i32, c.g as i32, c.b as i32, c.a as i32],
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(ref dsat) = desc.depth_stencil_attachment {
+            match (dsat.depth_ops, dsat.stencil_ops) {
+                (Some(ref dops), Some(ref sops)) => match (dops.load, sops.load) {
+                    (LoadOp::Clear(d), LoadOp::Clear(s)) => {
+                        self.clear_color_depth_and_stencil(&gl, d, s);
+                    }
+                    (LoadOp::Clear(d), LoadOp::Load) => {
+                        self.clear_depth(&gl, d);
+                    }
+                    (LoadOp::Load, LoadOp::Clear(s)) => {
+                        self.clear_stencil(&gl, s as i32);
+                    }
+                    (LoadOp::Load, LoadOp::Load) => {}
+                },
+                (Some(ref dops), None) => {
+                    if let LoadOp::Clear(d) = dops.load {
+                        self.clear_depth(&gl, d);
+                    }
+                }
+                (None, Some(ref sops)) => {
+                    if let LoadOp::Clear(s) = sops.load {
+                        self.clear_stencil(&gl, s as i32);
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
+    pub fn set_bind_group(
+        &mut self,
+        index: u32,
+        group: &super::BindGroup,
+        dynamic_offsets: &[wgt::DynamicOffset],
+    ) {
+        profiling::scope!("hal::GLState::set_bind_group");
+
+        todo!()
+    }
+
+    pub fn set_vertex_buffer(
+        &mut self,
+        index: usize,
+        buffer: &super::Buffer,
+        offset: i32,
+        size: Option<BufferSize>,
+    ) {
+        profiling::scope!("hal::GLState::set_vertex_buffer");
+
+        debug_assert!(buffer.0.gl_target == glow::ARRAY_BUFFER);
+
+        let raw = buffer.0.raw;
+        let offset = offset;
+        let size = match size {
+            None => buffer.0.size,
+            Some(size) => u64::from(size) as i32,
+        };
+
+        self.vertex_buffers[index] = Some(VBState { raw, offset, size });
     }
 
     pub fn set_index_buffer(
         &mut self,
-        buffer: glow::Buffer,
-        offset: BufferAddress,
+        buffer: &super::Buffer,
         format: wgt::IndexFormat,
+        offset: i32,
+        size: Option<BufferSize>,
     ) {
-        let g = &mut self.geometry;
+        profiling::scope!("hal::GLState::set_index_buffer");
 
-        g.index_buffer = Some(buffer);
-        g.index_offset = offset;
+        debug_assert!(buffer.0.gl_target == glow::ELEMENT_ARRAY_BUFFER);
 
-        let (index_size, index_type) = map_index_format(format);
-        g.index_size = index_size;
-        g.index_type = index_type;
+        let (item_count, item_type) = conv::map_index_format(format);
+
+        let raw = buffer.0.raw;
+        let ib_type = item_type;
+        let ib_count = item_count;
+
+        let size = match size {
+            None => buffer.0.size,
+            Some(size) => u64::from(size) as i32,
+        };
+
+        let need_update = match self.index_buffer.as_ref() {
+            None => true,
+            Some(ib) => {
+                ib.raw != raw || ib.size != size || ib.offset != offset || ib.ib_type != ib_type
+            }
+        };
+
+        if need_update {
+            Self::apply_ib(&self.gl, Some(raw));
+
+            self.index_buffer = Some(IBState {
+                raw,
+                ib_type,
+                ib_count,
+                size,
+                offset,
+            });
+        }
     }
 
     pub fn draw(&mut self, start_vertex: u32, vertex_count: u32, instance_count: u32) {
-        profiling::scope!("super::CommandEncoder::draw");
+        profiling::scope!("hal::GLState::draw");
 
         self.before_draw();
+
+        let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
         if instance_count == 1 {
             unsafe {
                 self.gl
-                    .draw_arrays(self.topology, start_vertex as i32, vertex_count as i32)
+                    .draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32)
             };
         } else {
             unsafe {
                 self.gl.draw_arrays_instanced(
-                    self.topology,
+                    rp.topology,
                     start_vertex as i32,
                     vertex_count as i32,
                     instance_count as i32,
@@ -322,31 +587,30 @@ impl GLStateImpl {
         self.after_draw();
     }
 
-    pub fn draw_indexed(&mut self, start_index: u32, index_count: u32, instance_count: u32) {
+    pub fn draw_indexed(&mut self, start_index: i32, index_count: i32, instance_count: i32) {
         profiling::scope!("hal::GLState::draw_indexed");
+
         self.before_draw();
 
-        let g = &self.geometry;
+        let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
-        let index_offset = g.index_offset + g.index_size as u64 * start_index as u64;
+        let ib = self.index_buffer.as_ref().unwrap();
+
+        let offset = ib.offset + start_index * ib.ib_count;
 
         if instance_count == 1 {
             unsafe {
-                self.gl.draw_elements(
-                    self.topology,
-                    index_count as i32,
-                    g.index_type,
-                    index_offset as i32,
-                )
+                self.gl
+                    .draw_elements(rp.topology, index_count, ib.ib_type, offset);
             }
         } else {
             unsafe {
                 self.gl.draw_elements_instanced(
-                    self.topology,
-                    index_count as i32,
-                    g.index_type,
-                    index_offset as i32,
-                    instance_count as i32,
+                    rp.topology,
+                    index_count,
+                    ib.ib_type,
+                    offset,
+                    instance_count,
                 )
             }
         }
@@ -354,12 +618,15 @@ impl GLStateImpl {
         self.after_draw();
     }
 
+    #[inline]
     pub fn set_viewport(&mut self, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
+
         let vp = &mut self.viewport;
 
         if x != vp.x || y != vp.y || w != vp.w || h != vp.h {
             unsafe { self.gl.viewport(x, y, w, h) };
+
             vp.x = x;
             vp.y = y;
             vp.w = w;
@@ -367,13 +634,14 @@ impl GLStateImpl {
         }
     }
 
+    #[inline]
     pub fn set_scissor(&mut self, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
+
         let s = &mut self.scissor;
 
         if !s.is_enable {
             unsafe { self.gl.enable(glow::SCISSOR_TEST) };
-
             s.is_enable = true;
         }
 
@@ -387,8 +655,10 @@ impl GLStateImpl {
         }
     }
 
+    #[inline]
     pub fn set_depth_range(&mut self, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
+
         let vp = &mut self.viewport;
 
         if min_depth != vp.min_depth || max_depth != vp.max_depth {
@@ -399,8 +669,10 @@ impl GLStateImpl {
         }
     }
 
+    #[inline]
     pub fn set_blend_color(&mut self, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
+
         if self.blend_color[0] != color[0]
             || self.blend_color[1] != color[1]
             || self.blend_color[2] != color[2]
@@ -415,343 +687,429 @@ impl GLStateImpl {
         }
     }
 
-    pub fn set_stencil_reference(&mut self, front: i32, back: i32) {
+    #[inline]
+    pub fn set_stencil_reference(&mut self, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
-        
-        let s = self.ss.as_ref();
 
-        if front == back
-            && s.front.test_func == s.back.test_func
-            && s.front.mask_read == s.back.mask_read
-        {
-            if front != s.front.reference {
-                unsafe {
-                    self.gl.stencil_func_separate(
-                        glow::FRONT,
-                        s.front.test_func,
-                        front,
-                        s.front.mask_read,
-                    )
-                };
-                s.front.reference = front;
-            }
+        if reference == self.stencil_ref {
+            return;
+        }
 
-            if back != s.back.reference {
-                unsafe {
-                    self.gl.stencil_func_separate(
-                        glow::BACK,
-                        s.back.test_func,
-                        back,
-                        s.back.mask_read,
-                    )
-                };
-                s.back.reference = back;
+        if let Some(p) = self.render_pipeline.as_ref() {
+            let ss = &p.0.ss.as_ref().imp;
+
+            unsafe {
+                self.gl.stencil_func_separate(
+                    glow::FRONT,
+                    ss.front.test_func,
+                    reference,
+                    ss.mask_read,
+                );
+
+                self.gl.stencil_func_separate(
+                    glow::BACK,
+                    ss.back.test_func,
+                    reference,
+                    ss.mask_read,
+                );
             }
         }
+        self.stencil_ref = reference;
     }
 }
 
-impl GLState {
+impl GLStateImpl {
+    #[inline]
     fn before_draw(&mut self) {
         profiling::scope!("hal::GLState::after_draw");
-        self.update_and_bind_vao();
+
+        self.update_vao();
     }
 
     fn after_draw(&mut self) {
         profiling::scope!("hal::GLState::after_draw");
-        self.geometry = Default::default();
 
         // 必须 清空 VAO 绑定，否则 之后 如果 bind_buffer 修改 vb / ib 的话 就会 误操作了
         unsafe {
             self.gl.bind_vertex_array(None);
-            self.vao = None;
         }
     }
 
-    fn reset_vao(&mut self) {
-        profiling::scope!("hal::GLState::reset_vao");
+    // 根据 render_pipeline.attributes + vertex_buffers 更新 vao
+    fn update_vao(&mut self) {
+        profiling::scope!("hal::GLState::update_vao");
 
-        for (_, vao) in &self.vao_map {
-            unsafe {
-                self.gl.delete_vertex_array(vao.clone());
-            }
-        }
-        self.vao_map.clear();
-    }
+        let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
-    fn reset_fbo(&mut self) {
-        profiling::scope!("hal::GLState::reset_fbo");
-
-        for (_, handle) in &self.fbo_map {
-            unsafe {
-                self.gl.delete_framebuffer(handle.clone());
-            }
-        }
-        self.fbo_map.clear();
-    }
-
-    fn reset_program(&mut self) {
-        profiling::scope!("hal::GLState::reset_program");
-
-        // 仅移除 handle 为 空的项
-        let mut to_remove = vec![];
-        for (program, weak_program) in &self.program_map {
-            if weak_program.upgrade().is_none() {
-                to_remove.push(program.clone());
-            }
-        }
-
-        for p in to_remove {
-            self.program_map.remove(&p);
-        }
-    }
-
-    // 根据 geometry 更新 vao
-    fn update_and_bind_vao(&mut self) {
-        profiling::scope!("hal::GLState::update_and_bind_vao");
-        self.vao = match self.vao_map.get(&self.geometry) {
-            Some(vao) => {
-                unsafe {
-                    self.gl.bind_vertex_array(Some(vao.clone()));
-                }
-
-                Some(vao.clone())
-            }
-            None => unsafe {
-                let g = &self.geometry;
-
-                let vao = self.gl.create_vertex_array().unwrap();
-
-                self.gl.bind_vertex_array(Some(vao));
-
-                if let Some(ib) = &g.index_buffer {
-                    self.gl
-                        .bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ib.clone()));
-                }
-
-                for (i, vb) in g.vertexs.iter().enumerate() {
-                    let i = i as u32;
-
-                    if vb.is_none() {
-                        self.gl.disable_vertex_attrib_array(i);
-                    } else {
-                        let vb = vb.as_ref().unwrap();
-
-                        self.gl.enable_vertex_attrib_array(i);
-
-                        self.gl.bind_buffer(glow::ARRAY_BUFFER, vb.buffer);
-
-                        match vb.data_kind {
-                            VertexAttribKind::Float => {
-                                self.gl.vertex_attrib_pointer_f32(
-                                    i,
-                                    vb.item_count,
-                                    vb.data_type,
-                                    true, // always normalized
-                                    vb.stride,
-                                    vb.offset,
-                                );
-                            }
-                            VertexAttribKind::Integer => {
-                                self.gl.vertex_attrib_pointer_i32(
-                                    i,
-                                    vb.item_count,
-                                    vb.data_type,
-                                    vb.stride,
-                                    vb.offset,
-                                );
-                            }
-                        }
-
-                        self.gl.vertex_attrib_divisor(i, vb.divisor_step);
+        let mut vbs = match self.last_vbs.take() {
+            None => vec![None; rp.attributes.vb_count].into_boxed_slice(),
+            Some(mut vbs) => {
+                if vbs.len() != rp.attributes.vb_count {
+                    vec![None; rp.attributes.vb_count].into_boxed_slice()
+                } else {
+                    for vb in vbs.iter_mut() {
+                        *vb = None
                     }
+                    vbs
                 }
-
-                self.vao_map.insert(self.geometry.clone(), vao.clone());
-
-                Some(vao)
-            },
+            }
         };
+
+        for attrib in rp.attributes.info.iter() {
+            if let Some(a) = attrib {
+                vbs[a.buffer_slot] = self.vertex_buffers[a.buffer_slot].clone();
+            }
+        }
+
+        let mut geometry = super::GeometryState {
+            attributes: rp.attributes.clone(),
+            vbs,
+        };
+
+        self.cache.bind_vao(&self.gl, &geometry);
+
+        // 回收 vbs
+        self.last_vbs = Some(geometry.vbs);
     }
 }
 
-impl GLState {
-
-    fn set_alpha_to_coverage(&mut self, is_enable: bool) {
-        profiling::scope!("hal::GLState::set_alpha_to_coverage");
-
-        if self.alpha_to_coverage_enabled != is_enable{
-            if is_enable {
-                unsafe { self.gl.enable(glow::SAMPLE_ALPHA_TO_COVERAGE) };
-            } else {
-                unsafe { self.gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE) };
-            }
-
-            self.alpha_to_coverage_enabled = is_enable;
+impl GLStateImpl {
+    #[inline]
+    fn apply_ib(gl: &glow::Context, ib: Option<glow::Buffer>) {
+        unsafe {
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, ib);
         }
     }
 
-    fn set_attribute(&self, attributes: &[Option<super::AttributeDesc>]) {
-        profiling::scope!("hal::GLState::set_attribute");
+    #[inline]
+    fn apply_alpha_to_coverage(gl: &glow::Context, alpha_to_coverage_enabled: bool) {
+        profiling::scope!("hal::GLStateImpl::apply_alpha_to_coverage");
 
-        for (i, attrib) in attributes.iter().enumerate() {
-            profiling::scope!("hal::GLState::set_attribute, VertexAttribute");
-            
-            let g = &mut self.geometry;
-        
-            if let Some(a) = attrib {
-                if g.vertexs[i].is_none() {
-                    g.vertexs[i] = Some(Default::default());
-                }
-
-                let v = g.vertexs[i].as_mut().unwrap();
-
-                v.offset += a.offset as i32;
-                v.item_count = a.format_desc.element_count;
-                v.data_type = a.format_desc.element_format;
-                v.data_kind = a.format_desc.attrib_kind;   
-            }
+        if alpha_to_coverage_enabled {
+            unsafe { gl.enable(glow::SAMPLE_ALPHA_TO_COVERAGE) };
+        } else {
+            unsafe { gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE) };
         }
     }
 
-    fn set_raster(&self, new: &RasterState, old: &RasterState) {
-        profiling::scope!("hal::GLState::set_raster");
-
-        if new.is_cull_enable != old.is_cull_enable {
-             if new.is_cull_enable {
-                unsafe { self.gl.enable(glow::CULL_FACE) };
-            } else {
-                unsafe { self.gl.disable(glow::CULL_FACE) };
-            }
-        }
-
-        if new.front_face != old.front_face {
-            unsafe { self.gl.front_face(new.front_face) };
-        }
-
-        if new.cull_face != old.cull_face {
-            unsafe {self.gl.cull_face(new.cull_face)};
-        }
-    }
-
-    fn set_depth(&self, new: &DepthState, old: &DepthState) {
-        profiling::scope!("hal::GLState::set_depth");
-
-        if new.is_test_enable != old.is_test_enable {
-            if new.is_test_enable {
-                unsafe {
-                    self.gl.enable(glow::DEPTH_TEST);
-                }
-            } else {
-                unsafe {
-                    self.gl.disable(glow::DEPTH_TEST);
-                }
-            }
-        }
-
-        if new.is_write_enable != old.is_write_enable {
-            unsafe {
-                self.gl.depth_mask(new.is_write_enable);
-            }
-        }
-
-        if new.function != old.function {
-            unsafe {
-                self.gl.depth_func(new.function);
-            }
-        }
-        
-        let new = &new.depth_bias;
-        let old = &old.depth_bias;
-
-        if new.slope_scale != old.slope_scale || new.constant != old.constant {
-            if new.constant == 0 && new.slope_scale == 0.0 {
-                unsafe { self.gl.disable(glow::POLYGON_OFFSET_FILL) };
-            } else {
-                unsafe { self.gl.enable(glow::POLYGON_OFFSET_FILL) };
-
-                unsafe { self.gl.polygon_offset(new.constant as f32, new.slope_scale.0) };
-            }
-        }
-    }
-
-    fn set_stencil_test(&self, new: &StencilState, old: &StencilState) {
-        profiling::scope!("hal::GLState::set_stencil_test");
-
-        if new.is_enable != old.is_enable {
-            if new.is_enable {
-                unsafe {
-                    self.gl.enable(glow::STENCIL_TEST);
-                }
-            } else {
-                unsafe {
-                    self.gl.disable(glow::STENCIL_TEST);
-                }
-            }
-        }
-    }
-
-    fn set_stencil_face(&self, face: u32, new: &StencilFaceState, old: &StencilFaceState) {
-        profiling::scope!("hal::GLState::set_stencil_face");
-        
-        if new.test_func != old.test_func 
-        || new.mask_read != old.mask_read {
-            unsafe { self.gl.stencil_func_separate(face, new.test_func, self.stencil_ref, new.mask_read) };
-        }
-    
-        if new.mask_write != old.mask_write {
-            unsafe { self.gl.stencil_mask_separate(face, new.mask_write) };
-        }
-        
-        if new.zpass_op != old.zpass_op || new.zfail_op != old.zfail_op || new.fail_op != old.fail_op {
-            unsafe { self.gl.stencil_op_separate(face, new.fail_op, new.zfail_op, new.zpass_op) };
-        }
-    }
-
-    fn set_blend(&self, new: &BlendState, old: &BlendState) {
-        profiling::scope!("hal::GLState::set_blend");
-
-        if new.is_enable != old.is_enable {
-            if new.is_enable {
-                unsafe { self.gl.enable(glow::BLEND) };
-            } else {
-                unsafe { self.gl.disable(glow::BLEND) };
-            }
-        }
-
-        if new.color.equation != old.color.equation || new.alpha.equation != old.alpha.equation{
-            unsafe {
-                self.gl.blend_equation_separate(
-                    new.color.equation,
-                    new.alpha.equation,
-                )
-            };
-        }
-        
-        if new.color.src_factor != old.color.src_factor 
-        || new.color.dst_factor != old.color.dst_factor 
-        || new.alpha.src_factor != old.alpha.src_factor 
-        || new.alpha.dst_factor != old.alpha.dst_factor {
-            unsafe {
-                self.gl.blend_func_separate(
-                    new.color.src_factor,
-                    new.color.dst_factor,
-                    new.alpha.src_factor,
-                    new.alpha.dst_factor,
-                )
-            };
-        }
-    }
-
-    fn set_color_mask(&self, mask: &wgt::ColorWrites) {
-        profiling::scope!("hal::GLState::set_color_mask");
+    #[inline]
+    fn apply_color_mask(gl: &glow::Context, mask: &wgt::ColorWrites) {
         use wgt::ColorWrites as Cw;
         unsafe {
-            self.gl.color_mask(
+            gl.color_mask(
                 mask.contains(Cw::RED),
                 mask.contains(Cw::GREEN),
                 mask.contains(Cw::BLUE),
                 mask.contains(Cw::ALPHA),
+            )
+        };
+    }
+
+    #[inline]
+    fn apply_program(gl: &glow::Context, program: &super::Program) {
+        unsafe {
+            gl.use_program(Some(program.raw));
+        }
+    }
+
+    #[inline]
+    fn apply_raster(gl: &glow::Context, new: &super::RasterStateImpl) {
+        Self::apply_cull_enable(gl, new);
+        Self::apply_front_face(gl, new);
+        Self::apply_cull_face(gl, new);
+    }
+
+    #[inline]
+    fn apply_depth(gl: &glow::Context, new: &super::DepthStateImpl) {
+        Self::apply_depth_test_enable(gl, new);
+        Self::apply_depth_write_enable(gl, new);
+        Self::apply_depth_test_function(gl, new);
+        Self::apply_depth_bias(gl, &new.depth_bias);
+    }
+
+    #[inline]
+    fn apply_stencil(gl: &glow::Context, stencil_ref: i32, new: &super::StencilStateImpl) {
+        Self::apply_stencil_test(&gl, new);
+
+        Self::apply_stencil_face(&gl, glow::FRONT, stencil_ref, &new, &new.front);
+
+        Self::apply_stencil_face(&gl, glow::BACK, stencil_ref, &new, &new.back);
+    }
+
+    #[inline]
+    fn apply_blend(gl: &glow::Context, new: &super::BlendStateImpl) {
+        Self::apply_blend_enable(gl, new);
+        Self::apply_blend_equation(gl, new);
+        Self::apply_blend_factor(gl, new);
+    }
+
+    fn set_raster(gl: &glow::Context, new: &super::RasterStateImpl, old: &super::RasterStateImpl) {
+        profiling::scope!("hal::GLState::set_raster");
+
+        if new.is_cull_enable != old.is_cull_enable {
+            Self::apply_cull_enable(gl, new);
+        }
+
+        if new.front_face != old.front_face {
+            Self::apply_front_face(gl, new);
+        }
+
+        if new.cull_face != old.cull_face {
+            Self::apply_cull_face(gl, new);
+        }
+    }
+
+    fn set_depth(gl: &glow::Context, new: &super::DepthStateImpl, old: &super::DepthStateImpl) {
+        profiling::scope!("hal::GLState::set_depth");
+
+        if new.is_test_enable != old.is_test_enable {
+            Self::apply_depth_test_enable(gl, new);
+        }
+
+        if new.is_write_enable != old.is_write_enable {
+            Self::apply_depth_write_enable(gl, new);
+        }
+
+        if new.function != old.function {
+            Self::apply_depth_test_function(gl, new);
+        }
+
+        let new = &new.depth_bias;
+        let old = &old.depth_bias;
+
+        if new.slope_scale != old.slope_scale || new.constant != old.constant {
+            Self::apply_depth_bias(gl, new);
+        }
+    }
+
+    fn set_stencil(
+        gl: &glow::Context,
+        stencil_ref: i32,
+        new: &super::StencilStateImpl,
+        old: &super::StencilStateImpl,
+    ) {
+        Self::set_stencil_test(&gl, new, old);
+
+        Self::set_stencil_face(
+            &gl,
+            glow::FRONT,
+            stencil_ref,
+            &new,
+            &new.front,
+            &old,
+            &old.front,
+        );
+
+        Self::set_stencil_face(
+            &gl,
+            glow::BACK,
+            stencil_ref,
+            &new,
+            &new.back,
+            &old,
+            &old.back,
+        );
+    }
+
+    fn set_blend(gl: &glow::Context, new: &super::BlendStateImpl, old: &super::BlendStateImpl) {
+        profiling::scope!("hal::GLState::set_blend");
+
+        if new.is_enable != old.is_enable {
+            Self::apply_blend_enable(gl, new);
+        }
+
+        if new.color.equation != old.color.equation || new.alpha.equation != old.alpha.equation {
+            Self::apply_blend_equation(gl, new);
+        }
+
+        if new.color.src_factor != old.color.src_factor
+            || new.color.dst_factor != old.color.dst_factor
+            || new.alpha.src_factor != old.alpha.src_factor
+            || new.alpha.dst_factor != old.alpha.dst_factor
+        {
+            Self::apply_blend_factor(gl, new);
+        }
+    }
+
+    #[inline]
+    fn apply_cull_enable(gl: &glow::Context, new: &super::RasterStateImpl) {
+        if new.is_cull_enable {
+            unsafe { gl.enable(glow::CULL_FACE) };
+        } else {
+            unsafe { gl.disable(glow::CULL_FACE) };
+        }
+    }
+
+    #[inline]
+    fn apply_front_face(gl: &glow::Context, new: &super::RasterStateImpl) {
+        unsafe { gl.front_face(new.front_face) };
+    }
+
+    #[inline]
+    fn apply_cull_face(gl: &glow::Context, new: &super::RasterStateImpl) {
+        unsafe { gl.cull_face(new.cull_face) };
+    }
+
+    #[inline]
+    fn apply_depth_test_enable(gl: &glow::Context, new: &super::DepthStateImpl) {
+        if new.is_test_enable {
+            unsafe {
+                gl.enable(glow::DEPTH_TEST);
+            }
+        } else {
+            unsafe {
+                gl.disable(glow::DEPTH_TEST);
+            }
+        }
+    }
+
+    #[inline]
+    fn apply_depth_write_enable(gl: &glow::Context, new: &super::DepthStateImpl) {
+        unsafe {
+            gl.depth_mask(new.is_write_enable);
+        }
+    }
+
+    #[inline]
+    fn apply_depth_test_function(gl: &glow::Context, new: &super::DepthStateImpl) {
+        unsafe {
+            gl.depth_func(new.function);
+        }
+    }
+
+    #[inline]
+    fn apply_depth_bias(gl: &glow::Context, new: &super::DepthBiasState) {
+        if new.constant == 0 && new.slope_scale == 0.0 {
+            unsafe { gl.disable(glow::POLYGON_OFFSET_FILL) };
+        } else {
+            unsafe { gl.enable(glow::POLYGON_OFFSET_FILL) };
+
+            unsafe { gl.polygon_offset(new.constant as f32, new.slope_scale.0) };
+        }
+    }
+
+    #[inline]
+    fn apply_stencil_test(gl: &glow::Context, new: &super::StencilStateImpl) {
+        if new.is_enable {
+            unsafe {
+                gl.enable(glow::STENCIL_TEST);
+            }
+        } else {
+            unsafe {
+                gl.disable(glow::STENCIL_TEST);
+            }
+        }
+    }
+
+    fn set_stencil_test(
+        gl: &glow::Context,
+        new: &super::StencilStateImpl,
+        old: &super::StencilStateImpl,
+    ) {
+        if new.is_enable != old.is_enable {
+            Self::apply_stencil_test(gl, new);
+        }
+    }
+
+    #[inline]
+    fn apply_stencil_func(
+        gl: &glow::Context,
+        face: u32,
+        stencil_ref: i32,
+        test_func: u32,
+        mask_read: u32,
+    ) {
+        unsafe { gl.stencil_func_separate(face, test_func, stencil_ref, mask_read) };
+    }
+
+    #[inline]
+    fn apply_stencil_mask(gl: &glow::Context, face: u32, mask_write: u32) {
+        unsafe { gl.stencil_mask_separate(face, mask_write) };
+    }
+
+    #[inline]
+    fn apply_stencil_op(gl: &glow::Context, face: u32, fail_op: u32, zfail_op: u32, zpass_op: u32) {
+        unsafe {
+            gl.stencil_op_separate(face, fail_op, zfail_op, zpass_op);
+        };
+    }
+
+    #[inline]
+    fn apply_stencil_face(
+        gl: &glow::Context,
+        face: u32,
+        stencil_ref: i32,
+        new: &super::StencilStateImpl,
+        new_face: &super::StencilFaceState,
+    ) {
+        Self::apply_stencil_func(gl, face, stencil_ref, new_face.test_func, new.mask_read);
+
+        Self::apply_stencil_mask(gl, face, new.mask_write);
+
+        Self::apply_stencil_op(
+            gl,
+            face,
+            new_face.fail_op,
+            new_face.zfail_op,
+            new_face.zpass_op,
+        );
+    }
+
+    fn set_stencil_face(
+        gl: &glow::Context,
+        face: u32,
+        stencil_ref: i32,
+        new: &super::StencilStateImpl,
+        new_face: &super::StencilFaceState,
+        old: &super::StencilStateImpl,
+        old_face: &super::StencilFaceState,
+    ) {
+        profiling::scope!("hal::GLState::set_stencil_face");
+
+        if new_face.test_func != old_face.test_func || new.mask_read != old.mask_read {
+            Self::apply_stencil_func(gl, face, stencil_ref, new_face.test_func, new.mask_read);
+        }
+
+        if new.mask_write != old.mask_write {
+            Self::apply_stencil_mask(gl, face, new.mask_write);
+        }
+
+        if new_face.zpass_op != old_face.zpass_op
+            || new_face.zfail_op != old_face.zfail_op
+            || new_face.fail_op != old_face.fail_op
+        {
+            Self::apply_stencil_op(
+                gl,
+                face,
+                new_face.fail_op,
+                new_face.zfail_op,
+                new_face.zpass_op,
+            );
+        }
+    }
+
+    #[inline]
+    fn apply_blend_enable(gl: &glow::Context, new: &super::BlendStateImpl) {
+        if new.is_enable {
+            unsafe { gl.enable(glow::BLEND) };
+        } else {
+            unsafe { gl.disable(glow::BLEND) };
+        }
+    }
+
+    #[inline]
+    fn apply_blend_equation(gl: &glow::Context, new: &super::BlendStateImpl) {
+        unsafe { gl.blend_equation_separate(new.color.equation, new.alpha.equation) };
+    }
+
+    #[inline]
+    fn apply_blend_factor(gl: &glow::Context, new: &super::BlendStateImpl) {
+        unsafe {
+            gl.blend_func_separate(
+                new.color.src_factor,
+                new.color.dst_factor,
+                new.alpha.src_factor,
+                new.alpha.dst_factor,
             )
         };
     }
@@ -790,142 +1148,63 @@ impl Default for Scissor {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct BlendState {
-    is_enable: bool,
-
-    color: BlendComponent,
-    alpha: BlendComponent,
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) struct VBState {
+    pub(crate) raw: glow::Buffer,
+    pub(crate) offset: i32,
+    pub(crate) size: i32,
 }
 
-impl Default for BlendState {
-    fn default() -> Self {
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) struct IBState {
+    pub(crate) raw: glow::Buffer,
+
+    pub(crate) ib_type: u32,  // glow::UNSIGNED_INT, glow::UNSIGNED_SHORT
+    pub(crate) ib_count: i32, // 2, 4
+
+    pub(crate) size: i32,
+    pub(crate) offset: i32,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) struct AttributeState {
+    pub(crate) vb_count: usize, // vertex_buffers 的 前多少个 VB 对这个 Attribute 有效
+    pub(crate) info: Box<[Option<AttributeInfo>]>,
+}
+
+impl AttributeState {
+    #[inline]
+    pub(crate) fn new(max_vertex_attributes: usize, vb_count: usize) -> Self {
         Self {
-            is_enable: true,
-            color: Default::default(),
-            alpha: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct DepthState {
-    is_test_enable: bool,
-    is_write_enable: bool,
-    function: u32, // wgt::CompareFunction, map_compare_func
-
-    depth_bias: DepthBiasState, // wgt::DepthBiasState,
-}
-
-impl Default for DepthState {
-    fn default() -> Self {
-        Self {
-            is_test_enable: false,
-            is_write_enable: false,
-            function: glow::ALWAYS,
-
-            depth_bias: DepthBiasState::default(),
-        }
-    }
-}
-
-#[derive(Debug, Default, Hash, PartialEq, Eq)]
-pub(crate) struct DepthBiasState {
-    constant: i32,
-    slope_scale: OrderedFloat<f32>,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct RasterState {
-    is_cull_enable: bool,
-    front_face: u32, // glow::CW,  glow::CCW
-    cull_face: u32,  // glow::FRONT, glow::BACK
-}
-
-impl Default for RasterState {
-    fn default() -> Self {
-        Self {
-            is_cull_enable: false,
-            front_face: glow::CCW,
-            cull_face: glow::BACK,
-        }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct StencilState {
-    is_enable: bool,
-
-    front: StencilFaceState,
-
-    back: StencilFaceState,
-}
-
-impl Default for StencilState {
-    fn default() -> Self {
-        Self {
-            is_enable: false,
-            front: Default::default(),
-            back: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(crate) struct StencilFaceState {
-    pub test_func: u32, // wgt::CompareFunction, map_compare_func
-
-    pub mask_read: u32,
-    pub mask_write: u32,
-
-    pub fail_op: u32,  // wgt::StencilOperation, map_stencil_op
-    pub zfail_op: u32, // wgt::StencilOperation, map_stencil_op
-    pub zpass_op: u32, // wgt::StencilOperation, map_stencil_op
-}
-
-impl Default for StencilFaceState {
-    fn default() -> Self {
-        Self {
-            test_func: glow::ALWAYS,
-            mask_read: 0,
-            mask_write: 0,
-
-            fail_op: glow::KEEP,
-            zfail_op: glow::KEEP,
-            zpass_op: glow::KEEP,
+            vb_count,
+            info: vec![None; max_vertex_attributes].into_boxed_slice(),
         }
     }
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-struct VertexState {
-    buffer: Option<glow::Buffer>,
-    offset: i32,
-    stride: i32,
+pub(crate) struct AttributeInfo {
+    pub(crate) buffer_slot: usize, // 对应 vertex_buffers 的 槽位
+    pub(crate) is_buffer_instance: bool,
 
-    divisor_step: u32,
-    
-    item_count: i32, // 1, 2, 3, 4
-    data_type: u32,  // glow::Float
-    
-    data_kind: VertexAttribKind,
+    // struct VertexFormatDesc
+    pub(crate) element_count: i32,  // 1, 2, 3, 4
+    pub(crate) element_format: u32, // glow::FLOAT
+
+    pub(crate) attrib_stride: i32,
+    pub(crate) attrib_offset: i32, // 相对于 vertex_buffer 片段 的 偏移
+    pub(crate) attrib_kind: VertexAttribKind,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-struct Geometry {
-    // vertex
-    vertexs: [Option<VertexState>; super::MAX_VERTEX_BUFFERS],
-
-    // index_format: wgt::IndexFormat,
-    index_buffer: Option<glow::Buffer>,
-    index_size: u32,
-    index_type: u32,
-    index_offset: wgt::BufferAddress,
+pub(crate) struct RenderTarget {
+    pub(crate) depth: Option<GLTextureInfo>,
+    pub(crate) colors: Option<GLTextureInfo>,
 }
 
-#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-struct RenderTarget {
-    depth: Option<TextureID>,
-    colors: [TextureID; super::MAX_COLOR_ATTACHMENTS],
-}
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub(crate) enum GLTextureInfo {
+    Renderbuffer(glow::Renderbuffer),
 
+    Texture(glow::Texture),
+}

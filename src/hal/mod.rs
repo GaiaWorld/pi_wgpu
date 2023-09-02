@@ -5,6 +5,7 @@ pub mod api;
 mod egl_impl;
 mod gl_conv;
 mod gl_state;
+mod gl_cache;
 mod gles;
 
 mod adapter;
@@ -29,6 +30,7 @@ pub(crate) use command::*;
 pub(crate) use device::*;
 pub(crate) use egl_impl::*;
 pub(crate) use gl_state::*;
+pub(crate) use gl_cache::*;
 pub(crate) use gles::*;
 pub(crate) use instance::*;
 pub(crate) use pipeline::*;

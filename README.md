@@ -28,8 +28,6 @@
 
 ## 1. 设计
 
-**注**：根据微信小游戏的开发者文档，在 iPhone / iPad 上，`WebGL2` 至少要 `iOS`版本 >= 15.5 才能开启
-
 + `CommandEncoder` 录制即提交，提交是空实现；
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
 
@@ -39,10 +37,12 @@
 + `Android` / PC-Android 模拟器: `GLES 3.0`
 + 浏览器 / 微信小游戏: `WebGL2`
 
-**注：** 为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
+**注1**：为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
 
 + 实际测试，库 WebGL2 Backend性能不满足游戏需求；
 + `Vulkan` / `WebGPU` 因兼容性问题，近期内不能广泛使用于各个平台；
+
+**注2**：根据微信小游戏的开发者文档，在 iPhone / iPad 上，`WebGL2` 至少要 `iOS`版本 >= 15.5 才能开启
 
 ## 2. 限制
 

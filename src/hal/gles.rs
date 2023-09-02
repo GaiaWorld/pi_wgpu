@@ -28,21 +28,12 @@ pub(crate) struct ColorTargetDesc {
     blend: Option<BlendDesc>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct AttributeDesc {
-    pub(crate) location: u32,
-    pub(crate) offset: u32,
-    pub(crate) buffer_index: u32,
-    pub(crate) format_desc: VertexFormatDesc,
-}
-
-
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct BlendComponent {
-    equation: u32, // glow::FUNC_ADD,
+    pub(crate) equation: u32, // glow::FUNC_ADD,
 
-    src_factor: u32, // glow::SRC_ALPHA,
-    dst_factor: u32, // glow::ONE_MINUS_SRC_ALPHA,
+    pub(crate) src_factor: u32, // glow::SRC_ALPHA,
+    pub(crate) dst_factor: u32, // glow::ONE_MINUS_SRC_ALPHA,
 }
 
 impl Default for BlendComponent {

@@ -1,3 +1,5 @@
+#![feature(hash_drain_filter)]
+
 mod hal;
 mod wgc;
 mod wgt;
