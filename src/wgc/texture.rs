@@ -48,7 +48,7 @@ impl Texture {
     /// Make an `ImageCopyTexture` representing the whole texture.
     #[inline]
     pub fn as_image_copy(&self) -> ImageCopyTexture {
-        unimplemented!("Texture::as_image_copy is not implemented")
+        todo!("")
     }
 
     /// Returns the size of this `Texture`.

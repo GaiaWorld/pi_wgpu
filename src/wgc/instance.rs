@@ -62,19 +62,6 @@ impl Instance {
         Self(Arc::new(imp))
     }
 
-    /// Retrieves all available [`Adapter`]s that match the given [`Backends`].
-    ///
-    /// # Arguments
-    ///
-    /// - `backends` - Backends from which to enumerate adapters.
-    #[cfg(any(not(target_arch = "wasm32"), feature = "emscripten"))]
-    pub fn enumerate_adapters(&self, backends: Backends) -> impl Iterator<Item = crate::Adapter> {
-        unimplemented!("Instance::enumerate_adapters is not implemented");
-
-        #[allow(unreachable_code)]
-        vec![].into_iter()
-    }
-
     /// Retrieves an [`Adapter`] which matches the given [`RequestAdapterOptions`].
     ///
     /// Some options are "soft", so treated as non-mandatory. Others are "hard".

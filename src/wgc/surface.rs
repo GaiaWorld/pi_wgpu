@@ -60,7 +60,9 @@ impl Surface {
     ///
     /// - A old [`SurfaceTexture`] is still alive referencing an old surface.
     /// - Texture format requested is unsupported on the surface.
-    pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {}
+    pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
+        todo!("")
+    }
 
     /// Returns the next texture to be presented by the swapchain for drawing.
     ///
@@ -71,7 +73,7 @@ impl Surface {
     /// If a SurfaceTexture referencing this surface is alive when the swapchain is recreated,
     /// recreating the swapchain will panic.
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
-        unimplemented!("Surface::get_current_texture is not implemented")
+        todo!("")
     }
 }
 
@@ -97,7 +99,7 @@ impl SurfaceTexture {
     ///
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
-        unimplemented!("SurfaceTexture::present is not implemented")
+        todo!("")
     }
 }
 

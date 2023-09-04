@@ -99,12 +99,12 @@
 
 ### 2.2. `Instance`
 
-| 函数                 | 支持 | 说明 |
-| -------------------- | ---- | ---- |
-| `new`                | ✔    |      |
-| `enumerate_adapters` | ✔    |      |
-| `request_adapter`    | ✔    |      |
-| `create_surface`     | ✔    |      |
+| 函数               | 支持 | 说明 |
+| ------------------ | ---- | ---- |
+| `new`              | ✔    |      |
+| `request_adapter`  | ✔    |      |
+| `create_surface`   | ✔    |      |
+| enumerate_adapters | ×    |      |
 
 ### 2.3. `Adapter`
 
