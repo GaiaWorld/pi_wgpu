@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use glow::HasContext;
-use pi_share::{Share, ShareWeak};
+use pi_share::{Share, ShareCell, ShareWeak};
 use twox_hash::RandomXxHashBuilder64;
 
 use super::{
@@ -16,7 +16,8 @@ pub(crate) struct GLCache {
     vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
     fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
 
-    program_map: HashMap<ProgramID, ShareWeak<super::Program>, RandomXxHashBuilder64>,
+    program_map:
+        HashMap<ProgramID, ShareWeak<ShareCell<super::ProgramImpl>>, RandomXxHashBuilder64>,
     bs_map: HashMap<BlendStateImpl, ShareWeak<BlendState>, RandomXxHashBuilder64>,
     rs_map: HashMap<RasterStateImpl, ShareWeak<RasterState>, RandomXxHashBuilder64>,
     ds_map: HashMap<DepthStateImpl, ShareWeak<DepthState>, RandomXxHashBuilder64>,
@@ -145,13 +146,16 @@ impl GLCache {
     }
 
     #[inline]
-    pub fn get_program(&self, id: &super::ProgramID) -> Option<Share<super::Program>> {
-        self.program_map.get(id).and_then(|p| p.upgrade())
+    pub fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
+        self.program_map.get(id).and_then(|p| {
+            let p = p.upgrade();
+            p.map(|p| super::Program(p))
+        })
     }
 
     #[inline]
-    pub fn insert_program(&mut self, id: super::ProgramID, program: Share<super::Program>) {
-        self.program_map.insert(id, Share::downgrade(&program));
+    pub fn insert_program(&mut self, id: super::ProgramID, program: super::Program) {
+        self.program_map.insert(id, Share::downgrade(&program.0));
     }
 
     #[inline]

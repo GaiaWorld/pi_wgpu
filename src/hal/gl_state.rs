@@ -42,12 +42,12 @@ impl GLState {
     }
 
     #[inline]
-    pub fn get_program(&self, id: &super::ProgramID) -> Option<Share<super::Program>> {
+    pub fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
         self.0.borrow().cache.get_program(id)
     }
 
     #[inline]
-    pub fn insert_program(&self, id: super::ProgramID, program: Share<super::Program>) {
+    pub fn insert_program(&self, id: super::ProgramID, program: super::Program) {
         self.0.borrow_mut().cache.insert_program(id, program)
     }
 
@@ -305,7 +305,7 @@ impl GLStateImpl {
                 Self::apply_color_mask(&self.gl, &new.color_writes);
             }
 
-            if new.program.raw != old.program.raw {
+            if new.program.get_raw() != old.program.get_raw() {
                 Self::apply_program(&self.gl, &new.program);
             }
 
@@ -753,6 +753,7 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_program(gl: &glow::Context, program: &super::Program) {
+        let program = program.0.borrow();
         unsafe {
             gl.use_program(Some(program.raw));
         }

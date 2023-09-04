@@ -1,4 +1,5 @@
 - [pi\_wgpu](#pi_wgpu)
+  - [0. 进度: 2023.09.04](#0-进度-20230904)
   - [1. 设计](#1-设计)
   - [2. 限制](#2-限制)
     - [2.1. **不** 支持](#21-不-支持)
@@ -23,19 +24,37 @@
 
 # pi_wgpu
 
-+ 用`Rust`实现的`WebGPU`接口子集的`OpenGL`后端；
-+ 接口基于[wgpu-rs](https://github.com/gfx-rs/wgpu) 0.15版本 进行修改；
+`WebGPU`接口子集的`GL`后端，基于`Rust`实现。
+
++ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.15` 进行修改；
++ 功能: 仅仅对应`WebGL2`的子集
+    - 加`压缩纹理`扩展：`DDS` / `ASTC`
++ 平台:
+    - `Windows`: `OpenGL 3.3`
+    - `Android` / PC-Android 模拟器: `GLES 3.0`
+    - 浏览器 / 微信小游戏: `WebGL2`
+
+## 0. 进度: 2023.09.04
+
+| 功能                 | 时间  | 说明 |
+| -------------------- | ----- | ---- |
+| BindGroup            | 1天   |      |
+| egl：初始化          | 1天   |      |
+| 各种释放的处理       | 0.5天 |
+| 压缩纹理：DDS / ASTC | 0.5天 |      |
+| exe Demo             | 3天   |      |
+| exe 联调             | ?天   | 1周+ |
+| WebGL2 移植 + Demo   | 3-5天 |      |
+| WebGL2 联调          | ?天   | 1周+ |
+| Android 移植 + Demo  | 3-5天 |      |
+| Android 联调         | ?天   | 1周+ |
+| `TODO` 多目标 渲染   | ?天   |      |
+| `TODO` 各种 Copy     | ?天   | 待定 |
 
 ## 1. 设计
 
 + `CommandEncoder` 录制即提交，提交是空实现；
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
-
-支持平台：
-
-+ `Windows`: `OpenGL 3.3`
-+ `Android` / PC-Android 模拟器: `GLES 3.0`
-+ 浏览器 / 微信小游戏: `WebGL2`
 
 **注1**：为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
 

@@ -2,7 +2,7 @@ use super::{gl_conv as conv, AttributeState, GLState, ProgramID};
 use crate::wgt;
 use glow::HasContext;
 use ordered_float::OrderedFloat;
-use pi_share::Share;
+use pi_share::{Share, ShareCell, ShareWeak};
 
 #[derive(Debug)]
 pub(crate) struct PipelineLayout {
@@ -48,7 +48,7 @@ pub(crate) struct RenderPipelineImpl {
     pub(crate) topology: u32,
     pub(crate) alpha_to_coverage_enabled: bool,
 
-    pub(crate) program: Share<super::Program>,
+    pub(crate) program: super::Program,
 
     pub(crate) color_writes: wgt::ColorWrites,
     pub(crate) attributes: super::AttributeState,
@@ -106,14 +106,15 @@ impl RenderPipelineImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
         layout: Option<&super::PipelineLayout>,
-    ) -> Result<Share<Program>, super::PipelineError> {
+    ) -> Result<Program, super::PipelineError> {
         match state.get_program(&(vs.id, fs.id)) {
             Some(program) => Ok(program),
             None => {
-                let program = Program::new(state.clone(), vs, fs).unwrap();
-                let program = Share::new(program);
+                let program = ProgramImpl::new(state.clone(), vs, fs).unwrap();
+                let id = program.id;
+                let program = Program(Share::new(ShareCell::new(program)));
 
-                state.insert_program(program.id, program.clone());
+                state.insert_program(id, program.clone());
                 Ok(program)
             }
         }
@@ -445,15 +446,34 @@ impl Default for StencilFaceState {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Program(pub(crate) Share<ShareCell<ProgramImpl>>);
+
+impl Program {
+    #[inline]
+    pub(crate) fn get_id(&self) -> ProgramID {
+        let r = self.0.borrow();
+        r.id
+    }
+
+    #[inline]
+    pub(crate) fn get_raw(&self) -> glow::Program {
+        let r = self.0.borrow();
+        r.raw
+    }
+}
+
 #[derive(Debug)]
-pub(crate) struct Program {
+pub(crate) struct ProgramImpl {
     pub(crate) id: ProgramID,
 
     pub(crate) raw: glow::Program,
     pub(crate) state: GLState,
+
+    pub(crate) uniforms: Box<[GLUniform]>,
 }
 
-impl Drop for Program {
+impl Drop for ProgramImpl {
     fn drop(&mut self) {
         let gl = self.state.get_gl();
 
@@ -464,7 +484,7 @@ impl Drop for Program {
     }
 }
 
-impl Program {
+impl ProgramImpl {
     fn new(
         state: GLState,
         vs: &super::ShaderModule,
@@ -499,10 +519,50 @@ impl Program {
             raw
         };
 
+        // TODO 开始 取 Uniform 信息
+
         Ok(Self {
             raw,
             state,
             id: (vs.id, fs.id),
         })
     }
+}
+
+//
+// create_program: 确定 binding 和 Type
+//      对 UBO:
+//          var blockIndex = gl.getUniformBlockIndex(program, "UBO-名");
+//          gl.uniformBlockBinding(program, blockIndex, ubo_binding);
+//      对 Texture / Sampler
+//          var mySampler = gl.getUniformLocation(program, "Sampler-名");
+//          gl.uniform1i(mySampler, sampler_binding);
+//
+// set_bind_group: 比较 和 设置 gl-函数
+//      对 UBO:
+//          gl.bindBufferRange(gl.UNIFORM_BUFFER, ubo_binding, ubuffer, offset, size);
+//      对 Texture:
+//          gl.activeTexture(gl.TEXTURE0 + sampler_binding);
+//          gl.bindTexture(gl.TEXTURE_2D, texture);
+//      对 Sampler:
+//          gl.bindSampler(sampler_binding, sampler);
+//
+#[derive(Debug)]
+pub(crate) struct GLUniform {
+    pub(crate) binding: u8, // 构建时确定
+    pub(crate) u_type: GLUniformType,
+}
+
+#[derive(Debug)]
+pub(crate) enum GLUniformType {
+    Buffer(Option<GLUniformBuffer>),
+    Texture(Option<ShareWeak<super::TextureImpl>>),
+    Sampler(Option<ShareWeak<super::SamplerImpl>>),
+}
+
+#[derive(Debug)]
+pub(crate) struct GLUniformBuffer {
+    pub(crate) ubuffer: ShareWeak<super::BufferImpl>,
+    pub(crate) offset: i32,
+    pub(crate) size: i32,
 }
