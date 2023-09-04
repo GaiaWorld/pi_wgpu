@@ -1,6 +1,5 @@
 - [pi\_wgpu](#pi_wgpu)
-  - [0. 测试](#0-测试)
-    - [0.1. 开发进度: 2023.09.04](#01-开发进度-20230904)
+  - [0. 进度: 2023.09.04](#0-进度-20230904)
   - [1. 设计](#1-设计)
   - [2. 限制](#2-限制)
     - [2.1. **不** 支持](#21-不-支持)
@@ -35,38 +34,23 @@
     - `Android` / PC-Android 模拟器: `GLES 3.0`
     - 浏览器 / 微信小游戏: `WebGL2`
 
-## 0. 测试
-
-| 序号 | 例子名           | 测试功能          | EXE | WebGL2 | APK |
-| ---- | ---------------- | ----------------- | --- | ------ | --- |
-| 1    | clear            | 清屏              | ×   | ×      | ×   |
-| 2    | triangle         | attribute         | ×   | ×      | ×   |
-| 3    | anim_triangle    | ubo               | ×   | ×      | ×   |
-| 4    | texture          | sampler / texture | ×   | ×      | ×   |
-| 5    | render_target    | 渲染目标          | ×   | ×      | ×   |
-| 6    | compress_texture | dds / astc        | ×   | ×      | ×   |
-
-### 0.1. 开发进度: 2023.09.04
+## 0. 进度: 2023.09.04
 
 | 序号 | 功能                 | 时间  | 说明                               |
 | ---- | -------------------- | ----- | ---------------------------------- |
-| 1    | BindGroup            | 1天   |                                    |
-| 2    | egl：初始化          | 1天   |                                    |
-| 3    | 各种释放的处理       | 0.5天 |
-| 4    | 压缩纹理：DDS / ASTC | 0.5天 |                                    |
-| 5    | exe Demo             | 3天   |                                    |
-| 6    | exe 联调             | ?天   | 1周+                               |
-| 7    | WebGL2 移植 + Demo   | 3-5天 |                                    |
-| 8    | WebGL2 联调          | ?天   | 1周+                               |
-| 9    | Android 移植 + Demo  | 3-5天 |                                    |
-| 10   | Android 联调         | ?天   | 1周+                               |
-| 11   | `TODO` 多重采样      | ?天   | 待定                               |
-| 12   | `TODO` 多目标 渲染   | ?天   | 待定: `drawBuffers` / `clearBufer` |
-| 13   | `TODO` 各种 Copy     | ?天   | 待定: `blitFramebuffer`            |
-| 14   | `TODO` `QuerySet`    | ?天   | 待定:                              |
-| 15   | `TODO` `Fence`       | ?天   | 待定:                              |
-| 16   | `TODO` 其他功能      | ?天   | 待定: 如 `framebufferTextureLayer` |
-| 17   | `TODO` 其他 Feature  | ?天   | 待定: 如 `PushConst`               |
+| 01   | ~~BindGroup~~        | 1天   | **Done**                           |
+| 02   | egl：初始化          | 1.5天 |                                    |
+| 03   | 压缩纹理：DDS / ASTC | 0.5天 |                                    |
+| 04   | exe 联调             | ?天   | 1周+                               |
+| 05   | WebGL2 联调          | ?天   | 1周+                               |
+| 06   | Android 联调         | ?天   | 1周+                               |
+| 07   | `TODO` 多重采样      | ?天   | 待定                               |
+| 08   | `TODO` 多目标 渲染   | ?天   | 待定: `drawBuffers` / `clearBufer` |
+| 09   | `TODO` 各种 Copy     | ?天   | 待定: `blitFramebuffer`            |
+| 10   | `TODO` `QuerySet`    | ?天   | 待定:                              |
+| 11   | `TODO` `Fence`       | ?天   | 待定:                              |
+| 12   | `TODO` 其他功能      | ?天   | 待定: 如 `framebufferTextureLayer` |
+| 13   | `TODO` 其他 Feature  | ?天   | 待定: 如 `PushConst`               |
 
 ## 1. 设计
 
