@@ -616,8 +616,7 @@ impl GLStateImpl {
     fn before_draw(&mut self) {
         self.update_vao();
 
-        // TODO: 结合 pipeline 和 bind_group_state 处理 UBO
-        todo!(); // self.bind_group_state
+        self.update_uniform();
     }
 
     fn after_draw(&mut self) {
@@ -662,6 +661,11 @@ impl GLStateImpl {
 
         // 回收 vbs
         self.last_vbs = Some(geometry.vbs);
+    }
+
+    // 根据 render_pipeline.program + bind_group 更新 uniform
+    fn update_uniform(&mut self) {
+        let program = 
     }
 
     fn clear_render_target(

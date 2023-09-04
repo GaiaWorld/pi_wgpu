@@ -51,15 +51,15 @@ pub enum ShaderSource<'a> {
 
 #[derive(Clone, Debug)]
 pub struct ShaderBindGroupInfo {
-    set: u32,
-    binding: u32,
-    name: String,
-    ty: BindingType,
+    pub set: usize,
+    pub binding: usize,
+    pub name: String,
+    pub ty: PiBindingType,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[repr(C)]
-pub enum BindingType {
+pub enum PiBindingType {
     Buffer,
     Texture,
     Sampler,

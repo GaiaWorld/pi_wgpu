@@ -1,5 +1,7 @@
+use std::collections::{HashMap, HashSet};
+
 use super::{gl_conv as conv, AttributeState, GLState, ProgramID};
-use crate::wgt;
+use crate::{wgt, PiBindingType, ShaderBindGroupInfo};
 use glow::HasContext;
 use ordered_float::OrderedFloat;
 use pi_share::{Share, ShareCell, ShareWeak};
@@ -12,13 +14,6 @@ pub(crate) struct PipelineLayout {
 #[derive(Debug)]
 pub(crate) struct BindGroupLayoutInfo {
     entries: Share<[wgt::BindGroupLayoutEntry]>,
-
-    /// Mapping of resources, indexed by `binding`, into the whole layout space.
-    /// For texture resources, the value is the texture slot index.
-    /// For sampler resources, the value is the index of the sampler in the whole layout.
-    /// For buffers, the value is the uniform or storage slot index.
-    /// For unused bindings, the value is `!0`
-    binding_to_slot: Box<[u8]>,
 }
 
 impl PipelineLayout {
@@ -31,8 +26,6 @@ impl PipelineLayout {
             .iter()
             .map(|layout| BindGroupLayoutInfo {
                 entries: layout.inner.entries.clone(),
-                // TODO
-                binding_to_slot: vec![].into(),
             })
             .collect();
 
@@ -470,7 +463,7 @@ pub(crate) struct ProgramImpl {
     pub(crate) raw: glow::Program,
     pub(crate) state: GLState,
 
-    pub(crate) uniforms: Box<[GLUniform]>,
+    pub(crate) uniforms: Box<[Option<Box<[Option<GLUniform>]>>]>,
 }
 
 impl Drop for ProgramImpl {
@@ -519,12 +512,125 @@ impl ProgramImpl {
             raw
         };
 
-        // TODO 开始 取 Uniform 信息
+        #[derive(Default)]
+        struct PiBindingGroupInfo<'a> {
+            count: usize,
+            map: HashMap<usize, &'a ShaderBindGroupInfo>,
+        }
+
+        impl<'a> PiBindingGroupInfo<'a> {
+            fn update(&mut self, info: &ShaderBindGroupInfo) {
+                if self.count <= info.binding {
+                    self.count = info.binding + 1;
+                }
+
+                self.map
+                    .entry(info.binding)
+                    .and_modify(|v| {
+                        assert!(v.ty == info.ty && info.name == v.name);
+                    })
+                    .or_insert(info);
+            }
+        }
+
+        let mut set_count = 0;
+        let mut map: HashMap<usize, PiBindingGroupInfo> = HashMap::new();
+        for info in vs
+            .bind_group_layout
+            .iter()
+            .chain(fs.bind_group_layout.iter())
+        {
+            if set_count <= info.set {
+                set_count = info.set + 1;
+            }
+
+            map.entry(info.set)
+                .and_modify(|v| v.update(info))
+                .or_insert(Default::default());
+        }
+
+        let mut buffer_binding = 0_u32;
+        let mut sampler_binding = 0_u32;
+        let mut sampler_map: HashMap<String, u32> = Default::default();
+
+        let mut uniforms: Vec<Option<Vec<Option<GLUniform>>>> = Vec::with_capacity(set_count);
+
+        for i in 0..set_count {
+            match map.get(&i) {
+                None => uniforms.push(None),
+                Some(b_info) => {
+                    sampler_map.clear();
+
+                    let mut bindings = Vec::with_capacity(b_info.count);
+                    for j in 0..b_info.count {
+                        let r = match b_info.map.get(&j) {
+                            None => None,
+                            Some(b) => match b.ty {
+                                PiBindingType::Buffer => {
+                                    let r = get_uniform_buffer_bingding(
+                                        gl,
+                                        raw,
+                                        buffer_binding,
+                                        b.name.as_ref(),
+                                    );
+
+                                    buffer_binding += 1;
+
+                                    r
+                                }
+                                PiBindingType::Texture => {
+                                    let (need_update, r) = get_sampler_bingding(
+                                        &sampler_map,
+                                        gl,
+                                        b.ty,
+                                        raw,
+                                        sampler_binding,
+                                        &b.name,
+                                    );
+
+                                    if need_update {
+                                        sampler_map.insert(b.name.clone(), sampler_binding);
+                                        sampler_binding += 1;
+                                    }
+
+                                    r
+                                }
+                                PiBindingType::Sampler => {
+                                    let (need_update, r) = get_sampler_bingding(
+                                        &sampler_map,
+                                        gl,
+                                        b.ty,
+                                        raw,
+                                        sampler_binding,
+                                        &b.name,
+                                    );
+
+                                    if need_update {
+                                        sampler_map.insert(b.name.clone(), sampler_binding);
+                                        sampler_binding += 1;
+                                    }
+
+                                    r
+                                }
+                            },
+                        };
+                        bindings[j] = r;
+                    }
+                    uniforms[i] = Some(bindings);
+                }
+            }
+        }
+
+        let boxed_inner: Vec<_> = uniforms
+            .into_iter()
+            .map(|opt_vec| opt_vec.map(|vec| vec.into_boxed_slice()))
+            .collect();
 
         Ok(Self {
             raw,
             state,
             id: (vs.id, fs.id),
+            uniforms: boxed_inner.into_boxed_slice(),
         })
     }
 }
@@ -549,7 +655,7 @@ impl ProgramImpl {
 //
 #[derive(Debug)]
 pub(crate) struct GLUniform {
-    pub(crate) binding: u8, // 构建时确定
+    pub(crate) binding: u32, // 构建时确定
     pub(crate) u_type: GLUniformType,
 }
 
@@ -565,4 +671,50 @@ pub(crate) struct GLUniformBuffer {
     pub(crate) ubuffer: ShareWeak<super::BufferImpl>,
     pub(crate) offset: i32,
     pub(crate) size: i32,
+}
+
+fn get_uniform_buffer_bingding(
+    gl: &glow::Context,
+    program: glow::Program,
+    binding: u32,
+    name: &str,
+) -> Option<GLUniform> {
+    unsafe {
+        let location = gl.get_uniform_block_index(program, name).unwrap();
+
+        gl.uniform_block_binding(program, location, binding);
+    }
+
+    Some(GLUniform {
+        binding,
+        u_type: GLUniformType::Buffer(None),
+    })
+}
+
+fn get_sampler_bingding(
+    map: &HashMap<String, u32>,
+    gl: &glow::Context,
+    ty: PiBindingType,
+    program: glow::Program,
+    binding: u32,
+    name: &String,
+) -> (bool, Option<GLUniform>) {
+    let (need_update, binding) = match map.get(name) {
+        Some(binding) => (false, *binding),
+        None => unsafe {
+            let location = gl.get_uniform_location(program, name.as_ref()).unwrap();
+
+            gl.uniform_1_i32(Some(&location), binding as i32);
+
+            (true, binding)
+        },
+    };
+
+    let u_type = match ty {
+        PiBindingType::Texture => GLUniformType::Texture(None),
+        PiBindingType::Sampler => GLUniformType::Sampler(None),
+        _ => panic!(),
+    };
+
+    (need_update, Some(GLUniform { binding, u_type }))
 }
