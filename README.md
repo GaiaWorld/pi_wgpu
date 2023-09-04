@@ -82,19 +82,20 @@
 
 ## 2. 限制
 
-+ 只支持 GLSL 格式的 Shader，glsl 450
 + 仅 实现 `单线程` 版本；
++ GLSL功能: 仅支持 gles-300 / std140-布局
++ GLSL语法: 仅支持 GLSL 450 语法
 
 ### 2.1. **不** 支持
 
-| 函数            | 支持 | 说明 |
-| --------------- | ---- | ---- |
-| ComputePipeline | ×    |      |
-| ComputePass     | ×    |      |
-| RenderBundle    | ×    |      |
-| QuerySet        | ×    |      |
-| hal::Fence      | ×    |      |
-| hal::Barrier    | ×    |      |
+| 函数            | 支持 | 说明            |
+| --------------- | ---- | --------------- |
+| QuerySet        | ×    | WebGL2 本身支持 |
+| hal::Fence      | ×    | WebGL2 本身支持 |
+| RenderBundle    | ×    |                 |
+| ComputePipeline | ×    |                 |
+| ComputePass     | ×    |                 |
+| hal::Barrier    | ×    |                 |
 
 ### 2.2. `Instance`
 
