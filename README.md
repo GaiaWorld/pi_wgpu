@@ -1,6 +1,6 @@
 - [pi\_wgpu](#pi_wgpu)
   - [0. 测试](#0-测试)
-  - [0.1. 开发进度: 2023.09.04](#01-开发进度-20230904)
+    - [0.1. 开发进度: 2023.09.04](#01-开发进度-20230904)
   - [1. 设计](#1-设计)
   - [2. 限制](#2-限制)
     - [2.1. **不** 支持](#21-不-支持)
@@ -46,7 +46,7 @@
 | 5    | render_target    | 渲染目标          | ×   | ×      | ×   |
 | 6    | compress_texture | dds / astc        | ×   | ×      | ×   |
 
-## 0.1. 开发进度: 2023.09.04
+### 0.1. 开发进度: 2023.09.04
 
 | 序号 | 功能                 | 时间  | 说明                               |
 | ---- | -------------------- | ----- | ---------------------------------- |
@@ -135,32 +135,32 @@
 
 ### 2.6. `Device`
 
-| 函数                           | 支持 | 说明 |
-| ------------------------------ | ---- | ---- |
-| `features`                     | ✔    |      |
-| `limits`                       | ✔    |      |
-| `create_shader_module`         | ✔    |      |
-| `create_command_encoder`       | ✔    |      |
-| `create_bind_group_layout`     | ✔    |      |
-| `create_bind_group`            | ✔    |      |
-| `create_pipeline_layout`       | ✔    |      |
-| `create_render_pipeline`       | ✔    |      |
-| `create_buffer`                | ✔    |      |
-| `create_texture`               | ✔    |      |
-| `create_sampler`               | ✔    |      |
-| create_shader_module_unchecked | ×    |      |
-| create_shader_module_spirv     | ×    |      |
-| create_render_bundle_encoder   | ×    |      |
-| create_compute_pipeline        | ×    |      |
-| create_texture_from_hal        | ×    |      |
-| create_query_set               | ×    |      |
-| poll                           | ×    |      |
-| on_uncaptured_error            | ×    |      |
-| push_error_scope               | ×    |      |
-| pop_error_scope                | ×    |      |
-| start_capture                  | ×    |      |
-| stop_capture                   | ×    |      |
-| as_hal                         | ×    |      |
+| 函数                           | 支持 | 说明                                                |
+| ------------------------------ | ---- | --------------------------------------------------- |
+| `features`                     | ✔    |                                                     |
+| `limits`                       | ✔    |                                                     |
+| `create_shader_module`         | ✔    |                                                     |
+| `create_command_encoder`       | ✔    |                                                     |
+| `create_bind_group_layout`     | ✔    |                                                     |
+| `create_bind_group`            | ✔    |                                                     |
+| `create_pipeline_layout`       | ✔    |                                                     |
+| `create_render_pipeline`       | ✔    | 参数 layout: Option<&'a PipelineLayout> 必须 有值！ |
+| `create_buffer`                | ✔    |                                                     |
+| `create_texture`               | ✔    |                                                     |
+| `create_sampler`               | ✔    |                                                     |
+| create_shader_module_unchecked | ×    |                                                     |
+| create_shader_module_spirv     | ×    |                                                     |
+| create_render_bundle_encoder   | ×    |                                                     |
+| create_compute_pipeline        | ×    |                                                     |
+| create_texture_from_hal        | ×    |                                                     |
+| create_query_set               | ×    |                                                     |
+| poll                           | ×    |                                                     |
+| on_uncaptured_error            | ×    |                                                     |
+| push_error_scope               | ×    |                                                     |
+| pop_error_scope                | ×    |                                                     |
+| start_capture                  | ×    |                                                     |
+| stop_capture                   | ×    |                                                     |
+| as_hal                         | ×    |                                                     |
 
 ### 2.7. `Queue`
 

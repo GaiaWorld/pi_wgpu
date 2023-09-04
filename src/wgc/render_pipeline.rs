@@ -23,13 +23,6 @@ impl RenderPipeline {
     }
 }
 
-impl RenderPipeline {
-    /// Get an object representing the bind group layout at a given index.
-    pub fn get_bind_group_layout(&self, index: u32) -> BindGroupLayout {
-        unimplemented!("RenderPipeline::get_bind_group_layout")
-    }
-}
-
 /// Describes a render (graphics) pipeline.
 ///
 /// For use with [`Device::create_render_pipeline`].

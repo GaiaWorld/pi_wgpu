@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::{gl_conv as conv, AttributeState, GLState, ProgramID};
 use crate::{wgt, PiBindingType, ShaderBindGroupInfo};
@@ -6,12 +6,12 @@ use glow::HasContext;
 use ordered_float::OrderedFloat;
 use pi_share::{Share, ShareCell, ShareWeak};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PipelineLayout {
     group_infos: Box<[BindGroupLayoutInfo]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct BindGroupLayoutInfo {
     entries: Share<[wgt::BindGroupLayoutEntry]>,
 }
@@ -38,6 +38,8 @@ pub(crate) struct RenderPipeline(pub(crate) Share<RenderPipelineImpl>);
 
 #[derive(Debug)]
 pub(crate) struct RenderPipelineImpl {
+    pub(crate) layout: PipelineLayout,
+    pub(crate) layout_reoder: Box<[Box<[usize]>]>, // 根据 layout 和 program 重新映射的 binding
     pub(crate) topology: u32,
     pub(crate) alpha_to_coverage_enabled: bool,
 
@@ -61,10 +63,11 @@ impl RenderPipelineImpl {
         let alpha_to_coverage_enabled = desc.multisample.alpha_to_coverage_enabled;
 
         let fs = desc.fragment.as_ref().unwrap();
-        let layout = desc.layout.map(|v| &v.inner);
 
-        let program =
-            Self::create_program(&state, &desc.vertex.module.inner, &fs.module.inner, layout)?;
+        let program = Self::create_program(&state, &desc.vertex.module.inner, &fs.module.inner)?;
+
+        let layout = desc.layout.as_ref().unwrap().inner.clone();
+        let layout_reoder = program.reorder(&layout);
 
         let max_vertex_attributes = state.max_attribute_slots();
 
@@ -81,6 +84,8 @@ impl RenderPipelineImpl {
             alpha_to_coverage_enabled,
 
             program,
+            layout,
+            layout_reoder,
 
             color_writes,
             attributes,
@@ -98,7 +103,6 @@ impl RenderPipelineImpl {
         state: &GLState,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
-        layout: Option<&super::PipelineLayout>,
     ) -> Result<Program, super::PipelineError> {
         match state.get_program(&(vs.id, fs.id)) {
             Some(program) => Ok(program),
@@ -454,6 +458,31 @@ impl Program {
         let r = self.0.borrow();
         r.raw
     }
+
+    // 找 program 的 每个 binding 在 layout 的 索引
+    pub(crate) fn reorder(&self, layout: &PipelineLayout) -> Box<[Box<[usize]>]> {
+        let imp = &self.0.borrow().uniforms;
+
+        let mut r = vec![];
+        for (i, info) in imp.iter().enumerate() {
+            let mut v = vec![];
+
+            let bg = &layout.group_infos[i].entries;
+
+            for binding in info.iter() {
+                let index = bg
+                    .iter()
+                    .position(|&x| x.binding as usize == binding.binding)
+                    .unwrap();
+
+                v.push(index);
+            }
+
+            r.push(v.into_boxed_slice());
+        }
+
+        r.into_boxed_slice()
+    }
 }
 
 #[derive(Debug)]
@@ -463,7 +492,12 @@ pub(crate) struct ProgramImpl {
     pub(crate) raw: glow::Program,
     pub(crate) state: GLState,
 
-    pub(crate) uniforms: Box<[Option<Box<[Option<GLUniform>]>>]>,
+    pub(crate) buffer_binding_count: u32,
+    pub(crate) sampler_binding_count: u32,
+
+    // Box 中的顺序 和 RenderPipelineLayout 的 一样
+    // Box<[GLUniform]> 中的 GLUniform 按 bingding 从小到大 排序
+    pub(crate) uniforms: Box<[Box<[GLUniform]>]>,
 }
 
 impl Drop for ProgramImpl {
@@ -553,23 +587,24 @@ impl ProgramImpl {
         let mut sampler_binding = 0_u32;
         let mut sampler_map: HashMap<String, u32> = Default::default();
 
-        let mut uniforms: Vec<Option<Vec<Option<GLUniform>>>> = Vec::with_capacity(set_count);
+        let mut uniforms: Vec<Vec<GLUniform>> = Vec::with_capacity(set_count);
 
         for i in 0..set_count {
             match map.get(&i) {
-                None => uniforms.push(None),
+                None => uniforms.push(vec![]),
                 Some(b_info) => {
                     sampler_map.clear();
 
-                    let mut bindings = Vec::with_capacity(b_info.count);
+                    let mut bindings = vec![];
                     for j in 0..b_info.count {
                         let r = match b_info.map.get(&j) {
-                            None => None,
+                            None => continue,
                             Some(b) => match b.ty {
                                 PiBindingType::Buffer => {
                                     let r = get_uniform_buffer_bingding(
                                         gl,
                                         raw,
+                                        j,
                                         buffer_binding,
                                         b.name.as_ref(),
                                     );
@@ -584,6 +619,7 @@ impl ProgramImpl {
                                         gl,
                                         b.ty,
                                         raw,
+                                        j,
                                         sampler_binding,
                                         &b.name,
                                     );
@@ -601,6 +637,7 @@ impl ProgramImpl {
                                         gl,
                                         b.ty,
                                         raw,
+                                        j,
                                         sampler_binding,
                                         &b.name,
                                     );
@@ -614,22 +651,29 @@ impl ProgramImpl {
                                 }
                             },
                         };
-                        bindings[j] = r;
+                        bindings.push(r);
                     }
-                    uniforms[i] = Some(bindings);
+                    uniforms.push(bindings);
                 }
             }
         }
 
         let boxed_inner: Vec<_> = uniforms
             .into_iter()
-            .map(|opt_vec| opt_vec.map(|vec| vec.into_boxed_slice()))
+            .map(|mut v| {
+                v.sort_by_key(|u| u.binding);
+                v.into_boxed_slice()
+            })
             .collect();
 
         Ok(Self {
             raw,
             state,
             id: (vs.id, fs.id),
+
+            buffer_binding_count: buffer_binding,
+            sampler_binding_count: sampler_binding,
+
             uniforms: boxed_inner.into_boxed_slice(),
         })
     }
@@ -655,15 +699,19 @@ impl ProgramImpl {
 //
 #[derive(Debug)]
 pub(crate) struct GLUniform {
-    pub(crate) binding: u32, // 构建时确定
+    // 声明时候的值
+    pub(crate) binding: usize,
+
+    // 编译过后的 glsl 的 实际值
+    pub(crate) glsl_binding: u32, // 创建时确定
     pub(crate) u_type: GLUniformType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GLUniformType {
-    Buffer(Option<GLUniformBuffer>),
-    Texture(Option<ShareWeak<super::TextureImpl>>),
-    Sampler(Option<ShareWeak<super::SamplerImpl>>),
+    Buffer,
+    Texture,
+    Sampler,
 }
 
 #[derive(Debug)]
@@ -676,19 +724,21 @@ pub(crate) struct GLUniformBuffer {
 fn get_uniform_buffer_bingding(
     gl: &glow::Context,
     program: glow::Program,
-    binding: u32,
+    binding: usize,
+    glsl_binding: u32,
     name: &str,
-) -> Option<GLUniform> {
+) -> GLUniform {
     unsafe {
         let location = gl.get_uniform_block_index(program, name).unwrap();
 
-        gl.uniform_block_binding(program, location, binding);
+        gl.uniform_block_binding(program, location, glsl_binding);
     }
 
-    Some(GLUniform {
+    GLUniform {
         binding,
-        u_type: GLUniformType::Buffer(None),
-    })
+        glsl_binding,
+        u_type: GLUniformType::Buffer,
+    }
 }
 
 fn get_sampler_bingding(
@@ -696,25 +746,33 @@ fn get_sampler_bingding(
     gl: &glow::Context,
     ty: PiBindingType,
     program: glow::Program,
-    binding: u32,
+    binding: usize,
+    glsl_binding: u32,
     name: &String,
-) -> (bool, Option<GLUniform>) {
-    let (need_update, binding) = match map.get(name) {
-        Some(binding) => (false, *binding),
+) -> (bool, GLUniform) {
+    let (need_update, glsl_binding) = match map.get(name) {
+        Some(b) => (false, *b),
         None => unsafe {
             let location = gl.get_uniform_location(program, name.as_ref()).unwrap();
 
-            gl.uniform_1_i32(Some(&location), binding as i32);
+            gl.uniform_1_i32(Some(&location), glsl_binding as i32);
 
-            (true, binding)
+            (true, glsl_binding)
         },
     };
 
     let u_type = match ty {
-        PiBindingType::Texture => GLUniformType::Texture(None),
-        PiBindingType::Sampler => GLUniformType::Sampler(None),
+        PiBindingType::Texture => GLUniformType::Texture,
+        PiBindingType::Sampler => GLUniformType::Sampler,
         _ => panic!(),
     };
 
-    (need_update, Some(GLUniform { binding, u_type }))
+    (
+        need_update,
+        GLUniform {
+            glsl_binding,
+            binding,
+            u_type,
+        },
+    )
 }

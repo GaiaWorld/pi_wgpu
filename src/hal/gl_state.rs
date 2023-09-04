@@ -1,8 +1,13 @@
 use glow::HasContext;
 use pi_share::{Share, ShareCell};
 
-use super::{gl_cache::GLCache, gl_conv as conv, EglContext, ShaderID, VertexAttribKind};
-use crate::{wgt, BufferSize};
+use super::{
+    bind_group, gl_cache::GLCache, gl_conv as conv, EglContext, RawBinding, ShaderID,
+    VertexAttribKind,
+};
+use crate::{hal::GLUniformType, wgt, BufferSize};
+
+const MAX_BIND_GROUP_SET: usize = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState(pub Share<ShareCell<GLStateImpl>>);
@@ -138,13 +143,11 @@ impl GLState {
         s.cache.remove_texture(&s.gl, texture);
 
         // TODO 到 TextureCache 移除 对应的 槽位
-        todo!();
     }
 
     #[inline]
     pub fn remove_sampler(&self, sampler: glow::Sampler) {
         // TODO 到 TextureCache 移除 对应的 槽位
-        todo!();
     }
 }
 
@@ -168,7 +171,7 @@ pub(crate) struct GLStateImpl {
     vertex_buffers: Box<[Option<VBState>]>, // 长度 不会 超过 max_attribute_slots
     index_buffer: Option<IBState>,
 
-    bind_group_state: Option<BindGroupState>,
+    bind_group_set: [Option<BindGroupState>; MAX_BIND_GROUP_SET],
 
     clear_color: wgt::Color,
     clear_depth: f32,
@@ -213,7 +216,7 @@ impl GLStateImpl {
             vertex_buffers: vec![None; max_attribute_slots].into_boxed_slice(),
             index_buffer: None,
 
-            bind_group_state: None,
+            bind_group_set: [None, None, None, None, None, None, None, None],
 
             viewport: Default::default(),
             scissor: Default::default(),
@@ -385,7 +388,9 @@ impl GLStateImpl {
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        self.bind_group_state = Some(BindGroupState {
+        assert!(index < MAX_BIND_GROUP_SET as u32);
+
+        self.bind_group_set[index as usize] = Some(BindGroupState {
             bind_group: bind_group.contents.clone(),
             dynamic_offsets: dynamic_offsets.to_vec().into_boxed_slice(),
         });
@@ -616,7 +621,7 @@ impl GLStateImpl {
     fn before_draw(&mut self) {
         self.update_vao();
 
-        self.update_uniform();
+        self.update_uniforms();
     }
 
     fn after_draw(&mut self) {
@@ -664,8 +669,82 @@ impl GLStateImpl {
     }
 
     // 根据 render_pipeline.program + bind_group 更新 uniform
-    fn update_uniform(&mut self) {
-        let program = 
+    fn update_uniforms(&mut self) {
+        let program = &self.render_pipeline.as_ref().unwrap().0.program;
+        let program = program.0.borrow_mut();
+
+        let bg_set = &mut self.bind_group_set;
+
+        let reorder = &self.render_pipeline.as_ref().unwrap().0.layout_reoder;
+
+        let gl = &self.gl;
+
+        for (i, bindings) in program.uniforms.iter().enumerate() {
+            let bg = &bg_set[i];
+            if bg.is_none() {
+                assert!(bindings.len() == 0);
+                continue;
+            }
+            let bg = bg.as_ref().unwrap();
+
+            let reorder = &reorder[i];
+            for (j, binding) in bindings.iter().enumerate() {
+                let index = reorder[j];
+
+                match &bg.bind_group[index] {
+                    RawBinding::Buffer {
+                        raw,
+                        dynamic_offset,
+                        offset,
+                        size,
+                    } => unsafe {
+                        assert!(binding.u_type == GLUniformType::Buffer);
+                        let imp = raw.0.as_ref();
+
+                        let mut offset = if *dynamic_offset >= 0 {
+                            *offset + bg.dynamic_offsets[*dynamic_offset as usize] as i32
+                        } else {
+                            *offset
+                        };
+
+                        // TODO 加 比较
+                        if offset == 0 && *size == imp.size {
+                            gl.bind_buffer_base(
+                                glow::UNIFORM_BUFFER,
+                                binding.glsl_binding,
+                                Some(imp.raw),
+                            );
+                        } else {
+                            gl.bind_buffer_range(
+                                glow::UNIFORM_BUFFER,
+                                binding.glsl_binding,
+                                Some(imp.raw),
+                                offset,
+                                *size,
+                            );
+                        }
+                    },
+                    RawBinding::Texture(view) => unsafe {
+                        assert!(binding.u_type == GLUniformType::Texture);
+                        let imp = view.inner.as_ref();
+                        match &imp.inner {
+                            crate::hal::TextureInner::Texture { state, raw, target } => {
+                                // TODO 加 比较
+                                gl.active_texture(glow::TEXTURE0 + binding.glsl_binding);
+                                gl.bind_texture(*target, Some(*raw));
+                            }
+                            _ => panic!("mis match texture size"),
+                        }
+                    },
+                    RawBinding::Sampler(sampler) => unsafe {
+                        // TODO 加 比较
+                        assert!(binding.u_type == GLUniformType::Sampler);
+                        let imp = sampler.0.as_ref();
+                        gl.bind_sampler(binding.glsl_binding, Some(imp.raw));
+                    },
+                }
+            }
+        }
     }
 
     fn clear_render_target(

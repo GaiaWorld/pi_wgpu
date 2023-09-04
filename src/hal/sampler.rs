@@ -70,8 +70,8 @@ impl Sampler {
 
 #[derive(Debug)]
 pub(crate) struct SamplerImpl {
-    raw: glow::Sampler,
-    state: GLState,
+    pub(crate) raw: glow::Sampler,
+    pub(crate) state: GLState,
 }
 
 impl Drop for SamplerImpl {

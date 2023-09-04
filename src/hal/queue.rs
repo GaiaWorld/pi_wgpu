@@ -11,6 +11,6 @@ impl Queue {
         surface: &mut super::Surface,
         texture: super::Texture,
     ) -> Result<(), crate::SurfaceError> {
-        unimplemented!()
+        todo!()
     }
 }
