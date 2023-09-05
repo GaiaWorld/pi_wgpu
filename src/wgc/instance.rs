@@ -1,6 +1,5 @@
 use std::{
     future::{ready, Future},
-    iter::Iterator,
     sync::Arc,
 };
 

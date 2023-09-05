@@ -3,19 +3,12 @@ use std::{os::raw, time::Duration};
 use glow::HasContext;
 use thiserror::Error;
 
-use super::{
-    egl_impl, AcquiredSurfaceTexture, EglContext, SrgbFrameBufferKind, TextureFormatDesc,
-    WindowSystemInterface,
-};
-use crate::{
-    hal::{self, WindowKind},
-    wgt, DeviceError, MissingDownlevelFlags,
-};
+use super::{egl_impl, AcquiredSurfaceTexture, EglContext, SrgbFrameBufferKind, TextureFormatDesc};
+use crate::{hal, wgt, DeviceError, MissingDownlevelFlags};
 
 #[derive(Debug)]
 pub(crate) struct Surface {
     egl: EglContext,
-    wsi: WindowSystemInterface,
     config: egl::Config,
     pub(crate) presentable: bool,
     raw_window_handle: raw_window_handle::RawWindowHandle,
@@ -220,15 +213,16 @@ impl Surface {
 
     pub(crate) unsafe fn unconfigure(&mut self, device: &super::Device) {
         if let Some((surface, wl_window)) = unsafe { self.unconfigure_impl(device) } {
-            self.egl
-                .instance
-                .destroy_surface(self.egl.display, surface)
-                .unwrap();
+            let egl = self.egl.0.as_ref();
+
+            egl.egl.destroy_surface(egl.display, surface).unwrap();
             if let Some(window) = wl_window {
-                let library = self.wsi.library.as_ref().expect("unsupported window");
-                let wl_egl_window_destroy: libloading::Symbol<egl_impl::WlEglWindowDestroyFun> =
-                    unsafe { library.get(b"wl_egl_window_destroy") }.unwrap();
-                unsafe { wl_egl_window_destroy(window) };
+                todo!()
+
+                // let library = self.wsi.library.as_ref().expect("unsupported window");
+                // let wl_egl_window_destroy: libloading::Symbol<egl_impl::WlEglWindowDestroyFun> =
+                //     unsafe { library.get(b"wl_egl_window_destroy") }.unwrap();
+                // unsafe { wl_egl_window_destroy(window) };
             }
         }
     }
@@ -278,13 +272,14 @@ impl Surface {
     ) -> Result<(), hal::SurfaceError> {
         let sc = self.swapchain.as_ref().unwrap();
 
-        self.egl
-            .instance
+        let egl = self.egl.0.as_ref();
+
+        egl.egl
             .make_current(
-                self.egl.display,
+                egl.display,
                 Some(sc.surface),
                 Some(sc.surface),
-                Some(self.egl.raw),
+                Some(egl.raw),
             )
             .map_err(|e| {
                 log::error!("make_current(surface) failed: {}", e);
@@ -315,16 +310,13 @@ impl Surface {
         };
         unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None) };
 
-        self.egl
-            .instance
-            .swap_buffers(self.egl.display, sc.surface)
-            .map_err(|e| {
-                log::error!("swap_buffers failed: {}", e);
-                hal::SurfaceError::Lost
-            })?;
-        self.egl
-            .instance
-            .make_current(self.egl.display, None, None, None)
+        egl.egl.swap_buffers(egl.display, sc.surface).map_err(|e| {
+            log::error!("swap_buffers failed: {}", e);
+            hal::SurfaceError::Lost
+        })?;
+
+        egl.egl
+            .make_current(egl.display, None, None, None)
             .map_err(|e| {
                 log::error!("make_current(null) failed: {}", e);
                 hal::SurfaceError::Lost

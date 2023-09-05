@@ -3,9 +3,9 @@ use thiserror::Error;
 pub mod api;
 
 mod egl_impl;
+mod gl_cache;
 mod gl_conv;
 mod gl_state;
-mod gl_cache;
 mod gles;
 
 mod adapter;
@@ -29,8 +29,8 @@ pub(crate) use buffer::*;
 pub(crate) use command::*;
 pub(crate) use device::*;
 pub(crate) use egl_impl::*;
-pub(crate) use gl_state::*;
 pub(crate) use gl_cache::*;
+pub(crate) use gl_state::*;
 pub(crate) use gles::*;
 pub(crate) use instance::*;
 pub(crate) use pipeline::*;
@@ -55,26 +55,10 @@ pub struct ExposedAdapter<A: Api> {
     pub adapter: A::Adapter,
     pub info: wgt::AdapterInfo,
     pub features: wgt::Features,
-    pub capabilities: Capabilities,
-}
-
-#[derive(Clone, Debug)]
-pub struct Capabilities {
     pub limits: wgt::Limits,
-    pub alignments: Alignments,
     pub downlevel: wgt::DownlevelCapabilities,
 }
 
-#[derive(Clone, Debug)]
-pub struct Alignments {
-    /// The alignment of the start of the buffer used as a GPU copy source.
-    pub buffer_copy_offset: wgt::BufferSize,
-    /// The alignment of the row pitch of the texture data stored in a buffer that is
-    /// used in a GPU copy operation.
-    pub buffer_copy_pitch: wgt::BufferSize,
-}
-
-pub(crate) type FenceValue = u64;
 pub(crate) type MemoryRange = Range<wgt::BufferAddress>;
 
 pub(crate) const MAX_ANISOTROPY: u8 = 16;
@@ -136,55 +120,11 @@ pub(crate) static VALIDATION_CANARY: ValidationCanary = ValidationCanary {
     inner: AtomicBool::new(false),
 };
 
-#[derive(Debug, Clone)]
-pub(crate) struct BufferBarrier<'a, A: Api> {
-    pub buffer: &'a A::Buffer,
-    pub usage: Range<BufferUses>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TextureBarrier<'a, A: Api> {
-    pub texture: &'a A::Texture,
-    pub range: wgt::ImageSubresourceRange,
-    pub usage: Range<TextureUses>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct BufferCopy {
-    pub src_offset: wgt::BufferAddress,
-    pub dst_offset: wgt::BufferAddress,
-    pub size: wgt::BufferSize,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct TextureCopyBase {
-    pub mip_level: u32,
-    pub array_layer: u32,
-    /// Origin within a texture.
-    /// Note: for 1D and 2D textures, Z must be 0.
-    pub origin: wgt::Origin3d,
-    pub aspect: FormatAspects,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CopyExtent {
     pub width: u32,
     pub height: u32,
     pub depth: u32,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct TextureCopy {
-    pub src_base: TextureCopyBase,
-    pub dst_base: TextureCopyBase,
-    pub size: CopyExtent,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct BufferTextureCopy {
-    pub buffer_layout: wgt::ImageDataLayout,
-    pub texture_base: TextureCopyBase,
-    pub size: CopyExtent,
 }
 
 /// Flag for internal testing.

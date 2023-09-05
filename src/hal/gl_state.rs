@@ -1,17 +1,19 @@
 use glow::HasContext;
 use pi_share::{Share, ShareCell};
 
-use super::{
-    gl_cache::GLCache, gl_conv as conv, EglContext, RawBinding, ShaderID, VertexAttribKind,
-};
+use super::{gl_cache::GLCache, gl_conv as conv, RawBinding, ShaderID, VertexAttribKind};
 use crate::{hal::GLUniformType, wgt, BufferSize};
-
-const MAX_BIND_GROUP_SET: usize = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState(pub Share<ShareCell<GLStateImpl>>);
 
 impl GLState {
+    #[inline]
+    pub fn new(gl: glow::Context) -> Self {
+        let imp = GLStateImpl::new(gl);
+        Self(Share::new(ShareCell::new(imp)))
+    }
+
     #[inline]
     pub fn next_shader_id(&self) -> ShaderID {
         let mut s = self.0.borrow_mut();
@@ -151,7 +153,6 @@ impl GLState {
 #[derive(Debug)]
 pub(crate) struct GLStateImpl {
     pub(crate) gl: glow::Context,
-    pub(crate) egl: EglContext,
 
     cache: GLCache,
     global_shader_id: ShaderID,
@@ -168,7 +169,7 @@ pub(crate) struct GLStateImpl {
     vertex_buffers: Box<[Option<VBState>]>, // 长度 不会 超过 max_attribute_slots
     index_buffer: Option<IBState>,
 
-    bind_group_set: [Option<BindGroupState>; MAX_BIND_GROUP_SET],
+    bind_group_set: [Option<BindGroupState>; super::MAX_BIND_GROUPS],
 
     clear_color: wgt::Color,
     clear_depth: f32,
@@ -185,7 +186,7 @@ pub(crate) struct GLStateImpl {
 }
 
 impl GLStateImpl {
-    pub fn new(gl: glow::Context, egl: EglContext) -> Self {
+    pub fn new(gl: glow::Context) -> Self {
         let max_attribute_slots =
             unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIBS) as usize };
         let max_textures_slots =
@@ -195,7 +196,6 @@ impl GLStateImpl {
 
         Self {
             gl,
-            egl,
             global_shader_id: 0,
             last_vbs: None,
 
@@ -381,7 +381,7 @@ impl GLStateImpl {
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        assert!(index < MAX_BIND_GROUP_SET as u32);
+        assert!(index < super::MAX_BIND_GROUPS as u32);
 
         self.bind_group_set[index as usize] = Some(BindGroupState {
             bind_group: bind_group.contents.clone(),
