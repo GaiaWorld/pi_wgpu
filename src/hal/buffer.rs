@@ -12,7 +12,7 @@ impl Buffer {
     pub fn new(state: GLState, desc: &crate::BufferDescriptor) -> Result<Self, crate::DeviceError> {
         profiling::scope!("hal::Buffer::new");
 
-        let gl = state.get_gl();
+        let gl = &state.0.borrow().gl;
 
         let (gl_target, gl_usage) = if desc.usage.contains(BufferUsages::VERTEX) {
             (glow::ARRAY_BUFFER, glow::STATIC_DRAW)
@@ -29,7 +29,7 @@ impl Buffer {
         let raw = unsafe { gl.create_buffer().unwrap() };
 
         let imp = BufferImpl {
-            state,
+            state: state.clone(),
             raw,
             gl_target,
             gl_usage,
@@ -64,10 +64,11 @@ pub(crate) struct BufferImpl {
 impl Drop for BufferImpl {
     #[inline]
     fn drop(&mut self) {
-        let gl = self.state.get_gl();
-
-        unsafe {
-            gl.delete_buffer(self.raw);
+        {
+            let gl = &self.state.0.borrow().gl;
+            unsafe {
+                gl.delete_buffer(self.raw);
+            }
         }
 
         self.state.remove_buffer(self.gl_target, self.raw);

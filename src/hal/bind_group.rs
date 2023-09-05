@@ -26,7 +26,7 @@ impl BindGroup {
 
         let layout = desc.layout.inner.entries.as_ref();
 
-        let next_dynamic_offset = -1;
+        let mut next_dynamic_offset = -1;
 
         let contents = desc
             .entries

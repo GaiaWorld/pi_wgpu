@@ -174,136 +174,136 @@ impl Instance {
         })
     }
 
-    pub(crate) unsafe fn enumerate_adapters(&self) -> Vec<crate::ExposedAdapter<crate::GL>> {
-        let inner = self.inner.lock();
-        inner.egl.make_current();
+    // pub(crate) unsafe fn enumerate_adapters(&self) -> Vec<crate::ExposedAdapter<crate::GL>> {
+    //     let inner = self.inner.lock();
+    //     inner.egl.make_current();
 
-        let gl = unsafe {
-            glow::Context::from_loader_function(|name| {
-                inner
-                    .egl
-                    .instance
-                    .get_proc_address(name)
-                    .map_or(ptr::null(), |p| p as *const _)
-            })
-        };
+    //     let gl = unsafe {
+    //         glow::Context::from_loader_function(|name| {
+    //             inner
+    //                 .egl
+    //                 .instance
+    //                 .get_proc_address(name)
+    //                 .map_or(ptr::null(), |p| p as *const _)
+    //         })
+    //     };
 
-        if self.flags.contains(InstanceFlags::DEBUG) && gl.supports_debug() {
-            log::info!("Max label length: {}", unsafe {
-                gl.get_parameter_i32(glow::MAX_LABEL_LENGTH)
-            });
-        }
+    //     if self.flags.contains(InstanceFlags::DEBUG) && gl.supports_debug() {
+    //         log::info!("Max label length: {}", unsafe {
+    //             gl.get_parameter_i32(glow::MAX_LABEL_LENGTH)
+    //         });
+    //     }
 
-        if self.flags.contains(InstanceFlags::VALIDATION) && gl.supports_debug() {
-            log::info!("Enabling GLES debug output");
-            unsafe { gl.enable(glow::DEBUG_OUTPUT) };
-            unsafe { gl.debug_message_callback(gl_debug_message_callback) };
-        }
+    //     if self.flags.contains(InstanceFlags::VALIDATION) && gl.supports_debug() {
+    //         log::info!("Enabling GLES debug output");
+    //         unsafe { gl.enable(glow::DEBUG_OUTPUT) };
+    //         unsafe { gl.debug_message_callback(gl_debug_message_callback) };
+    //     }
 
-        inner.egl.unmake_current();
+    //     inner.egl.unmake_current();
 
-        unsafe {
-            super::Adapter::expose(AdapterContext {
-                glow: Mutex::new(gl),
-                egl: Some(inner.egl.clone()),
-            })
-        }
-        .into_iter()
-        .collect()
-    }
+    //     unsafe {
+    //         super::Adapter::expose(AdapterContext {
+    //             glow: Mutex::new(gl),
+    //             egl: Some(inner.egl.clone()),
+    //         })
+    //     }
+    //     .into_iter()
+    //     .collect()
+    // }
 
-    #[cfg_attr(target_os = "macos", allow(unused, unused_mut, unreachable_code))]
-    pub(crate) unsafe fn create_surface(
-        &self,
-        display_handle: raw_window_handle::RawDisplayHandle,
-        window_handle: raw_window_handle::RawWindowHandle,
-    ) -> Result<hal::Surface, InstanceError> {
-        use raw_window_handle::RawWindowHandle as Rwh;
+    // #[cfg_attr(target_os = "macos", allow(unused, unused_mut, unreachable_code))]
+    // pub(crate) unsafe fn create_surface(
+    //     &self,
+    //     display_handle: raw_window_handle::RawDisplayHandle,
+    //     window_handle: raw_window_handle::RawWindowHandle,
+    // ) -> Result<hal::Surface, InstanceError> {
+    //     use raw_window_handle::RawWindowHandle as Rwh;
 
-        #[cfg_attr(any(target_os = "android", feature = "emscripten"), allow(unused_mut))]
-        let mut inner = self.inner.lock();
+    //     #[cfg_attr(any(target_os = "android", feature = "emscripten"), allow(unused_mut))]
+    //     let mut inner = self.inner.lock();
 
-        match (window_handle, display_handle) {
-            (Rwh::Xlib(_), _) => {}
-            (Rwh::Xcb(_), _) => {}
-            (Rwh::Win32(_), _) => {}
-            (Rwh::AppKit(_), _) => {}
-            #[cfg(target_os = "android")]
-            (Rwh::AndroidNdk(handle), _) => {
-                let format = inner
-                    .egl
-                    .instance
-                    .get_config_attrib(inner.egl.display, inner.config, egl::NATIVE_VISUAL_ID)
-                    .unwrap();
+    //     match (window_handle, display_handle) {
+    //         (Rwh::Xlib(_), _) => {}
+    //         (Rwh::Xcb(_), _) => {}
+    //         (Rwh::Win32(_), _) => {}
+    //         (Rwh::AppKit(_), _) => {}
+    //         #[cfg(target_os = "android")]
+    //         (Rwh::AndroidNdk(handle), _) => {
+    //             let format = inner
+    //                 .egl
+    //                 .instance
+    //                 .get_config_attrib(inner.egl.display, inner.config, egl::NATIVE_VISUAL_ID)
+    //                 .unwrap();
 
-                let ret = unsafe {
-                    ANativeWindow_setBuffersGeometry(handle.a_native_window, 0, 0, format)
-                };
+    //             let ret = unsafe {
+    //                 ANativeWindow_setBuffersGeometry(handle.a_native_window, 0, 0, format)
+    //             };
 
-                if ret != 0 {
-                    log::error!("Error returned from ANativeWindow_setBuffersGeometry");
-                    return Err(crate::InstanceError);
-                }
-            }
-            #[cfg(not(feature = "emscripten"))]
-            (Rwh::Wayland(_), raw_window_handle::RawDisplayHandle::Wayland(display_handle)) => {
-                /* Wayland displays are not sharable between surfaces so if the
-                 * surface we receive from this handle is from a different
-                 * display, we must re-initialize the context.
-                 *
-                 * See gfx-rs/gfx#3545
-                 */
-                log::warn!("Re-initializing Gles context due to Wayland window");
-                if inner
-                    .wl_display
-                    .map(|ptr| ptr != display_handle.display)
-                    .unwrap_or(true)
-                {
-                    use std::ops::DerefMut;
-                    let display_attributes = [egl::ATTRIB_NONE];
+    //             if ret != 0 {
+    //                 log::error!("Error returned from ANativeWindow_setBuffersGeometry");
+    //                 return Err(crate::InstanceError);
+    //             }
+    //         }
+    //         #[cfg(not(feature = "emscripten"))]
+    //         (Rwh::Wayland(_), raw_window_handle::RawDisplayHandle::Wayland(display_handle)) => {
+    //             /* Wayland displays are not sharable between surfaces so if the
+    //              * surface we receive from this handle is from a different
+    //              * display, we must re-initialize the context.
+    //              *
+    //              * See gfx-rs/gfx#3545
+    //              */
+    //             log::warn!("Re-initializing Gles context due to Wayland window");
+    //             if inner
+    //                 .wl_display
+    //                 .map(|ptr| ptr != display_handle.display)
+    //                 .unwrap_or(true)
+    //             {
+    //                 use std::ops::DerefMut;
+    //                 let display_attributes = [egl::ATTRIB_NONE];
 
-                    let display = inner
-                        .egl
-                        .instance
-                        .upcast::<egl::EGL1_5>()
-                        .unwrap()
-                        .get_platform_display(
-                            super::egl_impl::EGL_PLATFORM_WAYLAND_KHR,
-                            display_handle.display,
-                            &display_attributes,
-                        )
-                        .unwrap();
+    //                 let display = inner
+    //                     .egl
+    //                     .instance
+    //                     .upcast::<egl::EGL1_5>()
+    //                     .unwrap()
+    //                     .get_platform_display(
+    //                         super::egl_impl::EGL_PLATFORM_WAYLAND_KHR,
+    //                         display_handle.display,
+    //                         &display_attributes,
+    //                     )
+    //                     .unwrap();
 
-                    let new_inner =
-                        Inner::create(self.flags, Arc::clone(&inner.egl.instance), display)
-                            .map_err(|_| InstanceError)?;
+    //                 let new_inner =
+    //                     Inner::create(self.flags, Arc::clone(&inner.egl.instance), display)
+    //                         .map_err(|_| InstanceError)?;
 
-                    let old_inner = std::mem::replace(inner.deref_mut(), new_inner);
-                    inner.wl_display = Some(display_handle.display);
+    //                 let old_inner = std::mem::replace(inner.deref_mut(), new_inner);
+    //                 inner.wl_display = Some(display_handle.display);
 
-                    drop(old_inner);
-                }
-            }
-            #[cfg(feature = "emscripten")]
-            (Rwh::Web(_), _) => {}
-            other => {
-                log::error!("Unsupported window: {:?}", other);
-                return Err(InstanceError);
-            }
-        };
+    //                 drop(old_inner);
+    //             }
+    //         }
+    //         #[cfg(feature = "emscripten")]
+    //         (Rwh::Web(_), _) => {}
+    //         other => {
+    //             log::error!("Unsupported window: {:?}", other);
+    //             return Err(InstanceError);
+    //         }
+    //     };
 
-        inner.egl.unmake_current();
+    //     inner.egl.unmake_current();
 
-        Ok(hal::Surface {
-            egl: inner.egl.clone(),
-            wsi: self.wsi.clone(),
-            config: inner.config,
-            presentable: inner.supports_native_window,
-            raw_window_handle: window_handle,
-            swapchain: None,
-            srgb_kind: inner.srgb_kind,
-        })
-    }
+    //     Ok(hal::Surface {
+    //         egl: inner.egl.clone(),
+    //         wsi: self.wsi.clone(),
+    //         config: inner.config,
+    //         presentable: inner.supports_native_window,
+    //         raw_window_handle: window_handle,
+    //         swapchain: None,
+    //         srgb_kind: inner.srgb_kind,
+    //     })
+    // }
 
     pub(crate) unsafe fn destroy_surface(&self, _surface: hal::Surface) {}
 }

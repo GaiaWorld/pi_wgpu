@@ -44,8 +44,8 @@ impl CommandEncoder {
         let inner = unsafe { self.inner.end_encoding().unwrap() };
 
         CommandBuffer { inner }
+        
     }
-
     /// Begins recording of a render pass.
     ///
     /// This function returns a [`RenderPass`] object which records a single render pass.
@@ -58,7 +58,7 @@ impl CommandEncoder {
         }
 
         RenderPass {
-            encoder: &self.inner,
+            encoder: &mut self.inner,
         }
     }
 }
@@ -90,7 +90,7 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
 /// https://gpuweb.github.io/gpuweb/#render-pass-encoder).
 #[derive(Debug)]
 pub struct RenderPass<'a> {
-    encoder: &'a hal::CommandEncoder,
+    encoder: &'a mut hal::CommandEncoder,
 }
 
 impl<'a> Drop for RenderPass<'a> {

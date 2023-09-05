@@ -9,8 +9,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["pi", "webgpu"]
 
 [features]
-default = ["gl", "wgsl"]
-wgsl = []
+default = ["gl"]
 gl = ["naga/glsl-out"]
 
 [dependencies]

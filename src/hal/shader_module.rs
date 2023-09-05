@@ -18,7 +18,7 @@ pub(crate) struct ShaderModule {
 
 impl Drop for ShaderModule {
     fn drop(&mut self) {
-        let gl = self.state.get_gl();
+        let gl = &self.state.0.borrow().gl;
         unsafe {
             gl.delete_shader(self.raw);
         }
@@ -30,8 +30,7 @@ impl ShaderModule {
         state: GLState,
         desc: &crate::ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
-        let gl = state.get_gl();
-
+        let gl = &state.0.borrow().gl;
         match &desc.source {
             crate::ShaderSource::Glsl {
                 shader,

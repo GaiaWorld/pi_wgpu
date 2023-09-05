@@ -18,7 +18,7 @@ impl Texture {
     ) -> Result<Self, crate::DeviceError> {
         profiling::scope!("hal::Texture::new");
 
-        let gl = state.get_gl();
+        let gl = &state.0.borrow().gl;
 
         let usage = conv::map_texture_usage(desc.usage, desc.format.into());
 
@@ -134,7 +134,7 @@ impl Texture {
 
         let imp = TextureImpl {
             inner,
-            state,
+            state: state.clone(),
             mip_level_count: desc.mip_level_count,
             array_layer_count: if desc.dimension == wgt::TextureDimension::D2 {
                 desc.size.depth_or_array_layers
@@ -164,7 +164,7 @@ impl Texture {
 
         let format_info = inner.format.describe();
 
-        let gl = inner.state.get_gl();
+        let gl = &inner.state.0.borrow().gl;
 
         let (raw, dst_target) = match &inner.inner {
             TextureInner::Texture { raw, target, .. } => (*raw, *target),
@@ -429,22 +429,24 @@ impl Drop for TextureInner {
     fn drop(&mut self) {
         profiling::scope!("hal::TextureInner::drop");
 
-        match *self {
-            TextureInner::Renderbuffer { state, raw } => {
-                let gl = state.get_gl();
+        match &self {
+            &TextureInner::Renderbuffer { ref state, ref raw } => {
+                let gl = &state.0.borrow().gl;
                 unsafe {
-                    gl.delete_renderbuffer(raw);
+                    gl.delete_renderbuffer(*raw);
                 }
-                state.remove_render_buffer(raw);
+                state.remove_render_buffer(*raw);
             }
-            TextureInner::Texture { state, raw, target } => {
-                let gl = state.get_gl();
+            &TextureInner::Texture {
+                ref state, ref raw, ..
+            } => {
+                let gl = &state.0.borrow().gl;
                 unsafe {
-                    gl.delete_texture(raw);
+                    gl.delete_texture(*raw);
                 }
-                state.remove_texture(raw);
+                state.remove_texture(*raw);
             }
-            TextureInner::DefaultRenderbuffer => {}
+            &TextureInner::DefaultRenderbuffer => {}
         }
     }
 }

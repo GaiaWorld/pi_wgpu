@@ -18,7 +18,7 @@ pub(crate) struct BindGroupLayoutInfo {
 
 impl PipelineLayout {
     pub fn new(
-        state: GLState,
+        _state: GLState,
         desc: &crate::PipelineLayoutDescriptor,
     ) -> Result<Self, crate::DeviceError> {
         let group_infos = desc
@@ -502,7 +502,7 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        let gl = self.state.get_gl();
+        let gl = &self.state.0.borrow().gl;
 
         unsafe {
             gl.delete_program(self.raw);
@@ -520,7 +520,7 @@ impl ProgramImpl {
         assert!(vs.shader_type == glow::VERTEX_SHADER);
         assert!(fs.shader_type == glow::FRAGMENT_SHADER);
 
-        let gl = state.get_gl();
+        let gl = &state.0.borrow().gl;
 
         let raw = unsafe {
             let raw = gl.create_program().unwrap();
@@ -553,7 +553,7 @@ impl ProgramImpl {
         }
 
         impl<'a> PiBindingGroupInfo<'a> {
-            fn update(&mut self, info: &ShaderBindGroupInfo) {
+            fn update(&mut self, info: &'a ShaderBindGroupInfo) {
                 if self.count <= info.binding {
                     self.count = info.binding + 1;
                 }
@@ -617,7 +617,7 @@ impl ProgramImpl {
                                     let (need_update, r) = get_sampler_bingding(
                                         &sampler_map,
                                         gl,
-                                        b.ty,
+                                        b.ty.clone(),
                                         raw,
                                         j,
                                         sampler_binding,
@@ -635,7 +635,7 @@ impl ProgramImpl {
                                     let (need_update, r) = get_sampler_bingding(
                                         &sampler_map,
                                         gl,
-                                        b.ty,
+                                        b.ty.clone(),
                                         raw,
                                         j,
                                         sampler_binding,
@@ -668,7 +668,7 @@ impl ProgramImpl {
 
         Ok(Self {
             raw,
-            state,
+            state: state.clone(),
             id: (vs.id, fs.id),
 
             buffer_binding_count: buffer_binding,

@@ -2,8 +2,7 @@ use glow::HasContext;
 use pi_share::{Share, ShareCell};
 
 use super::{
-    bind_group, gl_cache::GLCache, gl_conv as conv, EglContext, RawBinding, ShaderID,
-    VertexAttribKind,
+    gl_cache::GLCache, gl_conv as conv, EglContext, RawBinding, ShaderID, VertexAttribKind,
 };
 use crate::{hal::GLUniformType, wgt, BufferSize};
 
@@ -20,16 +19,6 @@ impl GLState {
         s.global_shader_id += 1;
 
         s.global_shader_id
-    }
-
-    #[inline]
-    pub fn get_gl(&self) -> &glow::Context {
-        &self.0.borrow().gl
-    }
-
-    #[inline]
-    pub fn get_egl(&self) -> &EglContext {
-        &self.0.borrow().egl
     }
 
     #[inline]
@@ -113,7 +102,12 @@ impl GLState {
     #[inline]
     pub fn remove_render_buffer(&self, rb: glow::Renderbuffer) {
         let mut s = self.0.borrow_mut();
-        s.cache.remove_render_buffer(&s.gl, rb);
+        let s: &mut _ = &mut *s;
+
+        let gl = &s.gl;
+        let cache = &mut s.cache;
+
+        cache.remove_render_buffer(gl, rb);
     }
 
     pub fn remove_buffer(&mut self, bind_target: u32, buffer: glow::Buffer) {
@@ -124,6 +118,7 @@ impl GLState {
         }
 
         let mut imp = self.0.borrow_mut();
+        let imp: &mut _ = &mut *imp;
 
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
             if let Some(ib) = imp.index_buffer.as_ref() {
@@ -140,6 +135,8 @@ impl GLState {
     #[inline]
     pub fn remove_texture(&self, texture: glow::Texture) {
         let mut s = self.0.borrow_mut();
+        let s = &mut *s;
+
         s.cache.remove_texture(&s.gl, texture);
 
         // TODO 到 TextureCache 移除 对应的 槽位
@@ -153,8 +150,8 @@ impl GLState {
 
 #[derive(Debug)]
 pub(crate) struct GLStateImpl {
-    gl: glow::Context,
-    egl: EglContext,
+    pub(crate) gl: glow::Context,
+    pub(crate) egl: EglContext,
 
     cache: GLCache,
     global_shader_id: ShaderID,
@@ -189,10 +186,6 @@ pub(crate) struct GLStateImpl {
 
 impl GLStateImpl {
     pub fn new(gl: glow::Context, egl: EglContext) -> Self {
-        let copy_fbo = unsafe { gl.create_framebuffer().unwrap() };
-
-        let draw_fbo = unsafe { gl.create_framebuffer().unwrap() };
-
         let max_attribute_slots =
             unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIBS) as usize };
         let max_textures_slots =
@@ -246,7 +239,7 @@ impl GLStateImpl {
             if buffer.gl_target == glow::ELEMENT_ARRAY_BUFFER {
                 // 还原回 当前 状态机的状态
 
-                let curr = self.index_buffer.map(|ref v| v.raw);
+                let curr = self.index_buffer.as_ref().map(|v| v.raw);
 
                 gl.bind_buffer(buffer.gl_target, curr);
             }
@@ -265,7 +258,7 @@ impl GLStateImpl {
 
             if buffer.gl_target == glow::ELEMENT_ARRAY_BUFFER {
                 // 还原回 当前 状态机的状态
-                let curr = self.index_buffer.map(|ref v| v.raw);
+                let curr = self.index_buffer.as_ref().map(|v| v.raw);
 
                 gl.bind_buffer(buffer.gl_target, curr);
             }
@@ -346,7 +339,7 @@ impl GLStateImpl {
 
         let colors = GLTextureInfo::try_from(color.view).ok();
 
-        let (depth_stencil, depth_ops, stencil_ops) = match desc.depth_stencil_attachment {
+        let (depth_stencil, depth_ops, stencil_ops) = match &desc.depth_stencil_attachment {
             None => (None, None, None),
             Some(ds) => (
                 GLTextureInfo::try_from(ds.view).ok(),
@@ -375,8 +368,8 @@ impl GLStateImpl {
         // 清屏
         self.clear_render_target(
             &color.ops.load,
-            depth_ops.map(|d| &d.load),
-            stencil_ops.map(|s| &s.load),
+            depth_ops.as_ref().map(|d| &d.load),
+            stencil_ops.as_ref().map(|s| &s.load),
         );
     }
 

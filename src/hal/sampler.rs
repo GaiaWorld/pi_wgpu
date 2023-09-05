@@ -11,7 +11,7 @@ impl Sampler {
         state: GLState,
         desc: &crate::SamplerDescriptor,
     ) -> Result<Self, crate::DeviceError> {
-        let gl = state.get_gl();
+        let gl = &state.0.borrow().gl;
 
         let raw = unsafe { gl.create_sampler().unwrap() };
 
@@ -63,7 +63,10 @@ impl Sampler {
             };
         }
 
-        let imp = SamplerImpl { raw, state };
+        let imp = SamplerImpl {
+            raw,
+            state: state.clone(),
+        };
         Ok(Self(Share::new(imp)))
     }
 }
@@ -78,7 +81,7 @@ impl Drop for SamplerImpl {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            let gl = self.state.get_gl();
+            let gl = &self.state.0.borrow().gl;
             gl.delete_sampler(self.raw);
         }
 

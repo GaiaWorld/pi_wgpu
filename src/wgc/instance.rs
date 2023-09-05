@@ -67,87 +67,95 @@ impl Instance {
     /// Some options are "soft", so treated as non-mandatory. Others are "hard".
     ///
     /// If no adapters are found that suffice all the "hard" options, `None` is returned.
+    // pub fn request_adapter(
+    //     &self,
+    //     options: &crate::RequestAdapterOptions,
+    // ) -> impl Future<Output = Option<crate::Adapter>> + Send {
+    //     profiling::scope!("Instance::request_adapter");
+
+    //     // 不支持 软件 Adapter
+    //     assert!(!options.force_fallback_adapter);
+
+    //     let adapters = unsafe { self.0.enumerate_adapters() };
+
+    //     if let Some(surface) = options.compatible_surface {
+    //         let surface = &surface.inner;
+
+    //         // adapters.retain(|exposed| unsafe {
+    //         //     exposed.adapter.surface_capabilities(&surface).is_some()
+    //         // });
+    //     } 
+
+    //     let mut device_types = Vec::new();
+    //     device_types.extend(adapters.iter().map(|ad| ad.info.device_type));
+
+    //     if device_types.is_empty() {
+    //         log::warn!("No adapters found!");
+    //         return ready(None);
+    //     }
+
+    //     let (mut integrated, mut discrete, mut virt, mut cpu, mut other) = (-1, -1, -1, -1, -1);
+
+    //     for (i, ty) in device_types.into_iter().enumerate() {
+    //         match ty {
+    //             wgt::DeviceType::IntegratedGpu => {
+    //                 if integrated < 0 {
+    //                     integrated = i as i32;
+    //                 }
+    //             }
+    //             wgt::DeviceType::DiscreteGpu => {
+    //                 if discrete < 0 {
+    //                     discrete = i as i32;
+    //                 }
+    //             }
+    //             wgt::DeviceType::VirtualGpu => {
+    //                 if virt < 0 {
+    //                     virt = i as i32;
+    //                 }
+    //             }
+    //             wgt::DeviceType::Cpu => {
+    //                 if cpu < 0 {
+    //                     cpu = i as i32;
+    //                 }
+    //             }
+    //             wgt::DeviceType::Other => {
+    //                 if other < 0 {
+    //                     other = i as i32;
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     let select;
+    //     match options.power_preference {
+    //         // 低性能：集成显卡 --> 独立显卡 --> 其他 --> 虚拟显卡 --> cpu 软件模拟
+    //         PowerPreference::LowPower => {
+    //             select = [integrated, discrete, other, virt, cpu];
+    //         }
+    //         // 高性能：独立显卡 --> 集成显卡 --> 其他 --> 虚拟显卡 --> cpu 软件模拟
+    //         PowerPreference::HighPerformance => {
+    //             select = [discrete, integrated, other, virt, cpu];
+    //         }
+    //     }
+
+    //     for index in select {
+    //         if index >= 0 {
+    //             // let adapter = adapters.swap_remove(index as usize);
+    //             // return ready(Some(adapter));
+    //         }
+    //     }
+
+    //     return ready(None);
+    // }
+
     pub fn request_adapter(
         &self,
         options: &crate::RequestAdapterOptions,
     ) -> impl Future<Output = Option<crate::Adapter>> + Send {
-        profiling::scope!("Instance::request_adapter");
+        todo!();
 
-        // 不支持 软件 Adapter
-        assert!(!options.force_fallback_adapter);
-
-        let adapters = unsafe { self.0.enumerate_adapters() };
-
-        if let Some(surface) = options.compatible_surface {
-            let surface = &surface.inner;
-
-            adapters.retain(|exposed| unsafe {
-                exposed.adapter.surface_capabilities(&surface).is_some()
-            });
-        }
-
-        let mut device_types = Vec::new();
-        device_types.extend(adapters.iter().map(|ad| ad.info.device_type));
-
-        if device_types.is_empty() {
-            log::warn!("No adapters found!");
-            return ready(None);
-        }
-
-        let (mut integrated, mut discrete, mut virt, mut cpu, mut other) = (-1, -1, -1, -1, -1);
-
-        for (i, ty) in device_types.into_iter().enumerate() {
-            match ty {
-                wgt::DeviceType::IntegratedGpu => {
-                    if integrated < 0 {
-                        integrated = i as i32;
-                    }
-                }
-                wgt::DeviceType::DiscreteGpu => {
-                    if discrete < 0 {
-                        discrete = i as i32;
-                    }
-                }
-                wgt::DeviceType::VirtualGpu => {
-                    if virt < 0 {
-                        virt = i as i32;
-                    }
-                }
-                wgt::DeviceType::Cpu => {
-                    if cpu < 0 {
-                        cpu = i as i32;
-                    }
-                }
-                wgt::DeviceType::Other => {
-                    if other < 0 {
-                        other = i as i32;
-                    }
-                }
-            }
-        }
-
-        let select;
-        match options.power_preference {
-            // 低性能：集成显卡 --> 独立显卡 --> 其他 --> 虚拟显卡 --> cpu 软件模拟
-            PowerPreference::LowPower => {
-                select = [integrated, discrete, other, virt, cpu];
-            }
-            // 高性能：独立显卡 --> 集成显卡 --> 其他 --> 虚拟显卡 --> cpu 软件模拟
-            PowerPreference::HighPerformance => {
-                select = [discrete, integrated, other, virt, cpu];
-            }
-        }
-
-        for index in select {
-            if index >= 0 {
-                let adapter = adapters.swap_remove(index as usize);
-                return ready(Some(adapter));
-            }
-        }
-
-        return ready(None);
+        ready(None)
     }
-
     /// Creates a surface from a raw window handle.
     ///
     /// If the specified display and window handle are not supported by any of the backends, then the surface
@@ -175,15 +183,17 @@ impl Instance {
     ) -> Result<Surface, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
 
-        let display_handle = HasRawDisplayHandle::raw_display_handle(window);
+        todo!()
+        
+        // let display_handle = HasRawDisplayHandle::raw_display_handle(window);
 
-        let window_handle = HasRawWindowHandle::raw_window_handle(window);
+        // let window_handle = HasRawWindowHandle::raw_window_handle(window);
 
-        let raw = self.0.create_surface(display_handle, window_handle);
+        // let raw = self.0.create_surface(display_handle, window_handle);
 
-        Ok(crate::Surface {
-            inner: raw.unwrap(),
-            instance: self.clone(),
-        })
+        // Ok(crate::Surface {
+        //     inner: raw.unwrap(),
+        //     instance: self.clone(),
+        // })
     }
 }

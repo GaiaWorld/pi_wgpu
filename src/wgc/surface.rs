@@ -21,15 +21,17 @@ impl Surface {
     pub fn get_capabilities(&self, adapter: &Adapter) -> SurfaceCapabilities {
         profiling::scope!("Surface::get_capabilities");
 
-        let mut hal_caps = unsafe { adapter.0.surface_capabilities(&self.inner) }.unwrap();
+        todo!()
+        
+        // let mut hal_caps = unsafe { adapter.0.surface_capabilities(&self.inner) }.unwrap();
 
-        hal_caps.formats.sort_by_key(|f| !f.describe().srgb);
+        // hal_caps.formats.sort_by_key(|f| !f.describe().srgb);
 
-        SurfaceCapabilities {
-            formats: hal_caps.formats,
-            present_modes: hal_caps.present_modes,
-            alpha_modes: hal_caps.composite_alpha_modes,
-        }
+        // SurfaceCapabilities {
+        //     formats: hal_caps.formats,
+        //     present_modes: hal_caps.present_modes,
+        //     alpha_modes: hal_caps.composite_alpha_modes,
+        // }
     }
 
     /// Return a default `SurfaceConfiguration` from width and height to use for the [`Surface`] with this adapter.

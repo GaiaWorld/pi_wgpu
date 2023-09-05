@@ -288,12 +288,12 @@ impl GLCache {
         }
     }
 
-    pub fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
+    pub fn remove_render_buffer(&mut self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLCache::remove_render_buffer");
 
         let set = self
             .fbo_map
-            .drain_filter(|k, fbo| {
+            .drain_filter(|k, _fbo| {
                 if let Some(super::GLTextureInfo::Renderbuffer(b)) = k.colors.as_ref() {
                     if *b == rb {
                         return true;
@@ -318,7 +318,7 @@ impl GLCache {
         }
     }
 
-    pub fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
+    pub fn remove_texture(&mut self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLCache::remove_texture");
 
         let set = self
@@ -348,7 +348,7 @@ impl GLCache {
         }
     }
 
-    pub fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+    pub fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLCache::remove_buffer");
 
         assert!(bind_target == glow::ARRAY_BUFFER);
