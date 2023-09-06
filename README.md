@@ -27,7 +27,7 @@
 
 `WebGPU`接口子集的`GL`后端，基于`Rust`实现。
 
-+ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.15` 进行修改；
++ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.16` 进行修改；
 + 功能: 仅仅对应`WebGL2`的子集
     - 加`压缩纹理`扩展：`DDS` / `ASTC`
 + 平台:
@@ -40,7 +40,7 @@
 | 序号 | 功能                 | 时间  | 说明                               |
 | ---- | -------------------- | ----- | ---------------------------------- |
 | 01   | ~~BindGroup~~        | 1天   | **Done**                           |
-| 02   | egl：初始化          | 1.5天 |                                    |
+| 02   | ~~egl：初始化~~      | 1.5天 | **Done**                           |
 | 03   | 压缩纹理：DDS / ASTC | 0.5天 |                                    |
 | 04   | exe 联调             | ?天   | 1周+                               |
 | 05   | WebGL2 联调          | ?天   | 1周+                               |
@@ -55,7 +55,6 @@
 
 ## 1. 设计
 
-+ `CommandEncoder` 录制即提交，提交是空实现；
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
 
 **注1**：为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
