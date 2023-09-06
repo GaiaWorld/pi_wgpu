@@ -47,6 +47,7 @@ impl Adapter {
     /// - Unsafe features were requested but not enabled when requesting the adapter.
     /// - Limits requested exceed the values provided by the adapter.
     /// - Adapter does not support all features wgpu requires to safely operate.
+    #[inline]
     pub fn request_device(
         &self,
         desc: &DeviceDescriptor,
@@ -74,40 +75,51 @@ impl Adapter {
     }
 
     /// Returns whether this adapter may present to the passed surface.
+    #[inline]
     pub fn is_surface_supported(&self, surface: &Surface) -> bool {
-        todo!()
+        // If get_surface returns None, then the API does not advertise support for the surface.
+        //
+        // This could occur if the user is running their app on Wayland but Vulkan does not support
+        // VK_KHR_wayland_surface.
+
+        unsafe { self.inner.surface_capabilities(&surface.inner) }.is_some()
     }
 
     /// List all features that are supported with this adapter.
     ///
     /// Features must be explicitly requested in [`Adapter::request_device`] in order
     /// to use them.
+    #[inline]
     pub fn features(&self) -> Features {
-        todo!()
+        self.inner.features.clone()
     }
 
     /// List the "best" limits that are supported by this adapter.
     ///
     /// Limits must be explicitly requested in [`Adapter::request_device`] to set
     /// the values that you are allowed to use.
+    #[inline]
     pub fn limits(&self) -> Limits {
-        todo!()
+        self.inner.limits.clone()
     }
 
     /// Get info about the adapter itself.
+    #[inline]
     pub fn get_info(&self) -> AdapterInfo {
-        todo!()
+        self.inner.info.clone()
     }
 
     /// Get info about the adapter itself.
+    #[inline]
     pub fn get_downlevel_capabilities(&self) -> DownlevelCapabilities {
-        todo!()
+        self.inner.downlevel.clone()
     }
 
     /// Returns the features supported for a given texture format by this adapter.
     ///
     /// Note that the WebGPU spec further restricts the available usages/features.
     /// To disable these restrictions on a device, request the [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] feature.
+    #[inline]
     pub fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
         todo!()
     }

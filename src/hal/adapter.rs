@@ -1,7 +1,7 @@
 use glow::HasContext;
 
 use super::{db, GLState, PrivateCapabilities, Workarounds};
-use crate::{wgt, AstcChannel};
+use crate::{wgt, AdapterInfo, AstcChannel};
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
@@ -11,6 +11,9 @@ pub(crate) struct Adapter {
     pub(crate) workarounds: Workarounds,
     pub(crate) shading_language_version: naga::back::glsl::Version,
     pub(crate) max_texture_size: u32,
+    pub(crate) info: AdapterInfo,
+    pub(crate) limits: wgt::Limits,
+    pub(crate) downlevel: wgt::DownlevelCapabilities,
 }
 
 impl Adapter {
@@ -300,6 +303,14 @@ impl Adapter {
 
         let downlevel_defaults = wgt::DownlevelLimits {};
 
+        let info = Self::make_info(vendor, renderer);
+
+        let downlevel = wgt::DownlevelCapabilities {
+            flags: downlevel_flags,
+            limits: downlevel_defaults,
+            shader_model: wgt::ShaderModel::Sm5,
+        };
+
         let adapter = super::Adapter {
             state: state.clone(),
             private_caps,
@@ -307,24 +318,23 @@ impl Adapter {
             features,
             shading_language_version,
             max_texture_size,
+            limits: limits.clone(),
+            info: info.clone(),
+            downlevel: downlevel.clone(),
         };
 
         Some(super::ExposedAdapter {
             adapter,
-            info: Self::make_info(vendor, renderer),
+            info,
             features,
             limits,
-            downlevel: wgt::DownlevelCapabilities {
-                flags: downlevel_flags,
-                limits: downlevel_defaults,
-                shader_model: wgt::ShaderModel::Sm5,
-            },
+            downlevel,
         })
     }
 
     pub(crate) unsafe fn open(
         &self,
-        features: wgt::Features,
+        _features: wgt::Features,
         _limits: &wgt::Limits,
     ) -> Result<super::OpenDevice<super::GL>, crate::DeviceError> {
         let gl = &self.state.0.borrow().gl;
@@ -487,7 +497,7 @@ impl Adapter {
             | Tf::Bc4RSnorm
             | Tf::Bc5RgUnorm
             | Tf::Bc5RgSnorm
-            | Tf::Bc6hRgbSfloat
+            | Tf::Bc6hRgbFloat
             | Tf::Bc6hRgbUfloat
             | Tf::Bc7RgbaUnorm
             | Tf::Bc7RgbaUnormSrgb => bcn_features,
