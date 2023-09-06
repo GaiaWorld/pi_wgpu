@@ -3,6 +3,7 @@
   - [1. 设计](#1-设计)
   - [2. 限制](#2-限制)
     - [2.1. **不** 支持](#21-不-支持)
+    - [2.3. wgpu::util](#23-wgpuutil)
     - [2.2. `Instance`](#22-instance)
     - [2.3. `Adapter`](#23-adapter)
     - [2.4. `Surface`](#24-surface)
@@ -26,7 +27,7 @@
 
 `WebGPU`接口子集的`GL`后端，基于`Rust`实现。
 
-+ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.15` 进行修改；
++ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.16` 进行修改；
 + 功能: 仅仅对应`WebGL2`的子集
     - 加`压缩纹理`扩展：`DDS` / `ASTC`
 + 平台:
@@ -39,7 +40,7 @@
 | 序号 | 功能                 | 时间  | 说明                               |
 | ---- | -------------------- | ----- | ---------------------------------- |
 | 01   | ~~BindGroup~~        | 1天   | **Done**                           |
-| 02   | egl：初始化          | 1.5天 |                                    |
+| 02   | ~~egl：初始化~~      | 1.5天 | **Done**                           |
 | 03   | 压缩纹理：DDS / ASTC | 0.5天 |                                    |
 | 04   | exe 联调             | ?天   | 1周+                               |
 | 05   | WebGL2 联调          | ?天   | 1周+                               |
@@ -54,7 +55,6 @@
 
 ## 1. 设计
 
-+ `CommandEncoder` 录制即提交，提交是空实现；
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
 
 **注1**：为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
@@ -66,9 +66,13 @@
 
 ## 2. 限制
 
-+ 仅 实现 `单线程` 版本；
-+ GLSL功能: 仅支持 gles-300 / std140-布局
-+ GLSL语法: 仅支持 GLSL 450 语法
++ 线程安全：
+    - 录制指令 是 `单线程`，录制即为提交，所谓的队列提交是空实现；
+    - **TODO**: 创建，销毁 资源，Exe / Apk `多线程`；
+    - `注`：使用者自己确保，创建/释放 和 录制指令 的 线程安全性；
++ GLSL:
+    - 功能: 仅支持 gles-300 / std140-布局；
+    - 语法: 仅支持 GLSL 450 语法；
 
 ### 2.1. **不** 支持
 
@@ -80,6 +84,14 @@
 | ComputePipeline | ×    |                 |
 | ComputePass     | ×    |                 |
 | hal::Barrier    | ×    |                 |
+
+### 2.3. wgpu::util
+
+| 函数                       | 支持 | 说明                        |
+| -------------------------- | ---- | --------------------------- |
+| `backend_bits_from_env`    | ✔    | 永远返回 Some(Backends::GL) |
+| `create_texture_with_data` | ✔    |                             |
+| `create_buffer_init`       | ✔    |                             |
 
 ### 2.2. `Instance`
 

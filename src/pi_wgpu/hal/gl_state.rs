@@ -159,9 +159,10 @@ pub(crate) struct GLStateImpl {
     last_vbs: Option<Box<[Option<VBState>]>>,
 
     // 各种 MAX
-    max_attribute_slots: usize,   // glow::MAX_VERTEX_ATTRIBS
-    max_textures_slots: usize,    // glow::MAX_TEXTURE_IMAGE_UNITS
-    max_color_attachments: usize, // glow::MAX_COLOR_ATTACHMENTS
+    max_attribute_slots: usize,         // glow::MAX_VERTEX_ATTRIBS
+    max_textures_slots: usize,          // glow::MAX_TEXTURE_IMAGE_UNITS
+    max_color_attachments: usize,       // glow::MAX_COLOR_ATTACHMENTS
+    max_uniform_buffer_bindings: usize, // glow::MAX_UNIFORM_BUFFER_BINDINGS 同时帮到Program的UBO的最大数量
 
     // 全局 GL 状态
     // VAO = render_pipeline.attributes + vertex_buffers
@@ -187,10 +188,24 @@ pub(crate) struct GLStateImpl {
 
 impl GLStateImpl {
     pub fn new(gl: glow::Context) -> Self {
+        // 一个 Program 能同时接受的 UBO 绑定的个数
+        // PC Chrome 浏览器 24
+        // MAX_VERTEX_UNIFORM_BLOCKS / MAX_FRAGMENT_UNIFORM_BLOCKS 各 12 个
+        let max_uniform_buffer_bindings =
+            unsafe { gl.get_parameter_i32(glow::MAX_UNIFORM_BUFFER_BINDINGS) as usize };
+
+        // 一个 VS 能接受的 最大 Attribute 数量
+        // PC Chrome 浏览器 16
         let max_attribute_slots =
             unsafe { gl.get_parameter_i32(glow::MAX_VERTEX_ATTRIBS) as usize };
+
+        // 一个 FS 能接受的最多 Texture 通道数
+        // PC Chrome 浏览器 16
         let max_textures_slots =
             unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_IMAGE_UNITS) as usize };
+
+        // 一个 FS 能接受的最多 颜色 Attachement 的 数量
+        // PC Chrome 浏览器 8
         let max_color_attachments =
             unsafe { gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS) as usize };
 
@@ -200,6 +215,7 @@ impl GLStateImpl {
             last_vbs: None,
 
             max_attribute_slots,
+            max_uniform_buffer_bindings,
             max_textures_slots,
             max_color_attachments,
 

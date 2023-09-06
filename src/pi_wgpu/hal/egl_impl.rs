@@ -198,20 +198,19 @@ impl EglContextImpl {
             3, // 必须 GLES 3+
         ];
 
-        // TODO 小米9，加上 egl::CONTEXT_OPENGL_DEBUG 之后，会崩溃 ！！！
-        // 这段代码 暂时 注释
-        // if flags.contains(InstanceFlags::DEBUG) {
-        //     if version >= (1, 5) {
-        //         log::info!("\t EGL context: Support Debug Core");
-        //         context_attributes.push(egl::CONTEXT_OPENGL_DEBUG);
-        //         context_attributes.push(egl::TRUE as _);
-        //     } else if supports_khr_context {
-        //         log::info!("\tEGL context: Support Debug KHR");
-        //         khr_context_flags |= super::egl_impl::EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
-        //     } else {
-        //         log::info!("\tEGL context: No Support debug");
-        //     }
-        // }
+        // TODO 小米9，加上 egl::CONTEXT_OPENGL_DEBUG 之后，会崩溃；wgc层屏蔽掉了 DEBUG
+        if flags.contains(super::InstanceFlags::DEBUG) {
+            if version >= (1, 5) {
+                log::info!("\t EGL context: Support Debug Core");
+                context_attributes.push(egl::CONTEXT_OPENGL_DEBUG);
+                context_attributes.push(egl::TRUE as _);
+            } else if supports_khr_context {
+                log::info!("\tEGL context: Support Debug KHR");
+                khr_context_flags |= super::egl_impl::EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR;
+            } else {
+                log::info!("\tEGL context: No Support debug");
+            }
+        }
 
         if khr_context_flags != 0 {
             context_attributes.push(super::egl_impl::EGL_CONTEXT_FLAGS_KHR);
