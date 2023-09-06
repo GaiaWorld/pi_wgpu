@@ -14,6 +14,9 @@ pub(crate) struct Instance {
     flags: InstanceFlags,
 }
 
+unsafe impl Sync for Instance {}
+unsafe impl Send for Instance {}
+
 impl Instance {
     pub(crate) unsafe fn init(desc: &InstanceDescriptor) -> Result<Instance, InstanceError> {
         // ========= 1. 加载 EGL 库，初始化 EGL
@@ -175,4 +178,3 @@ unsafe fn find_library(paths: &[&str]) -> Option<libloading::Library> {
     }
     None
 }
-

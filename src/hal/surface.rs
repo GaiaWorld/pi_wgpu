@@ -16,6 +16,10 @@ pub(crate) struct Surface {
     srgb_kind: SrgbFrameBufferKind,
 }
 
+
+unsafe impl Sync for Surface {}
+unsafe impl Send for Surface {}
+
 impl Surface {
     pub(crate) unsafe fn configure(
         &mut self,

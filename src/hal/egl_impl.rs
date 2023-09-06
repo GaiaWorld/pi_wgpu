@@ -94,6 +94,10 @@ pub(crate) struct EglContextImpl {
     pub(crate) srgb_kind: SrgbFrameBufferKind,
 }
 
+unsafe impl Send for EglContextImpl {}
+
+unsafe impl Sync for EglContextImpl {}
+
 impl Drop for EglContextImpl {
     fn drop(&mut self) {
         if let Err(e) = self.egl.destroy_context(self.display, self.raw) {
