@@ -1,7 +1,7 @@
 use glow::HasContext;
 
-use super::{db, GLState, PrivateCapabilities, Workarounds};
 use super::super::{wgt, AdapterInfo, AstcChannel};
+use super::{db, GLState, PrivateCapabilities, Workarounds};
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
@@ -18,7 +18,9 @@ pub(crate) struct Adapter {
 
 impl Adapter {
     // 枚举 gl 环境的 特性
-    pub(crate) unsafe fn expose(state: &GLState) -> Option<super::super::ExposedAdapter<super::GL>> {
+    pub(crate) unsafe fn expose(
+        state: &GLState,
+    ) -> Option<super::super::ExposedAdapter<super::GL>> {
         let gl = &state.0.borrow().gl;
 
         let extensions = gl.supported_extensions();
@@ -335,26 +337,24 @@ impl Adapter {
     pub(crate) unsafe fn open(
         &self,
         features: wgt::Features,
-        limits: &wgt::Limits,
+        _limits: &wgt::Limits,
     ) -> Result<super::OpenDevice<super::GL>, super::super::DeviceError> {
+        // Verify all features were exposed by the adapter
+        if !self.features.contains(features) {
+            return Err(super::super::DeviceError::UnsupportedFeature(
+                features - self.features,
+            ));
+        }
+
         let gl = &self.state.0.borrow().gl;
 
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
-        let main_vao =
-            unsafe { gl.create_vertex_array() }.map_err(|_| super::super::DeviceError::OutOfMemory)?;
-        unsafe { gl.bind_vertex_array(Some(main_vao)) };
-
-        let zero_buffer =
-            unsafe { gl.create_buffer() }.map_err(|_| super::super::DeviceError::OutOfMemory)?;
-        unsafe { gl.bind_buffer(glow::COPY_READ_BUFFER, Some(zero_buffer)) };
-        let zeroes = vec![0u8; super::ZERO_BUFFER_SIZE];
-        unsafe { gl.buffer_data_u8_slice(glow::COPY_READ_BUFFER, &zeroes, glow::STATIC_DRAW) };
 
         Ok(super::OpenDevice {
             device: super::Device {
                 features,
-                limits: limits.clone(),
+                limits: self.limits.clone(),
                 state: self.state.clone(),
             },
             queue: super::Queue {
