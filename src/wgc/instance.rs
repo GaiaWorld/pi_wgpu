@@ -187,7 +187,7 @@ impl Instance {
 
         // let window_handle = HasRawWindowHandle::raw_window_handle(window);
 
-        // let raw = self.0.create_surface(display_handle, window_handle);
+        // let raw = self.inner.create_surface(display_handle, window_handle);
 
         // Ok(crate::Surface {
         //     inner: raw.unwrap(),

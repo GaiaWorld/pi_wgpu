@@ -177,6 +177,8 @@ pub enum DeviceError {
     Lost,
     #[error("not enough memory left")]
     OutOfMemory,
+    #[error("unsupported features were requested: {0:?}")]
+    UnsupportedFeature(wgt::Features),
 }
 
 pub use wgt::Maintain as MaintainBase;

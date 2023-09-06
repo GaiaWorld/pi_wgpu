@@ -337,24 +337,25 @@ impl Adapter {
         features: wgt::Features,
         limits: &wgt::Limits,
     ) -> Result<super::OpenDevice<super::GL>, crate::DeviceError> {
+        // Verify all features were exposed by the adapter
+        if !self.features.contains(features) {
+            return Err(crate::DeviceError::UnsupportedFeature(
+                features - self.features,
+            ));
+        }
+
         let gl = &self.state.0.borrow().gl;
 
-        unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
-        unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
-        let main_vao =
-            unsafe { gl.create_vertex_array() }.map_err(|_| crate::DeviceError::OutOfMemory)?;
-        unsafe { gl.bind_vertex_array(Some(main_vao)) };
-
-        let zero_buffer =
-            unsafe { gl.create_buffer() }.map_err(|_| crate::DeviceError::OutOfMemory)?;
-        unsafe { gl.bind_buffer(glow::COPY_READ_BUFFER, Some(zero_buffer)) };
-        let zeroes = vec![0u8; super::ZERO_BUFFER_SIZE];
-        unsafe { gl.buffer_data_u8_slice(glow::COPY_READ_BUFFER, &zeroes, glow::STATIC_DRAW) };
+        // 将 TexImage 的 对齐字节数 设为 1
+        unsafe {
+            gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
+        }
 
         Ok(super::OpenDevice {
             device: super::Device {
                 features,
-                limits: limits.clone(),
+                limits: self.limits.clone(),
                 state: self.state.clone(),
             },
             queue: super::Queue {

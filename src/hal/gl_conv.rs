@@ -172,6 +172,179 @@ pub(super) fn describe_vertex_format(vertex_format: wgt::VertexFormat) -> super:
     }
 }
 
+pub(super) fn describe_texture_format(
+    texture_format: wgt::TextureFormat,
+) -> super::TextureFormatDesc {
+    use wgt::TextureFormat as Tf;
+    use wgt::{AstcBlock, AstcChannel};
+
+    let (internal, external, data_type) = match texture_format {
+        Tf::R8Unorm => (glow::R8, glow::RED, glow::UNSIGNED_BYTE),
+        Tf::R8Snorm => (glow::R8_SNORM, glow::RED, glow::BYTE),
+        Tf::R8Uint => (glow::R8UI, glow::RED_INTEGER, glow::UNSIGNED_BYTE),
+        Tf::R8Sint => (glow::R8I, glow::RED_INTEGER, glow::BYTE),
+        Tf::R16Uint => (glow::R16UI, glow::RED_INTEGER, glow::UNSIGNED_SHORT),
+        Tf::R16Sint => (glow::R16I, glow::RED_INTEGER, glow::SHORT),
+        Tf::R16Unorm => (glow::R16, glow::RED, glow::UNSIGNED_SHORT),
+        Tf::R16Snorm => (glow::R16_SNORM, glow::RED, glow::SHORT),
+        Tf::R16Float => (glow::R16F, glow::RED, glow::HALF_FLOAT),
+        Tf::Rg8Unorm => (glow::RG8, glow::RG, glow::UNSIGNED_BYTE),
+        Tf::Rg8Snorm => (glow::RG8_SNORM, glow::RG, glow::BYTE),
+        Tf::Rg8Uint => (glow::RG8UI, glow::RG_INTEGER, glow::UNSIGNED_BYTE),
+        Tf::Rg8Sint => (glow::RG8I, glow::RG_INTEGER, glow::BYTE),
+        Tf::R32Uint => (glow::R32UI, glow::RED_INTEGER, glow::UNSIGNED_INT),
+        Tf::R32Sint => (glow::R32I, glow::RED_INTEGER, glow::INT),
+        Tf::R32Float => (glow::R32F, glow::RED, glow::FLOAT),
+        Tf::Rg16Uint => (glow::RG16UI, glow::RG_INTEGER, glow::UNSIGNED_SHORT),
+        Tf::Rg16Sint => (glow::RG16I, glow::RG_INTEGER, glow::SHORT),
+        Tf::Rg16Unorm => (glow::RG16, glow::RG, glow::UNSIGNED_SHORT),
+        Tf::Rg16Snorm => (glow::RG16_SNORM, glow::RG, glow::SHORT),
+        Tf::Rg16Float => (glow::RG16F, glow::RG, glow::HALF_FLOAT),
+        Tf::Rgba8Unorm => (glow::RGBA8, glow::RGBA, glow::UNSIGNED_BYTE),
+        Tf::Rgba8UnormSrgb => (glow::SRGB8_ALPHA8, glow::RGBA, glow::UNSIGNED_BYTE),
+        Tf::Bgra8UnormSrgb => (glow::SRGB8_ALPHA8, glow::BGRA, glow::UNSIGNED_BYTE), //TODO?
+        Tf::Rgba8Snorm => (glow::RGBA8_SNORM, glow::RGBA, glow::BYTE),
+        Tf::Bgra8Unorm => (glow::RGBA8, glow::BGRA, glow::UNSIGNED_BYTE), //TODO?
+        Tf::Rgba8Uint => (glow::RGBA8UI, glow::RGBA_INTEGER, glow::UNSIGNED_BYTE),
+        Tf::Rgba8Sint => (glow::RGBA8I, glow::RGBA_INTEGER, glow::BYTE),
+        Tf::Rgb10a2Unorm => (
+            glow::RGB10_A2,
+            glow::RGBA,
+            glow::UNSIGNED_INT_2_10_10_10_REV,
+        ),
+        Tf::Rg11b10Float => (
+            glow::R11F_G11F_B10F,
+            glow::RGB,
+            glow::UNSIGNED_INT_10F_11F_11F_REV,
+        ),
+        Tf::Rg32Uint => (glow::RG32UI, glow::RG_INTEGER, glow::UNSIGNED_INT),
+        Tf::Rg32Sint => (glow::RG32I, glow::RG_INTEGER, glow::INT),
+        Tf::Rg32Float => (glow::RG32F, glow::RG, glow::FLOAT),
+        Tf::Rgba16Uint => (glow::RGBA16UI, glow::RGBA_INTEGER, glow::UNSIGNED_SHORT),
+        Tf::Rgba16Sint => (glow::RGBA16I, glow::RGBA_INTEGER, glow::SHORT),
+        Tf::Rgba16Unorm => (glow::RGBA16, glow::RGBA, glow::UNSIGNED_SHORT),
+        Tf::Rgba16Snorm => (glow::RGBA16_SNORM, glow::RGBA, glow::SHORT),
+        Tf::Rgba16Float => (glow::RGBA16F, glow::RGBA, glow::HALF_FLOAT),
+        Tf::Rgba32Uint => (glow::RGBA32UI, glow::RGBA_INTEGER, glow::UNSIGNED_INT),
+        Tf::Rgba32Sint => (glow::RGBA32I, glow::RGBA_INTEGER, glow::INT),
+        Tf::Rgba32Float => (glow::RGBA32F, glow::RGBA, glow::FLOAT),
+        Tf::Stencil8 => (
+            glow::STENCIL_INDEX8,
+            glow::STENCIL_COMPONENTS,
+            glow::UNSIGNED_BYTE,
+        ),
+        Tf::Depth16Unorm => (
+            glow::DEPTH_COMPONENT16,
+            glow::DEPTH_COMPONENT,
+            glow::UNSIGNED_SHORT,
+        ),
+        Tf::Depth32Float => (glow::DEPTH_COMPONENT32F, glow::DEPTH_COMPONENT, glow::FLOAT),
+        Tf::Depth32FloatStencil8 => {
+            (glow::DEPTH32F_STENCIL8, glow::DEPTH_COMPONENT, glow::FLOAT)
+        }
+        Tf::Depth24Plus => (
+            glow::DEPTH_COMPONENT24,
+            glow::DEPTH_COMPONENT,
+            glow::UNSIGNED_NORMALIZED,
+        ),
+        Tf::Depth24PlusStencil8 => (
+            glow::DEPTH24_STENCIL8,
+            glow::DEPTH_COMPONENT,
+            glow::UNSIGNED_INT,
+        ),
+        Tf::Rgb9e5Ufloat => (glow::RGB9_E5, glow::RGB, glow::UNSIGNED_INT_5_9_9_9_REV),
+        Tf::Bc1RgbaUnorm => (glow::COMPRESSED_RGBA_S3TC_DXT1_EXT, glow::RGBA, 0),
+        Tf::Bc1RgbaUnormSrgb => (glow::COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT, glow::RGBA, 0),
+        Tf::Bc2RgbaUnorm => (glow::COMPRESSED_RGBA_S3TC_DXT3_EXT, glow::RGBA, 0),
+        Tf::Bc2RgbaUnormSrgb => (glow::COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT, glow::RGBA, 0),
+        Tf::Bc3RgbaUnorm => (glow::COMPRESSED_RGBA_S3TC_DXT5_EXT, glow::RGBA, 0),
+        Tf::Bc3RgbaUnormSrgb => (glow::COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, glow::RGBA, 0),
+        Tf::Bc4RUnorm => (glow::COMPRESSED_RED_RGTC1, glow::RED, 0),
+        Tf::Bc4RSnorm => (glow::COMPRESSED_SIGNED_RED_RGTC1, glow::RED, 0),
+        Tf::Bc5RgUnorm => (glow::COMPRESSED_RG_RGTC2, glow::RG, 0),
+        Tf::Bc5RgSnorm => (glow::COMPRESSED_SIGNED_RG_RGTC2, glow::RG, 0),
+        Tf::Bc6hRgbUfloat => (glow::COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, glow::RGB, 0),
+        Tf::Bc6hRgbFloat => (glow::COMPRESSED_RGB_BPTC_SIGNED_FLOAT, glow::RGB, 0),
+        Tf::Bc7RgbaUnorm => (glow::COMPRESSED_RGBA_BPTC_UNORM, glow::RGBA, 0),
+        Tf::Bc7RgbaUnormSrgb => (glow::COMPRESSED_SRGB_ALPHA_BPTC_UNORM, glow::RGBA, 0),
+        Tf::Etc2Rgb8Unorm => (glow::COMPRESSED_RGB8_ETC2, glow::RGB, 0),
+        Tf::Etc2Rgb8UnormSrgb => (glow::COMPRESSED_SRGB8_ETC2, glow::RGB, 0),
+        Tf::Etc2Rgb8A1Unorm => (
+            glow::COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2,
+            glow::RGBA,
+            0,
+        ),
+        Tf::Etc2Rgb8A1UnormSrgb => (
+            glow::COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2,
+            glow::RGBA,
+            0,
+        ),
+        Tf::Etc2Rgba8Unorm => (
+            //TODO: this is a lie, it's not sRGB
+            glow::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,
+            glow::RGBA,
+            0,
+        ),
+        Tf::Etc2Rgba8UnormSrgb => (glow::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC, glow::RGBA, 0),
+        Tf::EacR11Unorm => (glow::COMPRESSED_R11_EAC, glow::RED, 0),
+        Tf::EacR11Snorm => (glow::COMPRESSED_SIGNED_R11_EAC, glow::RED, 0),
+        Tf::EacRg11Unorm => (glow::COMPRESSED_RG11_EAC, glow::RG, 0),
+        Tf::EacRg11Snorm => (glow::COMPRESSED_SIGNED_RG11_EAC, glow::RG, 0),
+        Tf::Astc { block, channel } => match channel {
+            AstcChannel::Unorm | AstcChannel::Hdr => match block {
+                AstcBlock::B4x4 => (glow::COMPRESSED_RGBA_ASTC_4x4_KHR, glow::RGBA, 0),
+                AstcBlock::B5x4 => (glow::COMPRESSED_RGBA_ASTC_5x4_KHR, glow::RGBA, 0),
+                AstcBlock::B5x5 => (glow::COMPRESSED_RGBA_ASTC_5x5_KHR, glow::RGBA, 0),
+                AstcBlock::B6x5 => (glow::COMPRESSED_RGBA_ASTC_6x5_KHR, glow::RGBA, 0),
+                AstcBlock::B6x6 => (glow::COMPRESSED_RGBA_ASTC_6x6_KHR, glow::RGBA, 0),
+                AstcBlock::B8x5 => (glow::COMPRESSED_RGBA_ASTC_8x5_KHR, glow::RGBA, 0),
+                AstcBlock::B8x6 => (glow::COMPRESSED_RGBA_ASTC_8x6_KHR, glow::RGBA, 0),
+                AstcBlock::B8x8 => (glow::COMPRESSED_RGBA_ASTC_8x8_KHR, glow::RGBA, 0),
+                AstcBlock::B10x5 => (glow::COMPRESSED_RGBA_ASTC_10x5_KHR, glow::RGBA, 0),
+                AstcBlock::B10x6 => (glow::COMPRESSED_RGBA_ASTC_10x6_KHR, glow::RGBA, 0),
+                AstcBlock::B10x8 => (glow::COMPRESSED_RGBA_ASTC_10x8_KHR, glow::RGBA, 0),
+                AstcBlock::B10x10 => (glow::COMPRESSED_RGBA_ASTC_10x10_KHR, glow::RGBA, 0),
+                AstcBlock::B12x10 => (glow::COMPRESSED_RGBA_ASTC_12x10_KHR, glow::RGBA, 0),
+                AstcBlock::B12x12 => (glow::COMPRESSED_RGBA_ASTC_12x12_KHR, glow::RGBA, 0),
+            },
+            AstcChannel::UnormSrgb => match block {
+                AstcBlock::B4x4 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR, glow::RGBA, 0),
+                AstcBlock::B5x4 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_5x4_KHR, glow::RGBA, 0),
+                AstcBlock::B5x5 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_5x5_KHR, glow::RGBA, 0),
+                AstcBlock::B6x5 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_6x5_KHR, glow::RGBA, 0),
+                AstcBlock::B6x6 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_6x6_KHR, glow::RGBA, 0),
+                AstcBlock::B8x5 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_8x5_KHR, glow::RGBA, 0),
+                AstcBlock::B8x6 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_8x6_KHR, glow::RGBA, 0),
+                AstcBlock::B8x8 => (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_8x8_KHR, glow::RGBA, 0),
+                AstcBlock::B10x5 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_10x5_KHR, glow::RGBA, 0)
+                }
+                AstcBlock::B10x6 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_10x6_KHR, glow::RGBA, 0)
+                }
+                AstcBlock::B10x8 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_10x8_KHR, glow::RGBA, 0)
+                }
+                AstcBlock::B10x10 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_10x10_KHR, glow::RGBA, 0)
+                }
+                AstcBlock::B12x10 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_12x10_KHR, glow::RGBA, 0)
+                }
+                AstcBlock::B12x12 => {
+                    (glow::COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR, glow::RGBA, 0)
+                }
+            },
+        },
+    };
+
+    super::TextureFormatDesc {
+        internal,
+        external,
+        data_type,
+    }
+}
+
 #[inline]
 pub(crate) fn map_filter_modes(
     min: wgt::FilterMode,

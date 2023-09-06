@@ -176,7 +176,7 @@ impl Surface {
     //         };
     //     }
 
-    //     let format_desc = device.shared.describe_texture_format(config.format);
+    //     let format_desc = conv::describe_texture_format(config.format);
     //     let gl = &device.shared.context.lock();
     //     let renderbuffer = unsafe { gl.create_renderbuffer() }.unwrap();
     //     unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer)) };
