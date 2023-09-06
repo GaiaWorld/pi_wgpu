@@ -3,6 +3,7 @@
 mod hal;
 mod wgc;
 mod wgt;
+pub mod util;
 
 pub use hal::{api::*, ExposedAdapter};
 
