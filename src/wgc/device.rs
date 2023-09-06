@@ -18,10 +18,6 @@ use crate::{
 #[derive(Debug)]
 pub struct Device {
     pub(crate) inner: crate::hal::Device,
-
-    pub(crate) limits: wgt::Limits,
-    pub(crate) features: wgt::Features,
-    pub(crate) downlevel: wgt::DownlevelCapabilities,
 }
 
 impl Device {

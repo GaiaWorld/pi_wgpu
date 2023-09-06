@@ -192,6 +192,12 @@ pub(crate) struct Rect<T> {
     pub h: T,
 }
 
+#[derive(Debug)]
+pub struct OpenDevice<A: Api> {
+    pub device: A::Device,
+    pub queue: A::Queue,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SrgbFrameBufferKind {
     /// No support for SRGB surface

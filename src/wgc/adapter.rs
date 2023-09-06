@@ -1,11 +1,12 @@
-use std::{future::Future, sync::Arc};
+use std::future::Future;
 
+use futures::future::FutureExt;
 use thiserror::Error;
 
 use crate::{
     hal, wgt::RequestAdapterOptions as RequestAdapterOptionsBase, AdapterInfo, Device,
-    DeviceDescriptor, DownlevelCapabilities, Features, Limits, Queue, RequestDeviceError, Surface,
-    TextureFormat, TextureFormatFeatures,
+    DeviceDescriptor, DeviceError, DownlevelCapabilities, Features, Limits, Queue,
+    RequestDeviceError, Surface, TextureFormat, TextureFormatFeatures,
 };
 
 /// Additional information required when requesting an adapter.
@@ -25,7 +26,9 @@ pub type RequestAdapterOptions<'a> = RequestAdapterOptionsBase<&'a Surface>;
 ///
 /// Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 #[derive(Debug)]
-pub struct Adapter(pub(crate) Arc<hal::Adapter>);
+pub struct Adapter {
+    pub(crate) inner: hal::Adapter,
+}
 
 impl Adapter {
     /// Requests a connection to a physical device, creating a logical device.
@@ -46,13 +49,28 @@ impl Adapter {
     /// - Adapter does not support all features wgpu requires to safely operate.
     pub fn request_device(
         &self,
-        _desc: &DeviceDescriptor,
+        desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
-        todo!();
+        let open =
+            unsafe { self.inner.open(desc.features, &desc.limits) }.map_err(|err| match err {
+                DeviceError::Lost => RequestDeviceError,
+                DeviceError::OutOfMemory => RequestDeviceError,
+                _ => RequestDeviceError,
+            });
 
-        use futures::future::FutureExt;
-        async { Err(RequestDeviceError) }.boxed()
+        let r = match open {
+            Ok(open) => {
+                let device = Device { inner: open.device };
+
+                let queue = Queue { inner: open.queue };
+
+                Ok((device, queue))
+            }
+            Err(e) => Err(e),
+        };
+
+        async { r }.boxed()
     }
 
     /// Returns whether this adapter may present to the passed surface.
