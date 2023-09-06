@@ -4,9 +4,10 @@ use futures::future::FutureExt;
 use thiserror::Error;
 
 use crate::{
-    hal, wgt::RequestAdapterOptions as RequestAdapterOptionsBase, AdapterInfo, Device,
-    DeviceDescriptor, DeviceError, DownlevelCapabilities, Features, Limits, Queue,
-    RequestDeviceError, Surface, TextureFormat, TextureFormatFeatures,
+    hal,
+    wgt::{self, RequestAdapterOptions as RequestAdapterOptionsBase},
+    AdapterInfo, Device, DeviceDescriptor, DeviceError, DownlevelCapabilities, Features, Limits,
+    Queue, RequestDeviceError, Surface, TextureFormat, TextureFormatFeatures,
 };
 
 /// Additional information required when requesting an adapter.
@@ -119,9 +120,69 @@ impl Adapter {
     ///
     /// Note that the WebGPU spec further restricts the available usages/features.
     /// To disable these restrictions on a device, request the [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] feature.
-    #[inline]
     pub fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
-        todo!()
+        use hal::TextureFormatCapabilities as Tfc;
+
+        let caps = unsafe { self.inner.texture_format_capabilities(format) };
+        let mut allowed_usages = wgt::TextureUsages::empty();
+
+        allowed_usages.set(wgt::TextureUsages::COPY_SRC, caps.contains(Tfc::COPY_SRC));
+        allowed_usages.set(wgt::TextureUsages::COPY_DST, caps.contains(Tfc::COPY_DST));
+        allowed_usages.set(
+            wgt::TextureUsages::TEXTURE_BINDING,
+            caps.contains(Tfc::SAMPLED),
+        );
+        allowed_usages.set(
+            wgt::TextureUsages::STORAGE_BINDING,
+            caps.contains(Tfc::STORAGE),
+        );
+        allowed_usages.set(
+            wgt::TextureUsages::RENDER_ATTACHMENT,
+            caps.intersects(Tfc::COLOR_ATTACHMENT | Tfc::DEPTH_STENCIL_ATTACHMENT),
+        );
+
+        let mut flags = wgt::TextureFormatFeatureFlags::empty();
+        flags.set(
+            wgt::TextureFormatFeatureFlags::STORAGE_ATOMICS,
+            caps.contains(Tfc::STORAGE_ATOMIC),
+        );
+        flags.set(
+            wgt::TextureFormatFeatureFlags::STORAGE_READ_WRITE,
+            caps.contains(Tfc::STORAGE_READ_WRITE),
+        );
+
+        flags.set(
+            wgt::TextureFormatFeatureFlags::FILTERABLE,
+            caps.contains(Tfc::SAMPLED_LINEAR),
+        );
+
+        flags.set(
+            wgt::TextureFormatFeatureFlags::BLENDABLE,
+            caps.contains(Tfc::COLOR_ATTACHMENT_BLEND),
+        );
+
+        flags.set(
+            wgt::TextureFormatFeatureFlags::MULTISAMPLE_X2,
+            caps.contains(Tfc::MULTISAMPLE_X2),
+        );
+        flags.set(
+            wgt::TextureFormatFeatureFlags::MULTISAMPLE_X4,
+            caps.contains(Tfc::MULTISAMPLE_X4),
+        );
+        flags.set(
+            wgt::TextureFormatFeatureFlags::MULTISAMPLE_X8,
+            caps.contains(Tfc::MULTISAMPLE_X8),
+        );
+
+        flags.set(
+            wgt::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE,
+            caps.contains(Tfc::MULTISAMPLE_RESOLVE),
+        );
+
+        wgt::TextureFormatFeatures {
+            allowed_usages,
+            flags,
+        }
     }
 }
 

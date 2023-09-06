@@ -26,7 +26,7 @@ impl Device {
     /// Functions may panic if you use unsupported features.
     #[inline]
     pub fn features(&self) -> Features {
-        todo!()
+        self.inner.features.clone()
     }
 
     /// List all limits that were requested of this device.
@@ -34,7 +34,7 @@ impl Device {
     /// If any of these limits are exceeded, functions may panic.
     #[inline]
     pub fn limits(&self) -> Limits {
-        todo!()
+        self.inner.limits.clone()
     }
 
     /// Creates a shader module from either SPIR-V or WGSL source code.

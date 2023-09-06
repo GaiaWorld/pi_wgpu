@@ -1,7 +1,11 @@
 use pi_share::Share;
 
+use crate::wgt;
+
 #[derive(Debug)]
 pub(crate) struct Device {
+    pub(crate) features: wgt::Features,
+    pub(crate) limits: wgt::Limits,
     pub(crate) state: super::GLState,
 }
 

@@ -54,7 +54,7 @@ impl Queue {
     /// Submits a series of finished command buffers for execution.
     pub fn submit<I: IntoIterator<Item = CommandBuffer>>(
         &self,
-        command_buffers: I,
+        _command_buffers: I,
     ) -> SubmissionIndex {
         SubmissionIndex
     }

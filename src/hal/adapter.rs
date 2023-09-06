@@ -334,8 +334,8 @@ impl Adapter {
 
     pub(crate) unsafe fn open(
         &self,
-        _features: wgt::Features,
-        _limits: &wgt::Limits,
+        features: wgt::Features,
+        limits: &wgt::Limits,
     ) -> Result<super::OpenDevice<super::GL>, crate::DeviceError> {
         let gl = &self.state.0.borrow().gl;
 
@@ -353,6 +353,8 @@ impl Adapter {
 
         Ok(super::OpenDevice {
             device: super::Device {
+                features,
+                limits: limits.clone(),
                 state: self.state.clone(),
             },
             queue: super::Queue {
