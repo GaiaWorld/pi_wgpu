@@ -30,58 +30,59 @@ impl ShaderModule {
         state: GLState,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
-        let gl = &state.0.borrow().gl;
-        match &desc.source {
-            super::super::ShaderSource::Glsl {
-                shader,
-                stage,
-                defines,
-                bind_group_layout,
-            } => {
-                assert!(defines.len() == 0);
+		todo!()
+        // let gl = &state.0.borrow().gl;
+        // match &desc.source {
+        //     super::super::ShaderSource::Glsl {
+        //         shader,
+        //         stage,
+        //         defines,
+        //         bind_group_layout,
+        //     } => {
+        //         assert!(defines.len() == 0);
 
-                let shader_type = match stage {
-                    naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
-                    naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
-                    naga::ShaderStage::Compute => unreachable!(),
-                };
+        //         let shader_type = match stage {
+        //             naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
+        //             naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
+        //             naga::ShaderStage::Compute => unreachable!(),
+        //         };
 
-                let (raw, bind_group_layout) = unsafe {
-                    let raw = gl.create_shader(shader_type).unwrap();
+        //         let (raw, bind_group_layout) = unsafe {
+        //             let raw = gl.create_shader(shader_type).unwrap();
 
-                    gl.shader_source(raw, shader.as_ref());
+        //             gl.shader_source(raw, shader.as_ref());
 
-                    gl.compile_shader(raw);
+        //             gl.compile_shader(raw);
 
-                    if !gl.get_shader_completion_status(raw) {
-                        let info = gl.get_shader_info_log(raw);
+        //             if !gl.get_shader_completion_status(raw) {
+        //                 let info = gl.get_shader_info_log(raw);
 
-                        log::error!(
-                            "shader compile error, type = {:?}, info = {:?}, source = {:?}",
-                            shader_type,
-                            info,
-                            shader
-                        );
+        //                 log::error!(
+        //                     "shader compile error, type = {:?}, info = {:?}, source = {:?}",
+        //                     shader_type,
+        //                     info,
+        //                     shader
+        //                 );
 
-                        gl.delete_shader(raw);
+        //                 gl.delete_shader(raw);
 
-                        return Err(super::ShaderError::Compilation(format!(
-                            "shader compile error, info = {:?}",
-                            info
-                        )));
-                    }
+        //                 return Err(super::ShaderError::Compilation(format!(
+        //                     "shader compile error, info = {:?}",
+        //                     info
+        //                 )));
+        //             }
 
-                    (raw, bind_group_layout.clone())
-                };
+        //             (raw, bind_group_layout.clone())
+        //         };
 
-                Ok(Self {
-                    id: state.next_shader_id(),
-                    raw,
-                    shader_type,
-                    state: state.clone(),
-                    bind_group_layout,
-                })
-            }
-        }
+        //         Ok(Self {
+        //             id: state.next_shader_id(),
+        //             raw,
+        //             shader_type,
+        //             state: state.clone(),
+        //             bind_group_layout,
+        //         })
+        //     }
+        // }
     }
 }

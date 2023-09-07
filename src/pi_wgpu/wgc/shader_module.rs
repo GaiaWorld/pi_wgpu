@@ -45,7 +45,7 @@ pub enum ShaderSource<'a> {
         defines: naga::FastHashMap<String, String>,
 
         // pi_wgpu 特有 字段: 每个索引 都是 set 的 索引
-        bind_group_layout: Vec<ShaderBindGroupInfo>,
+        // bind_group_layout: Vec<ShaderBindGroupInfo>,
     },
 }
 
