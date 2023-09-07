@@ -1,8 +1,11 @@
-use super::GLState;
+use pi_share::Share;
+
+use super::{AdapterContext, GLState};
 
 #[derive(Debug)]
 pub(crate) struct Queue {
     pub(crate) state: GLState,
+    pub(crate) adapter: Share<AdapterContext>,
 }
 
 impl Queue {

@@ -1,7 +1,14 @@
-use std::{ffi, os::raw, ptr, time::Duration};
+use std::{
+    ffi,
+    os::raw,
+    ptr,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use glow::HasContext;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+use pi_share::Share;
 
 use super::{InstanceError, SrgbFrameBufferKind, VALIDATION_CANARY};
 
@@ -287,8 +294,9 @@ type EglInstance = egl::Instance<egl::Static>;
 /// exclusive access when shared with multiple threads.
 #[derive(Debug)]
 pub struct AdapterContext {
-    pub(crate) egl: EglContext,
-    pub(crate) glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
+    egl: EglContext,
+    reentrant_count: Share<AtomicUsize>,
+    glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
 }
 
 unsafe impl Sync for AdapterContext {}
@@ -337,6 +345,7 @@ struct EglContextLock<'a> {
 /// A guard containing a lock to an [`AdapterContext`]
 #[derive(Debug)]
 pub struct AdapterContextLock<'a> {
+    reentrant_count: Share<AtomicUsize>,
     glow: ReentrantMutexGuard<'a, glow::Context>,
     egl: EglContextLock<'a>,
 }
@@ -352,10 +361,14 @@ impl<'a> std::ops::Deref for AdapterContextLock<'a> {
 impl<'a> Drop for AdapterContextLock<'a> {
     #[inline]
     fn drop(&mut self) {
-        self.egl
-            .instance
-            .make_current(self.egl.display, None, None, None)
-            .unwrap();
+        self.reentrant_count.fetch_sub(1, Ordering::SeqCst);
+
+        if self.reentrant_count.load(Ordering::SeqCst) == 0 {
+            self.egl
+                .instance
+                .make_current(self.egl.display, None, None, None)
+                .unwrap();
+        }
     }
 }
 
@@ -388,14 +401,22 @@ impl AdapterContext {
             .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
             .expect("Could not lock adapter context. This is most-likely a deadlcok.");
 
-        self.egl.make_current();
+        if self.reentrant_count.load(Ordering::SeqCst) == 0 {
+            self.egl.make_current();
+        }
+        self.reentrant_count.fetch_add(1, Ordering::SeqCst);
 
         let egl = EglContextLock {
             instance: &self.egl.instance,
             display: self.egl.display,
         };
 
-        AdapterContextLock { glow, egl }
+        let reentrant_count = self.reentrant_count.clone();
+        AdapterContextLock {
+            glow,
+            egl,
+            reentrant_count,
+        }
     }
 }
 

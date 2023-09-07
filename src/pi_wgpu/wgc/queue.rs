@@ -21,7 +21,8 @@ impl Queue {
     ///
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        buffer.inner.write_buffer(offset as i32, data);
+        let gl = self.inner.adapter.lock();
+        buffer.inner.write_buffer(&gl, offset as i32, data);
     }
 
     /// Schedule a write of some data into a texture.

@@ -17,7 +17,7 @@ impl Device {
         &self,
         desc: &super::super::BufferDescriptor,
     ) -> Result<super::Buffer, super::super::DeviceError> {
-        super::Buffer::new(self.adapter.clone(), self.state.clone(), desc)
+        super::Buffer::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -25,7 +25,7 @@ impl Device {
         &self,
         desc: &super::super::TextureDescriptor,
     ) -> Result<super::Texture, super::super::DeviceError> {
-        super::Texture::new(self.state.clone(), desc)
+        super::Texture::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -42,7 +42,7 @@ impl Device {
         &self,
         desc: &super::super::SamplerDescriptor,
     ) -> Result<super::Sampler, super::super::DeviceError> {
-        super::Sampler::new(self.state.clone(), desc)
+        super::Sampler::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -50,7 +50,7 @@ impl Device {
         &self,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> Result<super::CommandEncoder, super::super::DeviceError> {
-        super::CommandEncoder::new(self.state.clone(), self.adapter.clone(), desc)
+        super::CommandEncoder::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -66,7 +66,7 @@ impl Device {
         &self,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<super::PipelineLayout, super::super::DeviceError> {
-        super::PipelineLayout::new(self.state.clone(), desc)
+        super::PipelineLayout::new(desc)
     }
 
     #[inline]
@@ -82,7 +82,7 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
-        super::ShaderModule::new(self.state.clone(), desc)
+        super::ShaderModule::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -90,7 +90,7 @@ impl Device {
         &self,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
-        let imp = super::RenderPipelineImpl::new(self.state.clone(), desc)?;
+        let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, desc)?;
         Ok(super::RenderPipeline(Share::new(imp)))
     }
 }

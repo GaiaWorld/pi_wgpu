@@ -1,24 +1,27 @@
 use glow::HasContext;
+use pi_share::Share;
 
 use super::super::ShaderBindGroupInfo;
 
-use super::GLState;
+use super::{AdapterContext, GLState};
 
 pub(crate) type ShaderID = u64;
 
 #[derive(Debug)]
 pub(crate) struct ShaderModule {
-    pub(crate) id: ShaderID,
+    pub(crate) state: GLState,
+    pub(crate) adapter: Share<AdapterContext>,
 
+    pub(crate) id: ShaderID,
     pub(crate) raw: glow::Shader,
     pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
-    pub(crate) state: GLState,
+
     pub(crate) bind_group_layout: Vec<ShaderBindGroupInfo>,
 }
 
 impl Drop for ShaderModule {
     fn drop(&mut self) {
-        let gl = &self.state.0.borrow().gl;
+        let gl = self.adapter.lock();
         unsafe {
             gl.delete_shader(self.raw);
         }
@@ -28,15 +31,17 @@ impl Drop for ShaderModule {
 impl ShaderModule {
     pub fn new(
         state: GLState,
+        adapter: &Share<AdapterContext>,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
-        let gl = &state.0.borrow().gl;
+        let gl = adapter.lock();
+
         match &desc.source {
+            super::super::ShaderSource::Naga(module) => {}
             super::super::ShaderSource::Glsl {
                 shader,
                 stage,
                 defines,
-                bind_group_layout,
             } => {
                 assert!(defines.len() == 0);
 
@@ -74,11 +79,14 @@ impl ShaderModule {
                     (raw, bind_group_layout.clone())
                 };
 
+                let id = state.next_shader_id();
                 Ok(Self {
-                    id: state.next_shader_id(),
+                    state,
+                    adapter: adapter.clone(),
+
+                    id,
                     raw,
                     shader_type,
-                    state: state.clone(),
                     bind_group_layout,
                 })
             }

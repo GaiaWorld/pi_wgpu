@@ -41,9 +41,9 @@
 | 01   | ~~BindGroup~~            | 1天   | **Done**                           |
 | 02   | ~~egl：初始化~~          | 1.5天 | **Done**                           |
 | 03   | ~~压缩纹理：DDS / ASTC~~ | 0.5天 | **Done**                           |
-| 04   | 多线程                   | 1.5天 | **Doing**                          |
-| 05   | Shader                   | 0.5天 |                                    |
-| 06   | Surface                  | 1天   |                                    |
+| 04   | ~~多线程~~               | 1.5天 | **Done**                           |
+| 05   | Shader                   | 0.5天 | **Doing**                          |
+| 06   | Surface                  | 0.5天 |                                    |
 | 07   | `TODO` EXE 联调          | ?天   | ?                                  |
 | 08   | `TODO` WebGL2 实现       | ?天   | ?                                  |
 | 08   | `TODO` WebGL2 联调       | ?天   | ?                                  |

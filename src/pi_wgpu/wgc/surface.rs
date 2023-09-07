@@ -79,11 +79,14 @@ impl Surface {
     #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
         match unsafe { self.inner.acquire_texture() } {
-            Ok(Some(ast)) => Ok(SurfaceTexture {
-                texture: crate::Texture { inner: ast.texture },
-                suboptimal: ast.suboptimal,
-                presented: true,
-            }),
+            Ok(Some(ast)) => {
+                todo!()
+                // Ok(SurfaceTexture {
+                //     texture: crate::Texture { inner: ast.texture },
+                //     suboptimal: ast.suboptimal,
+                //     presented: true,
+                // })
+            }
             Ok(None) => Err(SurfaceError::Timeout),
             Err(err) => Err(err),
         }

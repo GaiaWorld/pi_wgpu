@@ -2,11 +2,12 @@ use glow::HasContext;
 use pi_share::Share;
 
 use super::super::{wgt, AdapterInfo, AstcChannel};
-use super::{db, AdapterContext, PrivateCapabilities, Workarounds, GLState};
+use super::{db, AdapterContext, GLState, PrivateCapabilities, Workarounds};
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
     pub(crate) context: Share<AdapterContext>,
+
     pub(crate) private_caps: PrivateCapabilities,
     pub(crate) features: wgt::Features,
     pub(crate) workarounds: Workarounds,
@@ -352,16 +353,19 @@ impl Adapter {
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
 
-        let state = GLState::new(self.context.clone());
+        let state = GLState::new(&gl);
 
         Ok(super::OpenDevice {
             device: super::Device {
+                state: state.clone(),
+                adapter: self.context.clone(),
+
                 features,
                 limits: self.limits.clone(),
-                state: self.state.clone(),
             },
             queue: super::Queue {
-                state: self.state.clone(),
+                state,
+                adapter: self.context.clone(),
             },
         })
     }
@@ -375,13 +379,7 @@ impl Adapter {
         use wgt::TextureFormat as Tf;
 
         let sample_count = {
-            let max_samples = unsafe {
-                self.state
-                    .0
-                    .borrow()
-                    .gl
-                    .get_parameter_i32(glow::MAX_SAMPLES)
-            };
+            let max_samples = unsafe { self.context.lock().get_parameter_i32(glow::MAX_SAMPLES) };
             if max_samples >= 8 {
                 Tfc::MULTISAMPLE_X2 | Tfc::MULTISAMPLE_X4 | Tfc::MULTISAMPLE_X8
             } else if max_samples >= 4 {

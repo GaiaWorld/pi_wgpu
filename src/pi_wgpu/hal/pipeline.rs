@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use super::{gl_conv as conv, AttributeState, GLState, ProgramID};
 use super::super::{wgt, PiBindingType, ShaderBindGroupInfo};
+use super::{gl_conv as conv, AdapterContext, AttributeState, GLState, ProgramID};
 use glow::HasContext;
 use ordered_float::OrderedFloat;
 use pi_share::{Share, ShareCell, ShareWeak};
@@ -18,7 +18,6 @@ pub(crate) struct BindGroupLayoutInfo {
 
 impl PipelineLayout {
     pub fn new(
-        _state: GLState,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         let group_infos = desc
@@ -56,7 +55,8 @@ pub(crate) struct RenderPipelineImpl {
 
 impl RenderPipelineImpl {
     pub fn new(
-        state: GLState,
+        state: &GLState,
+        adapter: &Share<AdapterContext>,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<Self, super::PipelineError> {
         let topology = conv::map_primitive_topology(desc.primitive.topology);
@@ -64,7 +64,8 @@ impl RenderPipelineImpl {
 
         let fs = desc.fragment.as_ref().unwrap();
 
-        let program = Self::create_program(&state, &desc.vertex.module.inner, &fs.module.inner)?;
+        let program =
+            Self::create_program(&state, adapter, &desc.vertex.module.inner, &fs.module.inner)?;
 
         let layout = desc.layout.as_ref().unwrap().inner.clone();
         let layout_reoder = program.reorder(&layout);
@@ -101,13 +102,14 @@ impl RenderPipelineImpl {
 impl RenderPipelineImpl {
     fn create_program(
         state: &GLState,
+        adapter: &Share<AdapterContext>,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Program, super::PipelineError> {
         match state.get_program(&(vs.id, fs.id)) {
             Some(program) => Ok(program),
             None => {
-                let program = ProgramImpl::new(state.clone(), vs, fs).unwrap();
+                let program = ProgramImpl::new(state.clone(), adapter, vs, fs).unwrap();
                 let id = program.id;
                 let program = Program(Share::new(ShareCell::new(program)));
 
@@ -150,7 +152,10 @@ impl RenderPipelineImpl {
         dst
     }
 
-    fn create_rs(state: &GLState, desc: &super::super::PrimitiveState) -> Share<super::RasterState> {
+    fn create_rs(
+        state: &GLState,
+        desc: &super::super::PrimitiveState,
+    ) -> Share<super::RasterState> {
         let (is_cull_enable, cull_face) = match desc.cull_mode {
             Some(wgt::Face::Front) => (true, glow::FRONT),
             Some(wgt::Face::Back) => (true, glow::BACK),
@@ -491,6 +496,7 @@ pub(crate) struct ProgramImpl {
 
     pub(crate) raw: glow::Program,
     pub(crate) state: GLState,
+    pub(crate) adapter: Share<AdapterContext>,
 
     pub(crate) buffer_binding_count: u32,
     pub(crate) sampler_binding_count: u32,
@@ -502,7 +508,7 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        let gl = &self.state.0.borrow().gl;
+        let gl = self.adapter.lock();
 
         unsafe {
             gl.delete_program(self.raw);
@@ -514,13 +520,14 @@ impl Drop for ProgramImpl {
 impl ProgramImpl {
     fn new(
         state: GLState,
+        adapter: &Share<AdapterContext>,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
         assert!(vs.shader_type == glow::VERTEX_SHADER);
         assert!(fs.shader_type == glow::FRAGMENT_SHADER);
 
-        let gl = &state.0.borrow().gl;
+        let gl = adapter.lock();
 
         let raw = unsafe {
             let raw = gl.create_program().unwrap();
@@ -602,7 +609,7 @@ impl ProgramImpl {
                             Some(b) => match b.ty {
                                 PiBindingType::Buffer => {
                                     let r = get_uniform_buffer_bingding(
-                                        gl,
+                                        &gl,
                                         raw,
                                         j,
                                         buffer_binding,
@@ -616,7 +623,7 @@ impl ProgramImpl {
                                 PiBindingType::Texture => {
                                     let (need_update, r) = get_sampler_bingding(
                                         &sampler_map,
-                                        gl,
+                                        &gl,
                                         b.ty.clone(),
                                         raw,
                                         j,
@@ -634,7 +641,7 @@ impl ProgramImpl {
                                 PiBindingType::Sampler => {
                                     let (need_update, r) = get_sampler_bingding(
                                         &sampler_map,
-                                        gl,
+                                        &gl,
                                         b.ty.clone(),
                                         raw,
                                         j,
@@ -668,7 +675,8 @@ impl ProgramImpl {
 
         Ok(Self {
             raw,
-            state: state.clone(),
+            state,
+            adapter: adapter.clone(),
             id: (vs.id, fs.id),
 
             buffer_binding_count: buffer_binding,

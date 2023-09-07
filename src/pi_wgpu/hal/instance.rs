@@ -1,5 +1,7 @@
+use std::sync::atomic::AtomicUsize;
+
 use bitflags::bitflags;
-use parking_lot::Mutex;
+use parking_lot::ReentrantMutex;
 use pi_share::Share;
 use thiserror::Error;
 
@@ -113,7 +115,8 @@ impl Instance {
 
         let context = AdapterContext {
             egl: context,
-            glow: Mutex::new(gl),
+            reentrant_count: Share::new(AtomicUsize::new(0)),
+            glow: ReentrantMutex::new(gl),
         };
 
         Ok(Instance {
