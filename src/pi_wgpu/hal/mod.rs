@@ -198,7 +198,7 @@ pub struct OpenDevice<A: Api> {
     pub queue: A::Queue,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SrgbFrameBufferKind {
     /// No support for SRGB surface
     None,

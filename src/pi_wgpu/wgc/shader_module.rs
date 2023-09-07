@@ -36,6 +36,9 @@ impl ShaderModule {
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum ShaderSource<'a> {
+    /// Naga module.
+    Naga(Cow<'static, naga::Module>),
+
     Glsl {
         /// The source code of the shader.
         shader: Cow<'a, str>,
@@ -43,9 +46,6 @@ pub enum ShaderSource<'a> {
         stage: naga::ShaderStage,
         /// Defines to unlock configured shader features.
         defines: naga::FastHashMap<String, String>,
-
-        // pi_wgpu 特有 字段: 每个索引 都是 set 的 索引
-        bind_group_layout: Vec<ShaderBindGroupInfo>,
     },
 }
 

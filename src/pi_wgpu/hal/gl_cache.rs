@@ -1,3 +1,8 @@
+//! 全局 GL 状态缓冲表
+//!
+//! 作用：状态机 分配资源时，先到这里找，找到了就返回，有利于设置时候，全局比较指针
+//!
+
 use std::collections::{HashMap, HashSet};
 
 use glow::HasContext;
@@ -5,9 +10,8 @@ use pi_share::{Share, ShareCell, ShareWeak};
 use twox_hash::RandomXxHashBuilder64;
 
 use super::{
-	super::hal,
-    AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl, GLState, RasterState,
-    RasterStateImpl, RenderTarget, ShaderID, StencilState, StencilStateImpl, VBState,
+    super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl, GLState,
+    RasterState, RasterStateImpl, RenderTarget, ShaderID, StencilState, StencilStateImpl, VBState,
 };
 
 pub(crate) type ProgramID = (ShaderID, ShaderID);

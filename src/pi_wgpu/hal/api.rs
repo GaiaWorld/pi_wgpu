@@ -8,7 +8,6 @@ pub trait Api: Clone + Sized {
     type Queue;
     type CommandEncoder;
 
-    type CommandBuffer;
     type Buffer;
     type Texture;
     type SurfaceTexture;
@@ -33,8 +32,7 @@ impl Api for GL {
     type Device = hal::Device;
     type Queue = hal::Queue;
     type CommandEncoder = hal::CommandEncoder;
-    
-    type CommandBuffer = hal::CommandBuffer;
+
     type Buffer = hal::Buffer;
     type Texture = hal::Texture;
     type SurfaceTexture = hal::Texture;

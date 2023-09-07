@@ -4,7 +4,6 @@
 //!
 //! `CommandEncoder` 目前 仅支持 如下接口：
 //!
-//! + begin_encoding / end_encoding
 //! + begin_render_pass / end_render_pass
 //! + set_render_pipeline
 //! + set_bind_group
@@ -17,45 +16,39 @@
 //! + draw / draw_indexed
 //!
 
-use super::GLState;
-use super::super::wgt;
+use pi_share::Share;
 
-#[derive(Debug)]
-pub(crate) struct CommandBuffer;
+use super::super::wgt;
+use super::{AdapterContext, AdapterContextLock, GLState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CommandEncoder {
     state: GLState,
+    adapter: Share<AdapterContext>,
 }
 
 impl CommandEncoder {
     pub fn new(
         state: GLState,
+        adapter: &Share<AdapterContext>,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
-        Ok(Self { state })
+        Ok(Self {
+            state,
+            adapter: adapter.clone(),
+        })
     }
 }
 
 impl CommandEncoder {
     #[inline]
-    pub(crate) unsafe fn begin_encoding(
-        &mut self,
-        label: super::Label,
-    ) -> Result<(), super::super::DeviceError> {
-        Ok(())
-    }
-
-    #[inline]
-    pub(crate) unsafe fn end_encoding(
-        &mut self,
-    ) -> Result<super::CommandBuffer, super::super::DeviceError> {
-        Ok(CommandBuffer)
-    }
-
-    #[inline]
-    pub(crate) unsafe fn begin_render_pass(&mut self, desc: &super::super::RenderPassDescriptor) {
-        self.state.0.borrow_mut().set_render_target(desc);
+    pub(crate) unsafe fn begin_render_pass<'a>(
+        &'a mut self,
+        desc: &super::super::RenderPassDescriptor,
+    ) -> AdapterContextLock<'a> {
+        let gl = self.adapter.lock();
+        self.state.set_render_target(&gl, desc);
+        gl
     }
 
     #[inline]
@@ -64,28 +57,32 @@ impl CommandEncoder {
     #[inline]
     pub(crate) unsafe fn set_bind_group(
         &mut self,
+        gl: &glow::Context,
         index: u32,
         group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
-        self.state
-            .0
-            .borrow_mut()
-            .set_bind_group(index, group, dynamic_offsets);
+        self.state.set_bind_group(gl, index, group, dynamic_offsets);
     }
 
     #[inline]
-    pub(crate) unsafe fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
-        self.state.0.borrow_mut().set_render_pipeline(pipeline);
+    pub(crate) unsafe fn set_render_pipeline(
+        &mut self,
+        gl: &glow::Context,
+        pipeline: &super::RenderPipeline,
+    ) {
+        self.state.set_render_pipeline(gl, pipeline);
     }
 
     #[inline]
     pub(crate) unsafe fn set_vertex_buffer<'a>(
         &mut self,
+        gl: &glow::Context,
         index: u32,
         binding: super::super::BufferBinding<'a>,
     ) {
-        self.state.0.borrow_mut().set_vertex_buffer(
+        self.state.set_vertex_buffer(
+            gl,
             index as usize,
             &binding.buffer.inner,
             binding.offset as i32,
@@ -96,10 +93,12 @@ impl CommandEncoder {
     #[inline]
     pub(crate) unsafe fn set_index_buffer<'a>(
         &mut self,
+        gl: &glow::Context,
         binding: super::super::BufferBinding<'a>,
         format: wgt::IndexFormat,
     ) {
-        self.state.0.borrow_mut().set_index_buffer(
+        self.state.set_index_buffer(
+            gl,
             &binding.buffer.inner,
             format,
             binding.offset as i32,
@@ -110,6 +109,7 @@ impl CommandEncoder {
     #[inline]
     pub(crate) unsafe fn set_viewport(
         &mut self,
+        gl: &glow::Context,
         x: i32,
         y: i32,
         w: i32,
@@ -117,35 +117,37 @@ impl CommandEncoder {
         min_depth: f32,
         max_depth: f32,
     ) {
-        self.state.0.borrow_mut().set_viewport(x, y, w, h);
+        self.state.set_viewport(gl, x, y, w, h);
 
-        self.state
-            .0
-            .borrow_mut()
-            .set_depth_range(min_depth, max_depth);
+        self.state.set_depth_range(gl, min_depth, max_depth);
     }
 
     #[inline]
-    pub(crate) unsafe fn set_scissor_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
-        self.state.0.borrow_mut().set_scissor(x, y, w, h);
+    pub(crate) unsafe fn set_scissor_rect(
+        &mut self,
+        gl: &glow::Context,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) {
+        self.state.set_scissor(gl, x, y, w, h);
     }
 
     #[inline]
-    pub(crate) unsafe fn set_stencil_reference(&mut self, value: u32) {
-        self.state
-            .0
-            .borrow_mut()
-            .set_stencil_reference(value as i32);
+    pub(crate) unsafe fn set_stencil_reference(&mut self, gl: &glow::Context, value: u32) {
+        self.state.set_stencil_reference(gl, value as i32);
     }
 
     #[inline]
-    pub(crate) unsafe fn set_blend_constants(&mut self, color: &[f32; 4]) {
-        self.state.0.borrow_mut().set_blend_color(color);
+    pub(crate) unsafe fn set_blend_constants(&mut self, gl: &glow::Context, color: &[f32; 4]) {
+        self.state.set_blend_color(gl, color);
     }
 
     #[inline]
     pub(crate) unsafe fn draw(
         &mut self,
+        gl: &glow::Context,
         start_vertex: u32,
         vertex_count: u32,
         start_instance: u32,
@@ -154,14 +156,13 @@ impl CommandEncoder {
         debug_assert!(start_instance == 0);
 
         self.state
-            .0
-            .borrow_mut()
-            .draw(start_vertex, vertex_count, instance_count);
+            .draw(gl, start_vertex, vertex_count, instance_count);
     }
 
     #[inline]
     pub(crate) unsafe fn draw_indexed(
         &mut self,
+        gl: &glow::Context,
         start_index: u32,
         index_count: u32,
         base_vertex: i32,
@@ -171,7 +172,8 @@ impl CommandEncoder {
         debug_assert!(start_instance == 0);
         debug_assert!(base_vertex == 0);
 
-        self.state.0.borrow_mut().draw_indexed(
+        self.state.draw_indexed(
+            gl,
             start_index as i32,
             index_count as i32,
             instance_count as i32,

@@ -1,10 +1,9 @@
 use std::{ffi, os::raw, ptr, time::Duration};
 
-use egl::Config;
 use glow::HasContext;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 
-use super::{GLState, InstanceError, SrgbFrameBufferKind, VALIDATION_CANARY};
+use super::{InstanceError, SrgbFrameBufferKind, VALIDATION_CANARY};
 
 /// The amount of time to wait while trying to obtain a lock to the adapter context
 pub(crate) const CONTEXT_LOCK_TIMEOUT_SECS: u64 = 1;
@@ -69,14 +68,13 @@ pub(crate) type EGLDEBUGPROCKHR = Option<
 
 #[derive(Debug)]
 pub(crate) struct EglContext {
-    pub(crate) raw: egl::Context,
     pub(crate) instance: EglInstance,
+
+    pub(crate) raw: egl::Context, // gl-上下文，用来 运行 gl-函数
+    pub(crate) config: egl::Config,
     pub(crate) display: egl::Display,
 
-    pub(crate) config: Config,
-    pub(crate) supports_native_window: bool,
-
-    pub(crate) version: (i32, i32),
+    pub(crate) version: (i32, i32), // EGL 版本, (1, 5) 或者 (1, 4)
     pub(crate) srgb_kind: SrgbFrameBufferKind,
 }
 
@@ -101,7 +99,7 @@ impl EglContext {
         egl: EglInstance,
         display: egl::Display,
     ) -> Result<Self, InstanceError> {
-        // ========== 1. 初始化 EGL
+        // ========== 1. 初始化 EGL，得到 EGL版本
         let version = egl.initialize(display).map_err(|_| InstanceError)?;
 
         // ========== 2. 取 厂商 信息
@@ -171,7 +169,8 @@ impl EglContext {
 
         // ========== 6. 根据平台，选择 config
 
-        let (config, supports_native_window) = choose_config(&egl, display, srgb_kind)?;
+        let config = choose_config(&egl, display, srgb_kind)?;
+
         egl.bind_api(egl::OPENGL_ES_API).unwrap();
 
         // ========== 7. 选择 Context 属性
@@ -219,26 +218,25 @@ impl EglContext {
             config,
             instance: egl,
             display,
-            supports_native_window,
             raw,
             version,
             srgb_kind,
         })
     }
 
-    pub(crate) fn create_gl_context(
-        &self,
-        flags: super::InstanceFlags,
-    ) -> glow::Context {
+    pub(crate) fn create_glow_context(&self, flags: super::InstanceFlags) -> glow::Context {
         // =========== 1. 让当前的 Surface 起作用
 
-        self.instance.make_current(self.display, None, None, Some(self.raw)).unwrap();
+        self.instance
+            .make_current(self.display, None, None, Some(self.raw))
+            .unwrap();
 
         // =========== 2. 取 glow 环境
 
         let gl = unsafe {
             glow::Context::from_loader_function(|name| {
-                self.instance.get_proc_address(name)
+                self.instance
+                    .get_proc_address(name)
                     .map_or(ptr::null(), |p| p as *const _)
             })
         };
@@ -257,7 +255,9 @@ impl EglContext {
 
         // =========== 3. 解绑表面
 
-        self.instance.make_current(self.display, None, None, None).unwrap();
+        self.instance
+            .make_current(self.display, None, None, None)
+            .unwrap();
 
         gl
     }
@@ -288,13 +288,21 @@ type EglInstance = egl::Instance<egl::Static>;
 #[derive(Debug)]
 pub struct AdapterContext {
     pub(crate) egl: EglContext,
-    pub(crate) glow: Mutex<glow::Context>,
+    pub(crate) glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
 }
 
 unsafe impl Sync for AdapterContext {}
 unsafe impl Send for AdapterContext {}
 
 impl AdapterContext {
+    /// Returns the EGL instance.
+    ///
+    /// This provides access to EGL functions and the ability to load GL and EGL extension functions.
+    #[inline]
+    pub fn egl_ref(&self) -> &EglContext {
+        &self.egl
+    }
+
     /// Returns the EGL instance.
     ///
     /// This provides access to EGL functions and the ability to load GL and EGL extension functions.
@@ -320,14 +328,16 @@ impl AdapterContext {
     }
 }
 
+#[derive(Debug)]
 struct EglContextLock<'a> {
     instance: &'a EglInstance,
     display: egl::Display,
 }
 
 /// A guard containing a lock to an [`AdapterContext`]
+#[derive(Debug)]
 pub struct AdapterContextLock<'a> {
-    glow: MutexGuard<'a, glow::Context>,
+    glow: ReentrantMutexGuard<'a, glow::Context>,
     egl: EglContextLock<'a>,
 }
 
@@ -361,7 +371,7 @@ impl AdapterContext {
     ///
     /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
     /// > extra safe-guard against accidental concurrent access to the context.
-    pub unsafe fn get_without_egl_lock(&self) -> MutexGuard<glow::Context> {
+    pub unsafe fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
         self.glow
             .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
             .expect("Could not lock adapter context. This is most-likely a deadlcok.")
@@ -426,72 +436,72 @@ pub(super) fn choose_config(
     egl: &EglInstance,
     display: egl::Display,
     srgb_kind: SrgbFrameBufferKind,
-) -> Result<(egl::Config, bool), InstanceError> {
-    let tiers = [
-        (
-            "off-screen",
-            &[
-                egl::SURFACE_TYPE,
-                egl::PBUFFER_BIT,
-                egl::RENDERABLE_TYPE,
-                egl::OPENGL_ES2_BIT,
-            ][..],
-        ),
-        ("presentation", &[egl::SURFACE_TYPE, egl::WINDOW_BIT][..]),
-        #[cfg(not(target_os = "android"))]
-        (
-            "native-render",
-            &[egl::NATIVE_RENDERABLE, egl::TRUE as _][..],
-        ),
-    ];
+) -> Result<egl::Config, InstanceError> {
+    let mut attributes = Vec::with_capacity(20);
 
-    let mut attributes = Vec::with_capacity(9);
+    attributes.extend_from_slice(&[
+        egl::SURFACE_TYPE,
+        egl::WINDOW_BIT,
+        egl::RENDERABLE_TYPE,
+        egl::OPENGL_ES2_BIT,
+    ]);
 
-    for tier_max in (1..tiers.len()).rev() {
-        let name = tiers[tier_max].0;
-        log::info!("\tEGL choose_config: Trying {}", name);
+    // TODO 待定，看不到为什么 srgb就一定要有alpha通道
+    // if srgb_kind != SrgbFrameBufferKind::None {
+    //     attributes.push(egl::ALPHA_SIZE);
+    //     attributes.push(8);
+    // }
 
+    #[cfg(not(target_os = "android"))]
+    attributes.extend_from_slice(&[egl::NATIVE_RENDERABLE, egl::TRUE as _]);
+
+    attributes.push(egl::NONE);
+
+    let config = match egl.choose_first_config(display, &attributes[..]) {
+        Ok(Some(config)) => Ok(config),
+        Ok(None) => {
+            log::error!("1 in choose_first_config: Missing config");
+            Err(InstanceError)
+        }
+        Err(e) => {
+            log::error!("1 error in choose_first_config: {:?}", e);
+            Err(InstanceError)
+        }
+    };
+
+    #[cfg(not(target_os = "android"))]
+    if config.is_err() {
         attributes.clear();
 
-        for &(_, tier_attr) in tiers[..=tier_max].iter() {
-            attributes.extend_from_slice(tier_attr);
-        }
+        attributes.extend_from_slice(&[
+            egl::SURFACE_TYPE,
+            egl::WINDOW_BIT,
+            egl::RENDERABLE_TYPE,
+            egl::OPENGL_ES2_BIT, // 最低支持 gles2，到创建 context 才指定 gles3
+        ]);
 
-        // 如果 支持 SRGB，那么 必须有 ALpha8
-        match srgb_kind {
-            SrgbFrameBufferKind::None => {}
-            _ => {
-                attributes.push(egl::ALPHA_SIZE);
-                attributes.push(8);
-            }
-        }
+        // TODO 待定，看不到为什么 srgb就一定要有alpha通道
+        // if srgb_kind != SrgbFrameBufferKind::None {
+        //     attributes.push(egl::ALPHA_SIZE);
+        //     attributes.push(8);
+        // }
+
         attributes.push(egl::NONE);
 
-        match egl.choose_first_config(display, &attributes) {
-            Ok(Some(config)) => {
-                if tier_max == 1 {
-                    //Note: this has been confirmed to malfunction on Intel+NV laptops,
-                    // but also on Angle.
-                    log::warn!("EGL says it can present to the window but not natively",);
-                }
-                // Android emulator can't natively present either.
-                let tier_threshold = if cfg!(target_os = "android") || cfg!(windows) {
-                    1 // Android 或 Windows 的话，大于 第一层 就认为是 Native Renderable
-                } else {
-                    2
-                };
-                return Ok((config, tier_max >= tier_threshold));
-            }
+        let config = match egl.choose_first_config(display, &attributes[..]) {
+            Ok(Some(config)) => Ok(config),
             Ok(None) => {
-                log::warn!("No config found!");
+                log::error!("2 error in choose_first_config: Missing config");
+                Err(InstanceError)
             }
             Err(e) => {
-                log::error!("error in choose_first_config: {:?}", e);
+                log::error!("2 error in choose_first_config: {:?}", e);
+                Err(InstanceError)
             }
-        }
+        };
     }
 
-    Err(InstanceError)
+    config
 }
 
 fn gl_debug_message_callback(source: u32, gltype: u32, id: u32, severity: u32, message: &str) {

@@ -1,11 +1,12 @@
 use glow::HasContext;
+use pi_share::Share;
 
 use super::super::{wgt, AdapterInfo, AstcChannel};
-use super::{db, GLState, PrivateCapabilities, Workarounds};
+use super::{db, AdapterContext, PrivateCapabilities, Workarounds, GLState};
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
-    pub(crate) state: GLState,
+    pub(crate) context: Share<AdapterContext>,
     pub(crate) private_caps: PrivateCapabilities,
     pub(crate) features: wgt::Features,
     pub(crate) workarounds: Workarounds,
@@ -19,9 +20,9 @@ pub(crate) struct Adapter {
 impl Adapter {
     // 枚举 gl 环境的 特性
     pub(crate) unsafe fn expose(
-        state: &GLState,
+        context: Share<AdapterContext>,
     ) -> Option<super::super::ExposedAdapter<super::GL>> {
-        let gl = &state.0.borrow().gl;
+        let gl = context.lock();
 
         let extensions = gl.supported_extensions();
 
@@ -314,7 +315,7 @@ impl Adapter {
         };
 
         let adapter = super::Adapter {
-            state: state.clone(),
+            context,
             private_caps,
             workarounds,
             features,
@@ -346,10 +347,12 @@ impl Adapter {
             ));
         }
 
-        let gl = &self.state.0.borrow().gl;
+        let gl = &self.context.lock();
 
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
+
+        let state = GLState::new(self.context.clone());
 
         Ok(super::OpenDevice {
             device: super::Device {

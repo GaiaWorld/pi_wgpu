@@ -1,12 +1,14 @@
 use pi_share::Share;
 
-use super::super::wgt;
+use super::{super::wgt, AdapterContext};
 
 #[derive(Debug)]
 pub(crate) struct Device {
+    pub(crate) adapter: Share<AdapterContext>,
+    pub(crate) state: super::GLState,
+
     pub(crate) features: wgt::Features,
     pub(crate) limits: wgt::Limits,
-    pub(crate) state: super::GLState,
 }
 
 impl Device {
@@ -15,7 +17,7 @@ impl Device {
         &self,
         desc: &super::super::BufferDescriptor,
     ) -> Result<super::Buffer, super::super::DeviceError> {
-        super::Buffer::new(self.state.clone(), desc)
+        super::Buffer::new(self.adapter.clone(), self.state.clone(), desc)
     }
 
     #[inline]
@@ -48,7 +50,7 @@ impl Device {
         &self,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> Result<super::CommandEncoder, super::super::DeviceError> {
-        super::CommandEncoder::new(self.state.clone(), desc)
+        super::CommandEncoder::new(self.state.clone(), self.adapter.clone(), desc)
     }
 
     #[inline]

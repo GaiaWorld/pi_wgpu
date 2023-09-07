@@ -86,12 +86,13 @@ impl Surface {
                 // Careful, we can still be in 1.4 version even if `upcast` succeeds
                 let raw_result = match egl1_5 {
                     _ => unsafe {
-                        self.egl.0.egl.create_window_surface(
-                            self.egl.0.display,
-                            self.config,
-                            native_window_ptr,
-                            Some(&attributes),
-                        )
+                        todo!()
+                        // self.egl.0.egl.create_window_surface(
+                        //     self.egl.0.display,
+                        //     self.config,
+                        //     native_window_ptr,
+                        //     Some(&attributes),
+                        // )
                     },
                 };
 
@@ -133,8 +134,6 @@ impl Surface {
 
         self.swapchain = Some(Swapchain {
             surface,
-            renderbuffer,
-            framebuffer,
             extent: wgt::Extent3d {
                 width: config.width,
                 height: config.height,
@@ -149,13 +148,14 @@ impl Surface {
     }
 
     pub(crate) unsafe fn unconfigure(&mut self, device: &super::Device) {
-        if let Some(surface) = unsafe { self.unconfigure_impl(device) } {
-            self.egl
-                .0
-                .egl
-                .destroy_surface(self.egl.0.display, surface)
-                .unwrap();
-        }
+        todo!()
+        // if let Some(surface) = unsafe { self.unconfigure_impl(device) } {
+        //     self.egl
+        //         .0
+        //         .egl
+        //         .destroy_surface(self.egl.0.display, surface)
+        //         .unwrap();
+        // }
     }
 
     pub(crate) unsafe fn acquire_texture(
@@ -163,26 +163,9 @@ impl Surface {
     ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
         let sc = self.swapchain.as_ref().unwrap();
 
-        let texture = super::Texture {
-            inner: super::TextureInner::Renderbuffer {
-                raw: sc.renderbuffer,
-            },
-
-            drop_guard: None,
-            array_layer_count: 1,
-            mip_level_count: 1,
-            format: sc.format,
-            format_desc: sc.format_desc.clone(),
-
-            copy_size: crate::CopyExtent {
-                width: sc.extent.width,
-                height: sc.extent.height,
-                depth: 1,
-            },
-            is_cubemap: false,
-        };
+        
         Ok(Some(super::AcquiredSurfaceTexture {
-            texture,
+            texture: todo!(),
             suboptimal: false,
         }))
     }

@@ -1,128 +1,135 @@
+//! GL 全局状态机，调用 gl 函数之前，做全状态比较，减少GL指令的设置
+//! 全局 缓冲表，见 GLCache
+//!
+
 use glow::HasContext;
 use pi_share::{Share, ShareCell};
 
-use super::{gl_cache::GLCache, gl_conv as conv, RawBinding, ShaderID, VertexAttribKind};
 use super::super::{hal, hal::GLUniformType, wgt, BufferSize};
+use super::{gl_cache::GLCache, gl_conv as conv, RawBinding, ShaderID, VertexAttribKind};
 
 #[derive(Debug, Clone)]
-pub(crate) struct GLState(pub Share<ShareCell<GLStateImpl>>);
+pub(crate) struct GLState {
+    pub(crate) imp: Share<ShareCell<GLStateImpl>>,
+}
 
 impl GLState {
     #[inline]
-    pub fn new(gl: glow::Context) -> Self {
-        let imp = GLStateImpl::new(gl);
-        Self(Share::new(ShareCell::new(imp)))
+    pub fn new(gl: &glow::Context) -> Self {
+        let imp = GLStateImpl::new(&gl);
+
+        Self {
+            imp: Share::new(ShareCell::new(imp)),
+        }
     }
 
     #[inline]
     pub fn next_shader_id(&self) -> ShaderID {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.imp.borrow_mut();
 
         s.global_shader_id += 1;
-
         s.global_shader_id
     }
 
     #[inline]
     pub fn max_attribute_slots(&self) -> usize {
-        self.0.borrow().max_attribute_slots
+        self.imp.borrow().max_attribute_slots
     }
     #[inline]
     pub fn max_textures_slots(&self) -> usize {
-        self.0.borrow().max_textures_slots
+        self.imp.borrow().max_textures_slots
     }
 
     #[inline]
     pub fn max_color_attachments(&self) -> usize {
-        self.0.borrow().max_color_attachments
+        self.imp.borrow().max_color_attachments
     }
 
     #[inline]
     pub fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
-        self.0.borrow().cache.get_program(id)
+        self.imp.borrow().cache.get_program(id)
     }
 
     #[inline]
     pub fn insert_program(&self, id: super::ProgramID, program: super::Program) {
-        self.0.borrow_mut().cache.insert_program(id, program)
+        self.imp.borrow_mut().cache.insert_program(id, program)
     }
 
     #[inline]
     pub fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_rs(self.clone(), rs)
     }
 
     #[inline]
     pub fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_ds(self.clone(), ds)
     }
 
     #[inline]
     pub fn get_or_insert_ss(&self, rs: super::StencilStateImpl) -> Share<super::StencilState> {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_ss(self.clone(), rs)
     }
 
     #[inline]
     pub fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_bs(self.clone(), bs)
     }
 
     #[inline]
     pub fn remove_bs(&self, bs: &super::BlendStateImpl) {
-        let mut s = self.0.borrow_mut();
+        profiling::scope!("hal::GLState::remove_bs");
+        let mut s = self.imp.borrow_mut();
         s.cache.remove_bs(bs);
     }
 
     #[inline]
     pub fn remove_rs(&self, rs: &super::RasterStateImpl) {
-        let mut s = self.0.borrow_mut();
+        profiling::scope!("hal::GLState::remove_rs");
+        let mut s = self.imp.borrow_mut();
         s.cache.remove_rs(rs);
     }
 
     #[inline]
     pub fn remove_ds(&self, ds: &super::DepthStateImpl) {
-        let mut s = self.0.borrow_mut();
+        profiling::scope!("hal::GLState::remove_ds");
+        let mut s = self.imp.borrow_mut();
         s.cache.remove_ds(ds);
     }
 
     #[inline]
     pub fn remove_ss(&self, ss: &super::StencilStateImpl) {
-        let mut s = self.0.borrow_mut();
+        profiling::scope!("hal::GLState::remove_ss");
+        let mut s = self.imp.borrow_mut();
         s.cache.remove_ss(ss);
     }
 
     #[inline]
     pub fn remove_program(&self, id: &super::ProgramID) {
-        let mut s = self.0.borrow_mut();
+        profiling::scope!("hal::GLState::remove_program");
+        let mut s = self.imp.borrow_mut();
         s.cache.remove_program(id);
     }
 
     #[inline]
-    pub fn remove_render_buffer(&self, rb: glow::Renderbuffer) {
-        let mut s = self.0.borrow_mut();
-        let s: &mut _ = &mut *s;
-
-        let gl = &s.gl;
-        let cache = &mut s.cache;
-
+    pub fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
+        profiling::scope!("hal::GLState::remove_render_buffer");
+        let cache = &mut self.imp.borrow_mut().cache;
         cache.remove_render_buffer(gl, rb);
     }
 
-    pub fn remove_buffer(&mut self, bind_target: u32, buffer: glow::Buffer) {
+    pub fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLState::remove_buffer");
 
         if bind_target == glow::UNIFORM_BUFFER {
             return;
         }
 
-        let mut imp = self.0.borrow_mut();
-        let imp: &mut _ = &mut *imp;
-
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
+            let imp = &mut self.imp.borrow();
             if let Some(ib) = imp.index_buffer.as_ref() {
                 if ib.raw == buffer {
                     imp.index_buffer = None;
@@ -131,29 +138,183 @@ impl GLState {
             return;
         }
 
-        imp.cache.remove_buffer(&imp.gl, bind_target, buffer);
+        let cache = &mut self.imp.borrow_mut().cache;
+        cache.remove_buffer(gl, bind_target, buffer);
     }
 
     #[inline]
-    pub fn remove_texture(&self, texture: glow::Texture) {
-        let mut s = self.0.borrow_mut();
-        let s = &mut *s;
-
-        s.cache.remove_texture(&s.gl, texture);
+    pub fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
+        profiling::scope!("hal::GLState::remove_texture");
+        let cache = &mut self.imp.borrow_mut().cache;
+        cache.remove_texture(gl, texture);
 
         // TODO 到 TextureCache 移除 对应的 槽位
     }
 
     #[inline]
-    pub fn remove_sampler(&self, sampler: glow::Sampler) {
+    pub fn remove_sampler(&self, gl: &glow::Context, sampler: glow::Sampler) {
+        profiling::scope!("hal::GLState::remove_sampler");
         // TODO 到 TextureCache 移除 对应的 槽位
+    }
+
+    #[inline]
+    pub fn set_buffer_size(&self, gl: &glow::Context, buffer: &super::BufferImpl, size: i32) {
+        profiling::scope!("hal::GLState::set_buffer_size");
+
+        let imp = &mut self.imp.borrow_mut();
+
+        imp.set_buffer_size(gl, buffer, size)
+    }
+
+    #[inline]
+    pub fn set_buffer_sub_data(
+        &self,
+        gl: &glow::Context,
+        buffer: &super::BufferImpl,
+        offset: i32,
+        data: &[u8],
+    ) {
+        profiling::scope!("hal::GLState::set_buffer_sub_data");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_buffer_sub_data(gl, buffer, offset, data)
+    }
+
+    #[inline]
+    pub fn set_render_pipeline(&mut self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
+        profiling::scope!("hal::GLState::set_render_pipeline");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_render_pipeline(gl, pipeline)
+    }
+
+    #[inline]
+    pub fn set_render_target(
+        &mut self,
+        gl: &glow::Context,
+        desc: &super::super::RenderPassDescriptor,
+    ) {
+        profiling::scope!("hal::GLState::set_render_target");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_render_target(gl, desc)
+    }
+
+    #[inline]
+    pub fn set_bind_group(
+        &mut self,
+        gl: &glow::Context,
+        index: u32,
+        bind_group: &super::BindGroup,
+        dynamic_offsets: &[wgt::DynamicOffset],
+    ) {
+        profiling::scope!("hal::GLState::set_bind_group");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_bind_group(gl, index, bind_group, dynamic_offsets)
+    }
+
+    #[inline]
+    pub fn set_vertex_buffer(
+        &mut self,
+        gl: &glow::Context,
+        index: usize,
+        buffer: &super::Buffer,
+        offset: i32,
+        size: Option<BufferSize>,
+    ) {
+        profiling::scope!("hal::GLState::set_vertex_buffer");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_vertex_buffer(gl, index, buffer, offset, size)
+    }
+
+    #[inline]
+    pub fn set_index_buffer(
+        &mut self,
+        gl: &glow::Context,
+        buffer: &super::Buffer,
+        format: wgt::IndexFormat,
+        offset: i32,
+        size: Option<BufferSize>,
+    ) {
+        profiling::scope!("hal::GLState::set_index_buffer");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_index_buffer(gl, buffer, format, offset, size)
+    }
+
+    #[inline]
+    pub fn draw(
+        &mut self,
+        gl: &glow::Context,
+        start_vertex: u32,
+        vertex_count: u32,
+        instance_count: u32,
+    ) {
+        profiling::scope!("hal::GLState::draw");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.draw(gl, start_vertex, vertex_count, instance_count)
+    }
+
+    #[inline]
+    pub fn draw_indexed(
+        &mut self,
+        gl: &glow::Context,
+        start_index: i32,
+        index_count: i32,
+        instance_count: i32,
+    ) {
+        profiling::scope!("hal::GLState::draw_indexed");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.draw_indexed(gl, start_index, index_count, instance_count)
+    }
+
+    #[inline]
+    pub fn set_viewport(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+        profiling::scope!("hal::GLState::set_viewport");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_viewport(gl, x, y, w, h)
+    }
+
+    #[inline]
+    pub fn set_scissor(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+        profiling::scope!("hal::GLState::set_scissor");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_scissor(gl, x, y, w, h)
+    }
+
+    #[inline]
+    pub fn set_depth_range(&mut self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
+        profiling::scope!("hal::GLState::set_depth_range");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_depth_range(gl, min_depth, max_depth)
+    }
+
+    #[inline]
+    pub fn set_blend_color(&mut self, gl: &glow::Context, color: &[f32; 4]) {
+        profiling::scope!("hal::GLState::set_blend_color");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_blend_color(gl, color)
+    }
+
+    #[inline]
+    pub fn set_stencil_reference(&mut self, gl: &glow::Context, reference: i32) {
+        profiling::scope!("hal::GLState::set_stencil_reference");
+
+        let imp = &mut self.imp.borrow_mut();
+        imp.set_stencil_reference(gl, reference)
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct GLStateImpl {
-    pub(crate) gl: glow::Context,
-
     cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
@@ -187,7 +348,7 @@ pub(crate) struct GLStateImpl {
 }
 
 impl GLStateImpl {
-    pub fn new(gl: glow::Context) -> Self {
+    fn new(gl: &glow::Context) -> Self {
         // 一个 Program 能同时接受的 UBO 绑定的个数
         // PC Chrome 浏览器 24
         // MAX_VERTEX_UNIFORM_BLOCKS / MAX_FRAGMENT_UNIFORM_BLOCKS 各 12 个
@@ -210,7 +371,6 @@ impl GLStateImpl {
             unsafe { gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS) as usize };
 
         Self {
-            gl,
             global_shader_id: 0,
             last_vbs: None,
 
@@ -242,11 +402,7 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_buffer_size(&self, buffer: &super::BufferImpl, size: i32) {
-        profiling::scope!("hal::GLState::set_buffer_size");
-
-        let gl = &self.gl;
-
+    fn set_buffer_size(&self, gl: &glow::Context, buffer: &super::BufferImpl, size: i32) {
         unsafe {
             gl.bind_buffer(buffer.gl_target, Some(buffer.raw));
 
@@ -263,11 +419,13 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_buffer_sub_data(&self, buffer: &super::BufferImpl, offset: i32, data: &[u8]) {
-        profiling::scope!("hal::GLState::set_buffer_sub_data");
-
-        let gl = &self.gl;
-
+    fn set_buffer_sub_data(
+        &self,
+        gl: &glow::Context,
+        buffer: &super::BufferImpl,
+        offset: i32,
+        data: &[u8],
+    ) {
         unsafe {
             gl.bind_buffer(buffer.gl_target, Some(buffer.raw));
             gl.buffer_sub_data_u8_slice(buffer.gl_target, offset, data);
@@ -281,23 +439,21 @@ impl GLStateImpl {
         }
     }
 
-    pub fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
-        profiling::scope!("hal::GLState::set_render_pipeline");
-
+    fn set_render_pipeline(&mut self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         if self.render_pipeline.is_none() {
             // 旧的没有，全部设置
             profiling::scope!("hal::GLState::apply_render_pipeline");
 
             let new = pipeline.0.as_ref();
 
-            Self::apply_alpha_to_coverage(&self.gl, new.alpha_to_coverage_enabled);
-            Self::apply_color_mask(&self.gl, &new.color_writes);
-            Self::apply_program(&self.gl, &new.program);
+            Self::apply_alpha_to_coverage(gl, new.alpha_to_coverage_enabled);
+            Self::apply_color_mask(gl, &new.color_writes);
+            Self::apply_program(gl, &new.program);
 
-            Self::apply_raster(&self.gl, &new.rs.imp);
-            Self::apply_depth(&self.gl, &new.ds.imp);
-            Self::apply_stencil(&self.gl, self.stencil_ref, &new.ss.imp);
-            Self::apply_blend(&self.gl, &new.bs.imp);
+            Self::apply_raster(gl, &new.rs.imp);
+            Self::apply_depth(gl, &new.ds.imp);
+            Self::apply_stencil(gl, self.stencil_ref, &new.ss.imp);
+            Self::apply_blend(gl, &new.bs.imp);
         } else {
             // 有旧的，比较 Arc 指针
 
@@ -310,31 +466,31 @@ impl GLStateImpl {
             let old = old.0.as_ref();
 
             if new.alpha_to_coverage_enabled != old.alpha_to_coverage_enabled {
-                Self::apply_alpha_to_coverage(&self.gl, new.alpha_to_coverage_enabled);
+                Self::apply_alpha_to_coverage(gl, new.alpha_to_coverage_enabled);
             }
 
             if new.color_writes != old.color_writes {
-                Self::apply_color_mask(&self.gl, &new.color_writes);
+                Self::apply_color_mask(gl, &new.color_writes);
             }
 
             if new.program.get_raw() != old.program.get_raw() {
-                Self::apply_program(&self.gl, &new.program);
+                Self::apply_program(gl, &new.program);
             }
 
             if !Share::ptr_eq(&new.rs, &old.rs) {
-                Self::set_raster(&self.gl, &new.rs.imp, &old.rs.imp);
+                Self::set_raster(gl, &new.rs.imp, &old.rs.imp);
             }
 
             if !Share::ptr_eq(&new.ds, &old.ds) {
-                Self::set_depth(&self.gl, &new.ds.imp, &old.ds.imp);
+                Self::set_depth(gl, &new.ds.imp, &old.ds.imp);
             }
 
             if !Share::ptr_eq(&new.ss, &old.ss) {
-                Self::set_stencil(&self.gl, self.stencil_ref, &new.ss.imp, &old.ss.imp);
+                Self::set_stencil(gl, self.stencil_ref, &new.ss.imp, &old.ss.imp);
             }
 
             if !Share::ptr_eq(&new.bs, &old.bs) {
-                Self::set_blend(&self.gl, &new.bs.imp, &old.bs.imp);
+                Self::set_blend(gl, &new.bs.imp, &old.bs.imp);
             }
         }
 
@@ -342,9 +498,7 @@ impl GLStateImpl {
     }
 
     // 设置 FBO，设置 Viewport & Scissor，清屏
-    pub fn set_render_target(&mut self, desc: &super::super::RenderPassDescriptor) {
-        profiling::scope!("hal::GLState::set_render_target");
-
+    fn set_render_target(&mut self, gl: &glow::Context, desc: &super::super::RenderPassDescriptor) {
         // TODO 不支持 多目标 渲染
         assert!(desc.color_attachments.len() == 1);
 
@@ -366,37 +520,38 @@ impl GLStateImpl {
 
         if colors.is_none() {
             unsafe {
-                self.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
             }
         } else {
             let render_target = super::RenderTarget {
                 depth_stencil,
                 colors,
             };
-            self.cache.bind_fbo(&self.gl, &render_target);
+            self.cache.bind_fbo(gl, &render_target);
         }
 
         // 视口 & 裁剪
         let size = color.view.get_size();
-        self.set_viewport(0, 0, size.0 as i32, size.1 as i32);
-        self.set_scissor(0, 0, size.0 as i32, size.1 as i32);
+        self.set_viewport(gl, 0, 0, size.0 as i32, size.1 as i32);
+        self.set_scissor(gl, 0, 0, size.0 as i32, size.1 as i32);
 
         // 清屏
         self.clear_render_target(
+            gl,
             &color.ops.load,
             depth_ops.as_ref().map(|d| &d.load),
             stencil_ops.as_ref().map(|s| &s.load),
         );
     }
 
-    pub fn set_bind_group(
+    #[inline]
+    fn set_bind_group(
         &mut self,
+        gl: &glow::Context,
         index: u32,
         bind_group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
-        profiling::scope!("hal::GLState::set_bind_group");
-
         assert!(index < super::MAX_BIND_GROUPS as u32);
 
         self.bind_group_set[index as usize] = Some(BindGroupState {
@@ -405,15 +560,15 @@ impl GLStateImpl {
         });
     }
 
-    pub fn set_vertex_buffer(
+    #[inline]
+    fn set_vertex_buffer(
         &mut self,
+        gl: &glow::Context,
         index: usize,
         buffer: &super::Buffer,
         offset: i32,
         size: Option<BufferSize>,
     ) {
-        profiling::scope!("hal::GLState::set_vertex_buffer");
-
         debug_assert!(buffer.0.gl_target == glow::ARRAY_BUFFER);
 
         let raw = buffer.0.raw;
@@ -426,15 +581,14 @@ impl GLStateImpl {
         self.vertex_buffers[index] = Some(VBState { raw, offset, size });
     }
 
-    pub fn set_index_buffer(
+    fn set_index_buffer(
         &mut self,
+        gl: &glow::Context,
         buffer: &super::Buffer,
         format: wgt::IndexFormat,
         offset: i32,
         size: Option<BufferSize>,
     ) {
-        profiling::scope!("hal::GLState::set_index_buffer");
-
         debug_assert!(buffer.0.gl_target == glow::ELEMENT_ARRAY_BUFFER);
 
         let (item_count, item_type) = conv::map_index_format(format);
@@ -456,7 +610,7 @@ impl GLStateImpl {
         };
 
         if need_update {
-            Self::apply_ib(&self.gl, Some(raw));
+            Self::apply_ib(gl, Some(raw));
 
             self.index_buffer = Some(IBState {
                 raw,
@@ -468,21 +622,22 @@ impl GLStateImpl {
         }
     }
 
-    pub fn draw(&mut self, start_vertex: u32, vertex_count: u32, instance_count: u32) {
-        profiling::scope!("hal::GLState::draw");
-
-        self.before_draw();
+    fn draw(
+        &mut self,
+        gl: &glow::Context,
+        start_vertex: u32,
+        vertex_count: u32,
+        instance_count: u32,
+    ) {
+        self.before_draw(gl);
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
         if instance_count == 1 {
-            unsafe {
-                self.gl
-                    .draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32)
-            };
+            unsafe { gl.draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32) };
         } else {
             unsafe {
-                self.gl.draw_arrays_instanced(
+                gl.draw_arrays_instanced(
                     rp.topology,
                     start_vertex as i32,
                     vertex_count as i32,
@@ -491,13 +646,17 @@ impl GLStateImpl {
             };
         }
 
-        self.after_draw();
+        self.after_draw(gl);
     }
 
-    pub fn draw_indexed(&mut self, start_index: i32, index_count: i32, instance_count: i32) {
-        profiling::scope!("hal::GLState::draw_indexed");
-
-        self.before_draw();
+    fn draw_indexed(
+        &mut self,
+        gl: &glow::Context,
+        start_index: i32,
+        index_count: i32,
+        instance_count: i32,
+    ) {
+        self.before_draw(gl);
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
@@ -507,12 +666,11 @@ impl GLStateImpl {
 
         if instance_count == 1 {
             unsafe {
-                self.gl
-                    .draw_elements(rp.topology, index_count, ib.ib_type, offset);
+                gl.draw_elements(rp.topology, index_count, ib.ib_type, offset);
             }
         } else {
             unsafe {
-                self.gl.draw_elements_instanced(
+                gl.draw_elements_instanced(
                     rp.topology,
                     index_count,
                     ib.ib_type,
@@ -522,17 +680,15 @@ impl GLStateImpl {
             }
         }
 
-        self.after_draw();
+        self.after_draw(gl);
     }
 
     #[inline]
-    pub fn set_viewport(&mut self, x: i32, y: i32, w: i32, h: i32) {
-        profiling::scope!("hal::GLState::set_viewport");
-
+    fn set_viewport(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         let vp = &mut self.viewport;
 
         if x != vp.x || y != vp.y || w != vp.w || h != vp.h {
-            unsafe { self.gl.viewport(x, y, w, h) };
+            unsafe { gl.viewport(x, y, w, h) };
 
             vp.x = x;
             vp.y = y;
@@ -542,18 +698,16 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_scissor(&mut self, x: i32, y: i32, w: i32, h: i32) {
-        profiling::scope!("hal::GLState::set_scissor");
-
+    fn set_scissor(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         let s = &mut self.scissor;
 
         if !s.is_enable {
-            unsafe { self.gl.enable(glow::SCISSOR_TEST) };
+            unsafe { gl.enable(glow::SCISSOR_TEST) };
             s.is_enable = true;
         }
 
         if x != s.x || y != s.y || w != s.w || h != s.h {
-            unsafe { self.gl.scissor(x, y, w, h) };
+            unsafe { gl.scissor(x, y, w, h) };
 
             s.x = x;
             s.y = y;
@@ -563,13 +717,11 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_depth_range(&mut self, min_depth: f32, max_depth: f32) {
-        profiling::scope!("hal::GLState::set_depth_range");
-
+    fn set_depth_range(&mut self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         let vp = &mut self.viewport;
 
         if min_depth != vp.min_depth || max_depth != vp.max_depth {
-            unsafe { self.gl.depth_range_f32(min_depth, max_depth) };
+            unsafe { gl.depth_range_f32(min_depth, max_depth) };
 
             vp.min_depth = min_depth;
             vp.max_depth = max_depth;
@@ -577,15 +729,13 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_blend_color(&mut self, color: &[f32; 4]) {
-        profiling::scope!("hal::GLState::set_blend_color");
-
+    fn set_blend_color(&mut self, gl: &glow::Context, color: &[f32; 4]) {
         if self.blend_color[0] != color[0]
             || self.blend_color[1] != color[1]
             || self.blend_color[2] != color[2]
             || self.blend_color[3] != color[3]
         {
-            unsafe { self.gl.blend_color(color[0], color[1], color[2], color[3]) };
+            unsafe { gl.blend_color(color[0], color[1], color[2], color[3]) };
 
             self.blend_color[0] = color[0];
             self.blend_color[1] = color[1];
@@ -595,9 +745,7 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub fn set_stencil_reference(&mut self, reference: i32) {
-        profiling::scope!("hal::GLState::set_stencil_reference");
-
+    fn set_stencil_reference(&mut self, gl: &glow::Context, reference: i32) {
         if reference == self.stencil_ref {
             return;
         }
@@ -606,42 +754,30 @@ impl GLStateImpl {
             let ss = &p.0.ss.as_ref().imp;
 
             unsafe {
-                self.gl.stencil_func_separate(
-                    glow::FRONT,
-                    ss.front.test_func,
-                    reference,
-                    ss.mask_read,
-                );
+                gl.stencil_func_separate(glow::FRONT, ss.front.test_func, reference, ss.mask_read);
 
-                self.gl.stencil_func_separate(
-                    glow::BACK,
-                    ss.back.test_func,
-                    reference,
-                    ss.mask_read,
-                );
+                gl.stencil_func_separate(glow::BACK, ss.back.test_func, reference, ss.mask_read);
             }
         }
         self.stencil_ref = reference;
     }
-}
 
-impl GLStateImpl {
     #[inline]
-    fn before_draw(&mut self) {
-        self.update_vao();
+    fn before_draw(&mut self, gl: &glow::Context) {
+        self.update_vao(gl);
 
-        self.update_uniforms();
+        self.update_uniforms(gl);
     }
 
-    fn after_draw(&mut self) {
+    fn after_draw(&mut self, gl: &glow::Context) {
         // 必须 清空 VAO 绑定，否则 之后 如果 bind_buffer 修改 vb / ib 的话 就会 误操作了
         unsafe {
-            self.gl.bind_vertex_array(None);
+            gl.bind_vertex_array(None);
         }
     }
 
     // 根据 render_pipeline.attributes + vertex_buffers 更新 vao
-    fn update_vao(&mut self) {
+    fn update_vao(&mut self, gl: &glow::Context) {
         profiling::scope!("hal::GLState::update_vao");
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
@@ -671,22 +807,20 @@ impl GLStateImpl {
             vbs,
         };
 
-        self.cache.bind_vao(&self.gl, &geometry);
+        self.cache.bind_vao(gl, &geometry);
 
         // 回收 vbs
         self.last_vbs = Some(geometry.vbs);
     }
 
     // 根据 render_pipeline.program + bind_group 更新 uniform
-    fn update_uniforms(&mut self) {
+    fn update_uniforms(&mut self, gl: &glow::Context) {
         let program = &self.render_pipeline.as_ref().unwrap().0.program;
         let program = program.0.borrow_mut();
 
         let bg_set = &mut self.bind_group_set;
 
         let reorder = &self.render_pipeline.as_ref().unwrap().0.layout_reoder;
-
-        let gl = &self.gl;
 
         for (i, bindings) in program.uniforms.iter().enumerate() {
             let bg = &bg_set[i];
@@ -737,7 +871,9 @@ impl GLStateImpl {
                         assert!(binding.u_type == GLUniformType::Texture);
                         let imp = view.inner.as_ref();
                         match &imp.inner {
-                            hal::TextureInner::Texture { state, raw, target } => {
+                            hal::TextureInner::Texture {
+                                state, raw, target, ..
+                            } => {
                                 // TODO 加 比较
                                 gl.active_texture(glow::TEXTURE0 + binding.glsl_binding);
                                 gl.bind_texture(*target, Some(*raw));
@@ -758,6 +894,7 @@ impl GLStateImpl {
 
     fn clear_render_target(
         &mut self,
+        gl: &glow::Context,
         color: &super::super::LoadOp<super::super::Color>,
         depth: Option<&super::super::LoadOp<f32>>,
         stencil: Option<&super::super::LoadOp<u32>>,
@@ -770,7 +907,7 @@ impl GLStateImpl {
             clear_mask |= glow::COLOR_BUFFER_BIT;
             if self.clear_color != *color {
                 unsafe {
-                    self.gl.clear_color(
+                    gl.clear_color(
                         color.r as f32,
                         color.g as f32,
                         color.b as f32,
@@ -786,7 +923,7 @@ impl GLStateImpl {
                 clear_mask |= glow::DEPTH_BUFFER_BIT;
                 if self.clear_depth != *depth {
                     unsafe {
-                        self.gl.clear_depth_f32(*depth);
+                        gl.clear_depth_f32(*depth);
                     }
                     self.clear_depth = *depth;
                 }
@@ -798,7 +935,7 @@ impl GLStateImpl {
                 clear_mask |= glow::STENCIL_BUFFER_BIT;
                 if self.clear_stencil != *stencil {
                     unsafe {
-                        self.gl.clear_stencil(*stencil as i32);
+                        gl.clear_stencil(*stencil as i32);
                     }
                     self.clear_stencil = *stencil;
                 }
@@ -807,13 +944,11 @@ impl GLStateImpl {
 
         if clear_mask != 0 {
             unsafe {
-                self.gl.clear(clear_mask);
+                gl.clear(clear_mask);
             }
         }
     }
-}
 
-impl GLStateImpl {
     #[inline]
     fn apply_ib(gl: &glow::Context, ib: Option<glow::Buffer>) {
         unsafe {

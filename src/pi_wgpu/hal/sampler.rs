@@ -1,7 +1,7 @@
 use glow::HasContext;
 use pi_share::Share;
 
-use super::{gl_conv as conv, GLState};
+use super::{gl_conv as conv, AdapterContext, GLState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Sampler(pub(crate) Share<SamplerImpl>);
@@ -9,9 +9,10 @@ pub(crate) struct Sampler(pub(crate) Share<SamplerImpl>);
 impl Sampler {
     pub fn new(
         state: GLState,
+        adapter: &Share<AdapterContext>,
         desc: &super::super::SamplerDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
-        let gl = &state.0.borrow().gl;
+        let gl = adapter.lock();
 
         let raw = unsafe { gl.create_sampler().unwrap() };
 
@@ -65,7 +66,8 @@ impl Sampler {
 
         let imp = SamplerImpl {
             raw,
-            state: state.clone(),
+            state: state,
+            adapter: adapter.clone(),
         };
         Ok(Self(Share::new(imp)))
     }
@@ -74,17 +76,19 @@ impl Sampler {
 #[derive(Debug)]
 pub(crate) struct SamplerImpl {
     pub(crate) raw: glow::Sampler,
+
     pub(crate) state: GLState,
+    pub(crate) adapter: Share<AdapterContext>,
 }
 
 impl Drop for SamplerImpl {
     #[inline]
     fn drop(&mut self) {
+        let gl = self.adapter.lock();
+
         unsafe {
-            let gl = &self.state.0.borrow().gl;
             gl.delete_sampler(self.raw);
         }
-
-        self.state.remove_sampler(self.raw);
+        self.state.remove_sampler(&gl, self.raw);
     }
 }

@@ -66,13 +66,13 @@ impl Instance {
             unimplemented!("Linux / Unix: X11 is not supported yet");
         }
 
-        // ========= 3. 使用 EGL 1.5 接口
+        // ========= 3. 优先使用 EGL 1.5 接口
 
         #[cfg(not(feature = "emscripten"))]
         let egl1_5 = egl.upcast::<egl::EGL1_5>();
 
         #[cfg(feature = "emscripten")]
-        let egl1_5: Option<&Arc<EglInstance>> = Some(&egl);
+        let egl1_5: Option<&EglInstance> = Some(&egl);
 
         // ========= 4. 取 EglDisplay
 
@@ -109,7 +109,7 @@ impl Instance {
 
         let context = EglContext::new(desc.flags, egl, display)?;
 
-        let gl = context.create_gl_context(desc.flags);
+        let gl = context.create_glow_context(desc.flags);
 
         let context = AdapterContext {
             egl: context,
@@ -126,9 +126,7 @@ impl Instance {
     // 这里的迭代器，只返回一个值
     #[inline]
     pub(crate) unsafe fn enumerate_adapters(&self) -> Vec<super::super::ExposedAdapter<super::GL>> {
-        let inner = self.context.0.as_ref();
-
-        unsafe { super::Adapter::expose(&inner.state) }
+        unsafe { super::Adapter::expose(self.context.clone()) }
             .into_iter()
             .collect()
     }
@@ -140,7 +138,7 @@ impl Instance {
     ) -> Result<super::Surface, super::InstanceError> {
         use raw_window_handle::RawWindowHandle as Rwh;
 
-        let inner = self.context.0.as_ref();
+        let inner = self.context.egl_ref();
 
         match (window_handle, display_handle) {
             (Rwh::Win32(_), _) => {}

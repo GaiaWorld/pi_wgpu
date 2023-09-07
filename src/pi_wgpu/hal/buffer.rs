@@ -3,16 +3,18 @@ use pi_share::Share;
 
 use super::super::BufferUsages;
 
-use super::{BindTarget, GLState};
+use super::{AdapterContext, BindTarget, GLState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Buffer(pub(crate) Share<BufferImpl>);
 
 impl Buffer {
-    pub fn new(state: GLState, desc: &super::super::BufferDescriptor) -> Result<Self, super::super::DeviceError> {
+    pub fn new(
+        state: GLState,
+        adapter: &Share<AdapterContext>,
+        desc: &super::super::BufferDescriptor,
+    ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::Buffer::new");
-
-        let gl = &state.0.borrow().gl;
 
         let (gl_target, gl_usage) = if desc.usage.contains(BufferUsages::VERTEX) {
             (glow::ARRAY_BUFFER, glow::STATIC_DRAW)
@@ -26,33 +28,39 @@ impl Buffer {
 
         let size = desc.size as i32;
 
-        let raw = unsafe { gl.create_buffer().unwrap() };
+        let raw = {
+            let gl = adapter.lock();
+            unsafe { gl.create_buffer().unwrap() }
+        };
 
         let imp = BufferImpl {
-            state: state.clone(),
+            state,
+            adapter: adapter.clone(),
             raw,
             gl_target,
             gl_usage,
             size,
         };
 
-        imp.state.0.borrow().set_buffer_size(&imp, size);
+        let gl = adapter.lock();
+        imp.state.set_buffer_size(&gl, &imp, size);
 
         Ok(Self(Share::new(imp)))
     }
 
     #[inline]
-    pub fn write_buffer(&self, offset: i32, data: &[u8]) {
+    pub fn write_buffer(&self, gl: &glow::Context, offset: i32, data: &[u8]) {
         profiling::scope!("hal::Buffer::write_buffer");
 
         let imp = self.0.as_ref();
-        imp.state.0.borrow().set_buffer_sub_data(imp, offset, data);
+        imp.state.set_buffer_sub_data(gl, imp, offset, data);
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct BufferImpl {
     pub(crate) state: GLState,
+    pub(crate) adapter: Share<AdapterContext>,
 
     pub(crate) raw: glow::Buffer,
     pub(crate) gl_target: BindTarget, // glow::ARRAY_BUFFER, glow::ELEMENT_ARRAY_BUFFER
@@ -64,13 +72,11 @@ pub(crate) struct BufferImpl {
 impl Drop for BufferImpl {
     #[inline]
     fn drop(&mut self) {
-        {
-            let gl = &self.state.0.borrow().gl;
-            unsafe {
-                gl.delete_buffer(self.raw);
-            }
+        let gl = self.adapter.lock();
+        unsafe {
+            gl.delete_buffer(self.raw);
         }
 
-        self.state.remove_buffer(self.gl_target, self.raw);
+        self.state.remove_buffer(&gl, self.gl_target, self.raw);
     }
 }
