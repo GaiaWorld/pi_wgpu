@@ -1,16 +1,16 @@
-use std::{os::raw, ptr};
-
 use bitflags::bitflags;
-use glow::HasContext;
+use parking_lot::Mutex;
 use pi_share::Share;
 use thiserror::Error;
 
-use super::{egl_impl::EglContext, GLState, SrgbFrameBufferKind, VALIDATION_CANARY};
+use crate::pi_wgpu::hal::AdapterContext;
+
 use super::super::{hal::egl_debug_proc, wgt};
+use super::egl_impl::EglContext;
 
 #[derive(Debug)]
 pub(crate) struct Instance {
-    context: EglContext,
+    context: Share<AdapterContext>,
     flags: InstanceFlags,
 }
 
@@ -38,7 +38,7 @@ impl Instance {
         };
 
         let egl = match egl_result {
-            Ok(egl) => Share::new(egl),
+            Ok(egl) => egl,
             Err(e) => {
                 log::info!("Unable to open libEGL: {:?}", e);
                 return Err(InstanceError);
@@ -109,9 +109,16 @@ impl Instance {
 
         let context = EglContext::new(desc.flags, egl, display)?;
 
+        let gl = context.create_gl_context(desc.flags);
+
+        let context = AdapterContext {
+            egl: context,
+            glow: Mutex::new(gl),
+        };
+
         Ok(Instance {
             flags: desc.flags,
-            context,
+            context: Share::new(context),
         })
     }
 
@@ -124,6 +131,53 @@ impl Instance {
         unsafe { super::Adapter::expose(&inner.state) }
             .into_iter()
             .collect()
+    }
+
+    pub(crate) unsafe fn create_surface(
+        &self,
+        display_handle: raw_window_handle::RawDisplayHandle,
+        window_handle: raw_window_handle::RawWindowHandle,
+    ) -> Result<super::Surface, super::InstanceError> {
+        use raw_window_handle::RawWindowHandle as Rwh;
+
+        let inner = self.context.0.as_ref();
+
+        match (window_handle, display_handle) {
+            (Rwh::Win32(_), _) => {}
+            #[cfg(target_os = "android")]
+            (Rwh::AndroidNdk(handle), _) => {
+                let format = inner
+                    .instance
+                    .get_config_attrib(inner.display, inner.config, egl::NATIVE_VISUAL_ID)
+                    .unwrap();
+
+                let ret = unsafe {
+                    ANativeWindow_setBuffersGeometry(handle.a_native_window, 0, 0, format)
+                };
+
+                if ret != 0 {
+                    log::error!("Error returned from ANativeWindow_setBuffersGeometry");
+                    return Err(crate::InstanceError);
+                }
+            }
+            #[cfg(feature = "emscripten")]
+            (Rwh::Web(_), _) => {}
+            other => {
+                log::error!("Unsupported window: {:?}", other);
+                return Err(super::InstanceError);
+            }
+        };
+
+        inner.unmake_current();
+
+        Ok(super::Surface {
+            egl: self.context.clone(),
+            config: inner.config,
+            presentable: inner.supports_native_window,
+            raw_window_handle: window_handle,
+            swapchain: None,
+            srgb_kind: inner.srgb_kind,
+        })
     }
 }
 
@@ -146,35 +200,4 @@ pub(crate) struct InstanceDescriptor<'a> {
     pub name: &'a str,
     pub flags: InstanceFlags,
     pub dx12_shader_compiler: wgt::Dx12Compiler,
-}
-
-#[derive(Debug)]
-struct Inner {
-    /// Note: the context contains a dummy pbuffer (1x1).
-    /// Required for `eglMakeCurrent` on platforms that doesn't supports `EGL_KHR_surfaceless_context`.
-    egl: EglContext,
-
-    #[allow(unused)]
-    version: (i32, i32),
-
-    supports_native_window: bool,
-
-    config: egl::Config,
-
-    #[cfg_attr(feature = "emscripten", allow(dead_code))]
-    wl_display: Option<*mut raw::c_void>,
-
-    /// Method by which the framebuffer should support srgb
-    srgb_kind: SrgbFrameBufferKind,
-}
-
-#[inline]
-unsafe fn find_library(paths: &[&str]) -> Option<libloading::Library> {
-    for path in paths {
-        match unsafe { libloading::Library::new(path) } {
-            Ok(lib) => return Some(lib),
-            _ => continue,
-        };
-    }
-    None
 }

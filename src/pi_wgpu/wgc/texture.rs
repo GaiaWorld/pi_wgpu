@@ -24,7 +24,10 @@ pub struct Texture {
 
 impl Texture {
     #[inline]
-    pub(crate) fn from_hal(inner: super::super::hal::Texture, desc: &super::super::TextureDescriptor) -> Self {
+    pub(crate) fn from_hal(
+        inner: super::super::hal::Texture,
+        desc: &super::super::TextureDescriptor,
+    ) -> Self {
         Self {
             inner,
             size_impl: desc.size,
@@ -48,7 +51,12 @@ impl Texture {
     /// Make an `ImageCopyTexture` representing the whole texture.
     #[inline]
     pub fn as_image_copy(&self) -> ImageCopyTexture {
-        todo!("")
+        ImageCopyTexture {
+            texture: self,
+            mip_level: 0,
+            origin: crate::Origin3d::ZERO,
+            aspect: TextureAspect::All,
+        }
     }
 
     /// Returns the size of this `Texture`.
@@ -139,7 +147,7 @@ impl TextureView {
     // 返回 (w, h, d)
     #[inline]
     pub(crate) fn get_size(&self) -> (u32, u32, u32) {
-        let size  = &self.inner.inner.copy_size;
+        let size = &self.inner.inner.copy_size;
         (size.width, size.height, size.depth)
     }
 }
@@ -181,7 +189,8 @@ pub struct TextureViewDescriptor<'a> {
 ///
 /// Corresponds to [WebGPU `GPUTextureDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturedescriptor).
-pub type TextureDescriptor<'a> = super::super::wgt::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
+pub type TextureDescriptor<'a> =
+    super::super::wgt::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
 
 pub use super::super::wgt::ImageCopyTexture as ImageCopyTextureBase;
 

@@ -1,7 +1,8 @@
-use std::{ffi, os::raw, ptr};
+use std::{ffi, os::raw, ptr, time::Duration};
 
+use egl::Config;
 use glow::HasContext;
-use pi_share::Share;
+use parking_lot::{Mutex, MutexGuard};
 
 use super::{GLState, InstanceError, SrgbFrameBufferKind, VALIDATION_CANARY};
 
@@ -66,53 +67,38 @@ pub(crate) type EGLDEBUGPROCKHR = Option<
     ),
 >;
 
-#[derive(Debug, Clone)]
-pub(crate) struct EglContext(pub(crate) Share<EglContextImpl>);
-
-impl EglContext {
-    #[inline]
-    pub(crate) fn new(
-        flags: super::InstanceFlags,
-        egl: Share<EglInstance>,
-        display: egl::Display,
-    ) -> Result<Self, InstanceError> {
-        let imp = EglContextImpl::new(flags, egl, display)?;
-
-        Ok(Self(Share::new(imp)))
-    }
-}
-
 #[derive(Debug)]
-pub(crate) struct EglContextImpl {
-    pub(crate) state: GLState,
-    pub(crate) egl: Share<EglInstance>,
-
+pub(crate) struct EglContext {
     pub(crate) raw: egl::Context,
+    pub(crate) instance: EglInstance,
     pub(crate) display: egl::Display,
+
+    pub(crate) config: Config,
+    pub(crate) supports_native_window: bool,
 
     pub(crate) version: (i32, i32),
     pub(crate) srgb_kind: SrgbFrameBufferKind,
 }
 
-unsafe impl Send for EglContextImpl {}
+unsafe impl Send for EglContext {}
 
-unsafe impl Sync for EglContextImpl {}
+unsafe impl Sync for EglContext {}
 
-impl Drop for EglContextImpl {
+impl Drop for EglContext {
     fn drop(&mut self) {
-        if let Err(e) = self.egl.destroy_context(self.display, self.raw) {
+        if let Err(e) = self.instance.destroy_context(self.display, self.raw) {
             log::error!("Error in destroy_context: {:?}", e);
         }
-        if let Err(e) = self.egl.terminate(self.display) {
+        if let Err(e) = self.instance.terminate(self.display) {
             log::error!("Error in terminate: {:?}", e);
         }
     }
 }
 
-impl EglContextImpl {
+impl EglContext {
     pub(crate) fn new(
         flags: super::InstanceFlags,
-        egl: Share<EglInstance>,
+        egl: EglInstance,
         display: egl::Display,
     ) -> Result<Self, InstanceError> {
         // ========== 1. 初始化 EGL
@@ -229,15 +215,11 @@ impl EglContextImpl {
             }
         };
 
-        let gl = Self::create_gl_context(egl.as_ref(), raw, display, flags);
-        let state = super::GLState::new(gl);
-
         Ok(Self {
-            state,
-
-            egl,
+            config,
+            instance: egl,
             display,
-
+            supports_native_window,
             raw,
             version,
             srgb_kind,
@@ -245,20 +227,18 @@ impl EglContextImpl {
     }
 
     pub(crate) fn create_gl_context(
-        egl: &EglInstance,
-        raw: egl::Context,
-        display: egl::Display,
+        &self,
         flags: super::InstanceFlags,
     ) -> glow::Context {
         // =========== 1. 让当前的 Surface 起作用
 
-        egl.make_current(display, None, None, Some(raw)).unwrap();
+        self.instance.make_current(self.display, None, None, Some(self.raw)).unwrap();
 
         // =========== 2. 取 glow 环境
 
         let gl = unsafe {
             glow::Context::from_loader_function(|name| {
-                egl.get_proc_address(name)
+                self.instance.get_proc_address(name)
                     .map_or(ptr::null(), |p| p as *const _)
             })
         };
@@ -277,9 +257,23 @@ impl EglContextImpl {
 
         // =========== 3. 解绑表面
 
-        egl.make_current(display, None, None, None).unwrap();
+        self.instance.make_current(self.display, None, None, None).unwrap();
 
         gl
+    }
+}
+
+impl EglContext {
+    pub(crate) fn make_current(&self) {
+        self.instance
+            .make_current(self.display, None, None, Some(self.raw))
+            .unwrap();
+    }
+
+    pub(crate) fn unmake_current(&self) {
+        self.instance
+            .make_current(self.display, None, None, None)
+            .unwrap();
     }
 }
 
@@ -289,17 +283,109 @@ pub(crate) type EglInstance = egl::DynamicInstance<egl::EGL1_4>;
 #[cfg(feature = "emscripten")]
 type EglInstance = egl::Instance<egl::Static>;
 
-impl EglContextImpl {
-    pub(crate) fn make_current(&self) {
-        self.egl
-            .make_current(self.display, None, None, Some(self.raw))
-            .unwrap();
+/// A wrapper around a [`glow::Context`] and the required EGL context that uses locking to guarantee
+/// exclusive access when shared with multiple threads.
+#[derive(Debug)]
+pub struct AdapterContext {
+    pub(crate) egl: EglContext,
+    pub(crate) glow: Mutex<glow::Context>,
+}
+
+unsafe impl Sync for AdapterContext {}
+unsafe impl Send for AdapterContext {}
+
+impl AdapterContext {
+    /// Returns the EGL instance.
+    ///
+    /// This provides access to EGL functions and the ability to load GL and EGL extension functions.
+    #[inline]
+    pub fn egl_instance(&self) -> &EglInstance {
+        &self.egl.instance
     }
 
-    pub(crate) fn unmake_current(&self) {
+    /// Returns the EGLDisplay corresponding to the adapter context.
+    ///
+    /// Returns [`None`] if the adapter was externally created.
+    #[inline]
+    pub fn raw_display(&self) -> &egl::Display {
+        &self.egl.display
+    }
+
+    /// Returns the EGL version the adapter context was created with.
+    ///
+    /// Returns [`None`] if the adapter was externally created.
+    #[inline]
+    pub fn egl_version(&self) -> (i32, i32) {
+        self.egl.version
+    }
+}
+
+struct EglContextLock<'a> {
+    instance: &'a EglInstance,
+    display: egl::Display,
+}
+
+/// A guard containing a lock to an [`AdapterContext`]
+pub struct AdapterContextLock<'a> {
+    glow: MutexGuard<'a, glow::Context>,
+    egl: EglContextLock<'a>,
+}
+
+impl<'a> std::ops::Deref for AdapterContextLock<'a> {
+    type Target = glow::Context;
+
+    fn deref(&self) -> &Self::Target {
+        &self.glow
+    }
+}
+
+impl<'a> Drop for AdapterContextLock<'a> {
+    #[inline]
+    fn drop(&mut self) {
         self.egl
-            .make_current(self.display, None, None, None)
+            .instance
+            .make_current(self.egl.display, None, None, None)
             .unwrap();
+    }
+}
+
+impl AdapterContext {
+    /// Get's the [`glow::Context`] without waiting for a lock
+    ///
+    /// # Safety
+    ///
+    /// This should only be called when you have manually made sure that the current thread has made
+    /// the EGL context current and that no other thread also has the EGL context current.
+    /// Additionally, you must manually make the EGL context **not** current after you are done with
+    /// it, so that future calls to `lock()` will not fail.
+    ///
+    /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
+    /// > extra safe-guard against accidental concurrent access to the context.
+    pub unsafe fn get_without_egl_lock(&self) -> MutexGuard<glow::Context> {
+        self.glow
+            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
+            .expect("Could not lock adapter context. This is most-likely a deadlcok.")
+    }
+
+    /// Obtain a lock to the EGL context and get handle to the [`glow::Context`] that can be used to
+    /// do rendering.
+    #[track_caller]
+    pub fn lock<'a>(&'a self) -> AdapterContextLock<'a> {
+        let glow = self
+            .glow
+            // Don't lock forever. If it takes longer than 1 second to get the lock we've got a
+            // deadlock and should panic to show where we got stuck
+            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
+            .expect("Could not lock adapter context. This is most-likely a deadlcok.");
+
+        self.egl.make_current();
+
+        let egl = EglContextLock {
+            instance: &self.egl.instance,
+            display: self.egl.display,
+        };
+
+        AdapterContextLock { glow, egl }
     }
 }
 
@@ -361,7 +447,7 @@ pub(super) fn choose_config(
 
     let mut attributes = Vec::with_capacity(9);
 
-    for tier_max in (0..tiers.len()).rev() {
+    for tier_max in (1..tiers.len()).rev() {
         let name = tiers[tier_max].0;
         log::info!("\tEGL choose_config: Trying {}", name);
 

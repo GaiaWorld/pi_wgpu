@@ -3,7 +3,9 @@ use std::future::{ready, Future};
 use pi_share::Share;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
-use super::super::{hal, wgt, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface};
+use super::super::{
+    hal, wgt, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface,
+};
 
 /// Context for all other wgpu objects. Instance of wgpu.
 ///
@@ -181,17 +183,14 @@ impl Instance {
     ) -> Result<Surface, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
 
-        todo!()
+        let display_handle = HasRawDisplayHandle::raw_display_handle(window);
 
-        // let display_handle = HasRawDisplayHandle::raw_display_handle(window);
+        let window_handle = HasRawWindowHandle::raw_window_handle(window);
 
-        // let window_handle = HasRawWindowHandle::raw_window_handle(window);
+        let raw = self.inner.create_surface(display_handle, window_handle);
 
-        // let raw = self.inner.create_surface(display_handle, window_handle);
-
-        // Ok(super::super::Surface {
-        //     inner: raw.unwrap(),
-        //     instance: self.clone(),
-        // })
+        Ok(super::super::Surface {
+            inner: raw.unwrap(),
+        })
     }
 }

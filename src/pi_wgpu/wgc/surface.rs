@@ -1,4 +1,6 @@
-use super::super::{hal, wgt, Adapter, Device, Instance, SurfaceCapabilities, Texture, TextureFormat};
+use super::super::{
+    hal, wgt, Adapter, Device, Instance, SurfaceCapabilities, Texture, TextureFormat,
+};
 
 /// Handle to a presentable surface.
 ///
@@ -10,7 +12,6 @@ use super::super::{hal, wgt, Adapter, Device, Instance, SurfaceCapabilities, Tex
 /// serves a similar role.
 #[derive(Debug)]
 pub struct Surface {
-    pub(crate) instance: Instance,
     pub(crate) inner: hal::Surface,
 }
 
@@ -21,17 +22,15 @@ impl Surface {
     pub fn get_capabilities(&self, adapter: &Adapter) -> SurfaceCapabilities {
         profiling::scope!("Surface::get_capabilities");
 
-        todo!()
-        
-        // let mut hal_caps = unsafe { adapter.0.surface_capabilities(&self.inner) }.unwrap();
+        let mut hal_caps = unsafe { adapter.inner.surface_capabilities(&self.inner) }.unwrap();
 
-        // hal_caps.formats.sort_by_key(|f| !f.describe().srgb);
+        hal_caps.formats.sort_by_key(|f| !f.describe().srgb);
 
-        // SurfaceCapabilities {
-        //     formats: hal_caps.formats,
-        //     present_modes: hal_caps.present_modes,
-        //     alpha_modes: hal_caps.composite_alpha_modes,
-        // }
+        SurfaceCapabilities {
+            formats: hal_caps.formats,
+            present_modes: hal_caps.present_modes,
+            alpha_modes: hal_caps.composite_alpha_modes,
+        }
     }
 
     /// Return a default `SurfaceConfiguration` from width and height to use for the [`Surface`] with this adapter.
@@ -62,8 +61,11 @@ impl Surface {
     ///
     /// - A old [`SurfaceTexture`] is still alive referencing an old surface.
     /// - Texture format requested is unsupported on the surface.
+    #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
-        todo!("")
+        unsafe {
+            self.inner.configure(&device.inner, config);
+        }
     }
 
     /// Returns the next texture to be presented by the swapchain for drawing.
@@ -74,8 +76,17 @@ impl Surface {
     ///
     /// If a SurfaceTexture referencing this surface is alive when the swapchain is recreated,
     /// recreating the swapchain will panic.
+    #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
-        todo!("")
+        match unsafe { self.inner.acquire_texture() } {
+            Ok(Some(ast)) => Ok(SurfaceTexture {
+                texture: crate::Texture { inner: ast.texture },
+                suboptimal: ast.suboptimal,
+                presented: true,
+            }),
+            Ok(None) => Err(SurfaceError::Timeout),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -101,7 +112,7 @@ impl SurfaceTexture {
     ///
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
-        todo!("")
+        todo!()
     }
 }
 
