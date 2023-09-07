@@ -28,12 +28,12 @@
 `WebGPU`接口子集的`GL`后端，基于`Rust`实现。
 
 + 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.16` 进行修改；
-+ 功能: 仅仅对应`WebGL2`的子集
++ 功能: 仅仅对应[WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)的子集
     - 加`压缩纹理`扩展：`DDS` / `ASTC`
 + 平台:
     - `Windows`: `OpenGL 3.3`
     - `Android` / PC-Android 模拟器: `GLES 3.0`
-    - 浏览器 / 微信小游戏: `WebGL2`
+    - 浏览器 / 微信小游戏: [WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)
 
 ## 0. 进度: 2023.09.04
 
@@ -73,8 +73,8 @@
     - **TODO**: 创建，销毁 资源，Exe / Apk `多线程`；
     - `注`：使用者自己确保，创建/释放 和 录制指令 的 线程安全性；
 + GLSL:
-    - 功能: 仅支持 gles-300 / std140-布局；
-    - 语法: 仅支持 GLSL 450 语法；
+    - 功能: 仅支持 [gles-300 / std140-布局](https://www.khronos.org/files/webgl20-reference-guide.pdf)；
+    - 语法: 仅支持 [GLSL 450 语法](https://www.khronos.org/files/webgl20-reference-guide.pdf)；
 
 ### 2.1. **不** 支持
 
