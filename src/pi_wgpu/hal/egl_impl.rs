@@ -17,12 +17,19 @@ pub(crate) const CONTEXT_LOCK_TIMEOUT_SECS: u64 = 1;
 
 pub(crate) const EGL_CONTEXT_FLAGS_KHR: i32 = 0x30FC;
 pub(crate) const EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR: i32 = 0x0001;
+#[allow(unused)]
 pub(crate) const EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT: i32 = 0x30BF;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_WAYLAND_KHR: u32 = 0x31D8;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_X11_KHR: u32 = 0x31D5;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_ANGLE_ANGLE: u32 = 0x3202;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE: u32 = 0x348F;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_ANGLE_DEBUG_LAYERS_ENABLED: u32 = 0x3451;
+#[allow(unused)]
 pub(crate) const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
 pub(crate) const EGL_GL_COLORSPACE_KHR: u32 = 0x309D;
 pub(crate) const EGL_GL_COLORSPACE_SRGB_KHR: u32 = 0x3089;
@@ -32,12 +39,15 @@ pub(crate) const EGL_DEBUG_MSG_ERROR_KHR: u32 = 0x33BA;
 pub(crate) const EGL_DEBUG_MSG_WARN_KHR: u32 = 0x33BB;
 pub(crate) const EGL_DEBUG_MSG_INFO_KHR: u32 = 0x33BC;
 
+#[allow(unused)]
 pub(crate) type XOpenDisplayFun =
     unsafe extern "system" fn(display_name: *const raw::c_char) -> *mut raw::c_void;
 
+#[allow(unused)]
 pub(crate) type WlDisplayConnectFun =
     unsafe extern "system" fn(display_name: *const raw::c_char) -> *mut raw::c_void;
 
+#[allow(unused)]
 pub(crate) type WlDisplayDisconnectFun = unsafe extern "system" fn(display: *const raw::c_void);
 
 pub(crate) type EglDebugMessageControlFun =
@@ -45,6 +55,7 @@ pub(crate) type EglDebugMessageControlFun =
 
 pub(crate) type EglLabel = *const raw::c_void;
 
+#[allow(unused)]
 pub(crate) type WlEglWindowResizeFun = unsafe extern "system" fn(
     window: *const raw::c_void,
     width: raw::c_int,
@@ -53,12 +64,14 @@ pub(crate) type WlEglWindowResizeFun = unsafe extern "system" fn(
     dy: raw::c_int,
 );
 
+#[allow(unused)]
 pub(crate) type WlEglWindowCreateFun = unsafe extern "system" fn(
     surface: *const raw::c_void,
     width: raw::c_int,
     height: raw::c_int,
 ) -> *mut raw::c_void;
 
+#[allow(unused)]
 pub(crate) type WlEglWindowDestroyFun = unsafe extern "system" fn(window: *const raw::c_void);
 
 #[allow(clippy::upper_case_acronyms)]
@@ -78,10 +91,14 @@ pub(crate) struct EglContext {
     pub(crate) instance: EglInstance,
 
     pub(crate) raw: egl::Context, // gl-上下文，用来 运行 gl-函数
+
+    #[allow(unused)]
     pub(crate) config: egl::Config,
+
     pub(crate) display: egl::Display,
 
     pub(crate) version: (i32, i32), // EGL 版本, (1, 5) 或者 (1, 4)
+    #[allow(unused)]
     pub(crate) srgb_kind: SrgbFrameBufferKind,
 }
 
@@ -293,10 +310,10 @@ type EglInstance = egl::Instance<egl::Static>;
 /// A wrapper around a [`glow::Context`] and the required EGL context that uses locking to guarantee
 /// exclusive access when shared with multiple threads.
 #[derive(Debug)]
-pub struct AdapterContext {
-    egl: EglContext,
-    reentrant_count: Share<AtomicUsize>,
-    glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
+pub(crate) struct AdapterContext {
+    pub(crate) egl: EglContext,
+    pub(crate) reentrant_count: Share<AtomicUsize>,
+    pub(crate) glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
 }
 
 unsafe impl Sync for AdapterContext {}
@@ -307,7 +324,7 @@ impl AdapterContext {
     ///
     /// This provides access to EGL functions and the ability to load GL and EGL extension functions.
     #[inline]
-    pub fn egl_ref(&self) -> &EglContext {
+    pub(crate) fn egl_ref(&self) -> &EglContext {
         &self.egl
     }
 
@@ -315,7 +332,8 @@ impl AdapterContext {
     ///
     /// This provides access to EGL functions and the ability to load GL and EGL extension functions.
     #[inline]
-    pub fn egl_instance(&self) -> &EglInstance {
+    #[allow(unused)]
+    pub(crate) fn egl_instance(&self) -> &EglInstance {
         &self.egl.instance
     }
 
@@ -323,7 +341,8 @@ impl AdapterContext {
     ///
     /// Returns [`None`] if the adapter was externally created.
     #[inline]
-    pub fn raw_display(&self) -> &egl::Display {
+    #[allow(unused)]
+    pub(crate) fn raw_display(&self) -> &egl::Display {
         &self.egl.display
     }
 
@@ -331,7 +350,8 @@ impl AdapterContext {
     ///
     /// Returns [`None`] if the adapter was externally created.
     #[inline]
-    pub fn egl_version(&self) -> (i32, i32) {
+    #[allow(unused)]
+    pub(crate) fn egl_version(&self) -> (i32, i32) {
         self.egl.version
     }
 }
@@ -384,6 +404,7 @@ impl AdapterContext {
     ///
     /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
     /// > extra safe-guard against accidental concurrent access to the context.
+    #[allow(unused)]
     pub unsafe fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
         self.glow
             .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
@@ -456,7 +477,7 @@ pub(crate) unsafe extern "system" fn egl_debug_proc(
 pub(super) fn choose_config(
     egl: &EglInstance,
     display: egl::Display,
-    srgb_kind: SrgbFrameBufferKind,
+    #[allow(unused)] srgb_kind: SrgbFrameBufferKind,
 ) -> Result<egl::Config, InstanceError> {
     let mut attributes = Vec::with_capacity(20);
 
@@ -478,7 +499,7 @@ pub(super) fn choose_config(
 
     attributes.push(egl::NONE);
 
-    let config = match egl.choose_first_config(display, &attributes[..]) {
+    let mut config = match egl.choose_first_config(display, &attributes[..]) {
         Ok(Some(config)) => Ok(config),
         Ok(None) => {
             log::error!("1 in choose_first_config: Missing config");
@@ -509,7 +530,7 @@ pub(super) fn choose_config(
 
         attributes.push(egl::NONE);
 
-        let config = match egl.choose_first_config(display, &attributes[..]) {
+        config = match egl.choose_first_config(display, &attributes[..]) {
             Ok(Some(config)) => Ok(config),
             Ok(None) => {
                 log::error!("2 error in choose_first_config: Missing config");

@@ -121,7 +121,7 @@ impl GLState {
         cache.remove_render_buffer(gl, rb);
     }
 
-    pub fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+    pub fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLState::remove_buffer");
 
         if bind_target == glow::UNIFORM_BUFFER {
@@ -181,7 +181,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_render_pipeline(&mut self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
+    pub fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         profiling::scope!("hal::GLState::set_render_pipeline");
 
         let imp = &mut self.imp.borrow_mut();
@@ -189,11 +189,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_render_target(
-        &mut self,
-        gl: &glow::Context,
-        desc: &super::super::RenderPassDescriptor,
-    ) {
+    pub fn set_render_target(&self, gl: &glow::Context, desc: &super::super::RenderPassDescriptor) {
         profiling::scope!("hal::GLState::set_render_target");
 
         let imp = &mut self.imp.borrow_mut();
@@ -202,7 +198,7 @@ impl GLState {
 
     #[inline]
     pub fn set_bind_group(
-        &mut self,
+        &self,
         gl: &glow::Context,
         index: u32,
         bind_group: &super::BindGroup,
@@ -216,7 +212,7 @@ impl GLState {
 
     #[inline]
     pub fn set_vertex_buffer(
-        &mut self,
+        &self,
         gl: &glow::Context,
         index: usize,
         buffer: &super::Buffer,
@@ -231,7 +227,7 @@ impl GLState {
 
     #[inline]
     pub fn set_index_buffer(
-        &mut self,
+        &self,
         gl: &glow::Context,
         buffer: &super::Buffer,
         format: wgt::IndexFormat,
@@ -246,7 +242,7 @@ impl GLState {
 
     #[inline]
     pub fn draw(
-        &mut self,
+        &self,
         gl: &glow::Context,
         start_vertex: u32,
         vertex_count: u32,
@@ -260,7 +256,7 @@ impl GLState {
 
     #[inline]
     pub fn draw_indexed(
-        &mut self,
+        &self,
         gl: &glow::Context,
         start_index: i32,
         index_count: i32,
@@ -273,7 +269,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_viewport(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+    pub fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
 
         let imp = &mut self.imp.borrow_mut();
@@ -281,7 +277,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_scissor(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+    pub fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
 
         let imp = &mut self.imp.borrow_mut();
@@ -289,7 +285,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_depth_range(&mut self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
+    pub fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
 
         let imp = &mut self.imp.borrow_mut();
@@ -297,7 +293,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_blend_color(&mut self, gl: &glow::Context, color: &[f32; 4]) {
+    pub fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
 
         let imp = &mut self.imp.borrow_mut();
@@ -305,7 +301,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_stencil_reference(&mut self, gl: &glow::Context, reference: i32) {
+    pub fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
 
         let imp = &mut self.imp.borrow_mut();

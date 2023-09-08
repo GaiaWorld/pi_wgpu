@@ -54,7 +54,7 @@ impl CommandEncoder {
 
         RenderPass {
             gl,
-            encoder: &mut self.inner,
+            encoder: &self.inner,
         }
     }
 }
@@ -87,7 +87,7 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
 #[derive(Debug)]
 pub struct RenderPass<'a> {
     gl: AdapterContextLock<'a>,
-    encoder: &'a mut hal::CommandEncoder,
+    encoder: &'a hal::CommandEncoder,
 }
 
 impl<'a> Drop for RenderPass<'a> {
