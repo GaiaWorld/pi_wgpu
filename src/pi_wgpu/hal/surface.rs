@@ -1,4 +1,5 @@
 use glow::HasContext;
+use pi_share::{Share, ShareCell};
 use thiserror::Error;
 
 use super::super::{wgt, DeviceError, MissingDownlevelFlags};
@@ -6,18 +7,56 @@ use super::{gl_conv as conv, EglContext, SrgbFrameBufferKind, TextureFormatDesc}
 
 #[derive(Debug)]
 pub(crate) struct Surface {
+    imp: Share<ShareCell<SurfaceImpl>>,
+}
+
+impl Surface {
+    #[inline]
+    pub(crate) fn get_presentable(&self) -> bool {
+        self.imp.as_ref().borrow().presentable
+    }
+
+    #[inline]
+    pub(crate) unsafe fn configure(
+        &self,
+        device: &super::Device,
+        config: &crate::SurfaceConfiguration,
+    ) -> Result<(), super::SurfaceError> {
+        self.imp.as_ref().borrow_mut().configure(device, config)
+    }
+
+    #[inline]
+    pub(crate) unsafe fn unconfigure(&self, device: &super::Device) {
+        self.imp.as_ref().borrow_mut().unconfigure(device)
+    }
+
+    #[inline]
+    pub(crate) unsafe fn acquire_texture(
+        &self,
+    ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
+        self.imp.as_ref().borrow_mut().acquire_texture()
+    }
+
+    #[inline]
+    pub(crate) fn supports_srgb(&self) -> bool {
+        self.imp.as_ref().borrow().supports_srgb()
+    }
+}
+
+#[derive(Debug)]
+struct SurfaceImpl {
     egl: EglContext,
     config: egl::Config,
-    pub(crate) presentable: bool,
+    presentable: bool,
     raw_window_handle: raw_window_handle::RawWindowHandle,
     swapchain: Option<Swapchain>,
     srgb_kind: SrgbFrameBufferKind,
 }
 
-unsafe impl Sync for Surface {}
-unsafe impl Send for Surface {}
+unsafe impl Sync for SurfaceImpl {}
+unsafe impl Send for SurfaceImpl {}
 
-impl Surface {
+impl SurfaceImpl {
     // config = &SurfaceConfiguration {
     //     usage: TextureUsages::RENDER_ATTACHMENT,
     //     format: TextureFormat::Bgra8Unorm 或  TextureFormat::Bgra8UnormSrgb,
@@ -27,7 +66,7 @@ impl Surface {
     //     alpha_mode: CompositeAlphaMode,
     //     view_formats: Vec<TextureFormat>,
     // };
-    pub(crate) unsafe fn configure(
+    unsafe fn configure(
         &mut self,
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
@@ -148,7 +187,7 @@ impl Surface {
         Ok(())
     }
 
-    pub(crate) unsafe fn unconfigure(&mut self, device: &super::Device) {
+    unsafe fn unconfigure(&mut self, device: &super::Device) {
         todo!()
         // if let Some(surface) = unsafe { self.unconfigure_impl(device) } {
         //     self.egl
@@ -159,7 +198,7 @@ impl Surface {
         // }
     }
 
-    pub(crate) unsafe fn acquire_texture(
+    unsafe fn acquire_texture(
         &mut self,
     ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
         let sc = self.swapchain.as_ref().unwrap();
@@ -171,8 +210,9 @@ impl Surface {
     }
 }
 
-impl Surface {
-    pub(crate) fn supports_srgb(&self) -> bool {
+impl SurfaceImpl {
+    #[inline]
+    fn supports_srgb(&self) -> bool {
         match self.srgb_kind {
             SrgbFrameBufferKind::None => false,
             _ => true,

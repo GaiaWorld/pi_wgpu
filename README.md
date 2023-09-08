@@ -35,7 +35,6 @@
     - `Android` / PC-Android 模拟器: `GLES 3.0`
     - 浏览器 / 微信小游戏: [WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)
 
-
 | 序号 | 功能                     | 时间  | 说明                               |
 | ---- | ------------------------ | ----- | ---------------------------------- |
 | 01   | ~~BindGroup~~            | 1天   | **Done**                           |
@@ -56,6 +55,17 @@
 | 14   | `TODO` `Fence`           | ?天   | 待定:                              |
 | 15   | `TODO` 其他功能          | ?天   | 待定: 如 `framebufferTextureLayer` |
 | 16   | `TODO` 其他 Feature      | ?天   | 待定: 如 `PushConst`               |
+
+需要调试的 Demo:
+
++ GUI: pi_ui_render, bevy 分支
+    - 最简单的渲染 quad.rs
++ 3D:
+    - pi_3d
+        * 最简单的渲染 simple / dispose.rs
+        * 动画，buffer更新：anime / 01.rs
+        * 粒子 particle / render_stretched.rs
+    - 后处理 pi_post_process / main.rs
 
 # 1. 设计
 

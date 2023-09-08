@@ -1,6 +1,4 @@
-use super::super::{
-    hal, wgt, Adapter, Device, Instance, SurfaceCapabilities, Texture, TextureFormat,
-};
+use super::super::{hal, wgt, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
 
 /// Handle to a presentable surface.
 ///
@@ -62,7 +60,7 @@ impl Surface {
     /// - A old [`SurfaceTexture`] is still alive referencing an old surface.
     /// - Texture format requested is unsupported on the surface.
     #[inline]
-    pub fn configure(&mut self, device: &Device, config: &SurfaceConfiguration) {
+    pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
         unsafe {
             self.inner.configure(&device.inner, config);
         }
@@ -77,7 +75,7 @@ impl Surface {
     /// If a SurfaceTexture referencing this surface is alive when the swapchain is recreated,
     /// recreating the swapchain will panic.
     #[inline]
-    pub fn get_current_texture(&mut self) -> Result<SurfaceTexture, SurfaceError> {
+    pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
         match unsafe { self.inner.acquire_texture() } {
             Ok(Some(ast)) => {
                 todo!()

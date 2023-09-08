@@ -9,6 +9,7 @@ pub(crate) struct Device {
 
     pub(crate) features: wgt::Features,
     pub(crate) limits: wgt::Limits,
+    pub(crate) downlevel: wgt::DownlevelCapabilities,
 }
 
 impl Device {
@@ -82,7 +83,7 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
-        super::ShaderModule::new(self.state.clone(), &self.adapter, &self.features, desc)
+        super::ShaderModule::new(self.state.clone(), &self.adapter, &self.features, &self.downlevel, desc)
     }
 
     #[inline]

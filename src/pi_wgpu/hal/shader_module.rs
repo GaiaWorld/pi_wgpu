@@ -38,6 +38,7 @@ impl ShaderModule {
         state: GLState,
         adapter: &Share<AdapterContext>,
         features: &wgt::Features,
+        downlevel: &wgt::DownlevelCapabilities,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
         let gl = adapter.lock();
@@ -163,51 +164,56 @@ impl ShaderModule {
 //     println!("Naga generated shader:\n{}", &output);
 // }
 
-// fn get_shader_info(module: &Module, features: &wgt::Features) -> ModuleInfo {
-//     let mut caps = Caps::empty();
-//     caps.set(
-//         Caps::PUSH_CONSTANT,
-//         features.contains(wgt::Features::PUSH_CONSTANTS),
-//     );
-//     caps.set(Caps::FLOAT64, features.contains(wgt::Features::SHADER_F64));
-//     caps.set(
-//         Caps::PRIMITIVE_INDEX,
-//         features.contains(wgt::Features::SHADER_PRIMITIVE_INDEX),
-//     );
-//     caps.set(
-//         Caps::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
-//         features
-//             .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
-//     );
-//     caps.set(
-//         Caps::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
-//         features
-//             .contains(wgt::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
-//     );
-//     // TODO: This needs a proper wgpu feature
-//     caps.set(
-//         Caps::SAMPLER_NON_UNIFORM_INDEXING,
-//         features
-//             .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
-//     );
-//     caps.set(
-//         Caps::STORAGE_TEXTURE_16BIT_NORM_FORMATS,
-//         features.contains(wgt::Features::TEXTURE_FORMAT_16BIT_NORM),
-//     );
-//     caps.set(Caps::MULTIVIEW, features.contains(wgt::Features::MULTIVIEW));
-//     caps.set(
-//         Caps::EARLY_DEPTH_TEST,
-//         features.contains(wgt::Features::SHADER_EARLY_DEPTH_TEST),
-//     );
-//     caps.set(
-//         Caps::MULTISAMPLED_SHADING,
-//         self.downlevel
-//             .flags
-//             .contains(wgt::DownlevelFlags::MULTISAMPLED_SHADING),
-//     );
+fn get_shader_info(
+    module: &Module,
+    features: &wgt::Features,
+    downlevel: &wgt::DownlevelCapabilities,
+) -> ModuleInfo {
+    let mut caps = Caps::empty();
+    caps.set(
+        Caps::PUSH_CONSTANT,
+        features.contains(wgt::Features::PUSH_CONSTANTS),
+    );
+    caps.set(Caps::FLOAT64, features.contains(wgt::Features::SHADER_F64));
+    caps.set(
+        Caps::PRIMITIVE_INDEX,
+        features.contains(wgt::Features::SHADER_PRIMITIVE_INDEX),
+    );
+    caps.set(
+        Caps::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    caps.set(
+        Caps::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    // TODO: This needs a proper wgpu feature
+    caps.set(
+        Caps::SAMPLER_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    caps.set(
+        Caps::STORAGE_TEXTURE_16BIT_NORM_FORMATS,
+        features.contains(wgt::Features::TEXTURE_FORMAT_16BIT_NORM),
+    );
+    caps.set(Caps::MULTIVIEW, features.contains(wgt::Features::MULTIVIEW));
+    caps.set(
+        Caps::EARLY_DEPTH_TEST,
+        features.contains(wgt::Features::SHADER_EARLY_DEPTH_TEST),
+    );
+    caps.set(
+        Caps::MULTISAMPLED_SHADING,
+        downlevel
+            .flags
+            .contains(wgt::DownlevelFlags::MULTISAMPLED_SHADING),
+    );
 
-//     let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), caps)
-//         .validate(&module)
-//         .unwrap(); // 处理错误， TODO
-//     info
-// }
+    let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), caps)
+        .validate(&module)
+        .unwrap(); // 处理错误， TODO
+
+    info
+}

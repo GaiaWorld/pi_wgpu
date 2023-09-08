@@ -362,6 +362,7 @@ impl Adapter {
 
                 features,
                 limits: self.limits.clone(),
+                downlevel: self.downlevel.clone(),
             },
             queue: super::Queue {
                 state,
@@ -532,7 +533,7 @@ impl Adapter {
         &self,
         surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
-        if surface.presentable {
+        if surface.get_presentable() {
             let mut formats = vec![
                 wgt::TextureFormat::Rgba8Unorm,
                 #[cfg(not(target_arch = "wasm32"))]
