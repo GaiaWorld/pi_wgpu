@@ -67,7 +67,7 @@ impl Device {
         &self,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<super::PipelineLayout, super::super::DeviceError> {
-        super::PipelineLayout::new(desc)
+        super::PipelineLayout::new(&self.features, &self.adapter, desc)
     }
 
     #[inline]
@@ -83,7 +83,7 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
-        super::ShaderModule::new(self.state.clone(), &self.adapter, &self.features, &self.downlevel, desc)
+        super::ShaderModule::new(self.state.clone(), &self.adapter, desc)
     }
 
     #[inline]
@@ -91,7 +91,7 @@ impl Device {
         &self,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
-        let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, desc)?;
+        let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, &self.features, desc)?;
         Ok(super::RenderPipeline(Share::new(imp)))
     }
 }

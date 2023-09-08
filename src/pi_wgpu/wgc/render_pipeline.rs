@@ -1,5 +1,5 @@
 use super::super::{
-    hal, BindGroupLayout, BufferAddress, ColorTargetState, DepthStencilState, Label,
+    hal, BufferAddress, ColorTargetState, DepthStencilState, Label,
     MultisampleState, PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute,
     VertexStepMode,
 };

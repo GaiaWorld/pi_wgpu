@@ -92,7 +92,7 @@ impl Adapter {
     /// to use them.
     #[inline]
     pub fn features(&self) -> Features {
-        self.inner.features.clone()
+        self.inner.context.features.clone()
     }
 
     /// List the "best" limits that are supported by this adapter.
@@ -101,19 +101,19 @@ impl Adapter {
     /// the values that you are allowed to use.
     #[inline]
     pub fn limits(&self) -> Limits {
-        self.inner.limits.clone()
+        self.inner.context.limits.clone()
     }
 
     /// Get info about the adapter itself.
     #[inline]
     pub fn get_info(&self) -> AdapterInfo {
-        self.inner.info.clone()
+        self.inner.context.info.clone()
     }
 
     /// Get info about the adapter itself.
     #[inline]
     pub fn get_downlevel_capabilities(&self) -> DownlevelCapabilities {
-        self.inner.downlevel.clone()
+        self.inner.context.downlevel.clone()
     }
 
     /// Returns the features supported for a given texture format by this adapter.

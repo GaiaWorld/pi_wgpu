@@ -1,14 +1,19 @@
 use std::collections::HashMap;
 
-use super::super::{wgt, PiBindingType, ShaderBindGroupInfo};
-use super::{gl_conv as conv, AdapterContext, AttributeState, GLState, ProgramID};
 use glow::HasContext;
+use naga::back::glsl;
 use ordered_float::OrderedFloat;
 use pi_share::{Share, ShareCell, ShareWeak};
 
+use super::{
+    super::{wgt, PiBindingType, ShaderBindGroupInfo},
+    gl_conv as conv, AdapterContext, AttributeState, GLState, ProgramID,
+};
+
 #[derive(Debug, Clone)]
 pub(crate) struct PipelineLayout {
-    group_infos: Box<[BindGroupLayoutInfo]>,
+    pub(crate) group_infos: Box<[BindGroupLayoutInfo]>,
+    pub(crate) naga_options: naga::back::glsl::Options,
 }
 
 #[derive(Debug, Clone)]
@@ -18,6 +23,8 @@ pub(crate) struct BindGroupLayoutInfo {
 
 impl PipelineLayout {
     pub fn new(
+        device_features: &wgt::Features,
+        adapter: &AdapterContext,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         let group_infos = desc
@@ -28,7 +35,28 @@ impl PipelineLayout {
             })
             .collect();
 
-        Ok(Self { group_infos })
+        let mut writer_flags = glsl::WriterFlags::ADJUST_COORDINATE_SPACE;
+        writer_flags.set(
+            glsl::WriterFlags::TEXTURE_SHADOW_LOD,
+            adapter
+                .private_caps
+                .contains(super::PrivateCapabilities::SHADER_TEXTURE_SHADOW_LOD),
+        );
+        // We always force point size to be written and it will be ignored by the driver if it's not a point list primitive.
+        // https://github.com/gfx-rs/wgpu/pull/3440/files#r1095726950
+        writer_flags.set(glsl::WriterFlags::FORCE_POINT_SIZE, true);
+
+        let naga_options = glsl::Options {
+            version: adapter.shading_language_version,
+            writer_flags,
+            binding_map: Default::default(), // 自己分配槽位
+            zero_initialize_workgroup_memory: true,
+        };
+
+        Ok(Self {
+            group_infos,
+            naga_options,
+        })
     }
 }
 
@@ -57,17 +85,56 @@ impl RenderPipelineImpl {
     pub fn new(
         state: &GLState,
         adapter: &Share<AdapterContext>,
+        device_features: &wgt::Features,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<Self, super::PipelineError> {
         let topology = conv::map_primitive_topology(desc.primitive.topology);
         let alpha_to_coverage_enabled = desc.multisample.alpha_to_coverage_enabled;
 
+        let vs = &desc.vertex;
         let fs = desc.fragment.as_ref().unwrap();
 
-        let program =
-            Self::create_program(&state, adapter, &desc.vertex.module.inner, &fs.module.inner)?;
-
         let layout = desc.layout.as_ref().unwrap().inner.clone();
+
+        {
+            let gl = adapter.lock();
+            let version = gl.version();
+
+            let naga_options = &layout.naga_options;
+
+            vs.module
+                .inner
+                .compile(
+                    naga::ShaderStage::Vertex,
+                    version,
+                    device_features,
+                    &adapter.downlevel,
+                    vs.entry_point.to_string(),
+                    desc.multiview,
+                    naga_options,
+                )
+                .map_err(|e| {
+                    super::PipelineError::Linkage(wgt::ShaderStages::VERTEX, e.to_string())
+                })?;
+
+            fs.module
+                .inner
+                .compile(
+                    naga::ShaderStage::Fragment,
+                    version,
+                    device_features,
+                    &adapter.downlevel,
+                    fs.entry_point.to_string(),
+                    desc.multiview,
+                    naga_options,
+                )
+                .map_err(|e| {
+                    super::PipelineError::Linkage(wgt::ShaderStages::FRAGMENT, e.to_string())
+                })?;
+        }
+
+        let program = Self::create_program(&state, adapter, &vs.module.inner, &fs.module.inner)?;
+
         let layout_reoder = program.reorder(&layout);
 
         let max_vertex_attributes = state.max_attribute_slots();
@@ -106,7 +173,13 @@ impl RenderPipelineImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Program, super::PipelineError> {
-        match state.get_program(&(vs.id, fs.id)) {
+        let vs_inner = vs.imp.as_ref().borrow();
+        let fs_inner = fs.imp.as_ref().borrow();
+
+        let vs_inner = vs_inner.inner.as_ref().unwrap();
+        let fs_inner = fs_inner.inner.as_ref().unwrap();
+
+        match state.get_program(&(vs_inner.id, fs_inner.id)) {
             Some(program) => Ok(program),
             None => {
                 let program = ProgramImpl::new(state.clone(), adapter, vs, fs).unwrap();
@@ -524,8 +597,14 @@ impl ProgramImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
+        let vs_inner = vs.imp.as_ref().borrow();
+        let fs_inner = fs.imp.as_ref().borrow();
+
+        let vs = vs_inner.inner.as_ref().unwrap();
+        let fs = fs_inner.inner.as_ref().unwrap();
+
         assert!(vs.shader_type == glow::VERTEX_SHADER);
-        assert!(fs.shader_type == glow::FRAGMENT_SHADER);
+        assert!(vs.shader_type == glow::FRAGMENT_SHADER);
 
         let gl = adapter.lock();
 

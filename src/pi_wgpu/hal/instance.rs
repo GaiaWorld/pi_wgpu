@@ -1,7 +1,4 @@
-use std::sync::atomic::AtomicUsize;
-
 use bitflags::bitflags;
-use parking_lot::ReentrantMutex;
 use pi_share::Share;
 use thiserror::Error;
 
@@ -113,16 +110,13 @@ impl Instance {
 
         let gl = context.create_glow_context(desc.flags);
 
-        let context = AdapterContext {
-            egl: context,
-            reentrant_count: Share::new(AtomicUsize::new(0)),
-            glow: ReentrantMutex::new(gl),
-        };
-
-        Ok(Instance {
-            flags: desc.flags,
-            context: Share::new(context),
-        })
+        match AdapterContext::new(gl, context) {
+            Some(context) => Ok(Instance {
+                flags: desc.flags,
+                context,
+            }),
+            None => Err(InstanceError),
+        }
     }
 
     // EGL 所谓的 枚举显卡，实际上是 取 系统默认设置的显卡！
