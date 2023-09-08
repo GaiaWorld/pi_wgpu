@@ -171,14 +171,15 @@ impl Instance {
 
         inner.unmake_current();
 
-        Ok(super::Surface {
-            egl: self.context.clone(),
-            config: inner.config,
-            presentable: inner.supports_native_window,
-            raw_window_handle: window_handle,
-            swapchain: None,
-            srgb_kind: inner.srgb_kind,
-        })
+        todo!()
+        // Ok(super::Surface {
+        //     egl: self.context.clone(),
+        //     config: inner.config,
+        //     presentable: inner.supports_native_window,
+        //     raw_window_handle: window_handle,
+        //     swapchain: None,
+        //     srgb_kind: inner.srgb_kind,
+        // })
     }
 }
 
@@ -188,6 +189,8 @@ pub(crate) struct InstanceError;
 
 bitflags!(
     /// Instance initialization flags.
+    #[repr(transparent)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub(crate) struct InstanceFlags: u32 {
         /// Generate debug information in shaders and objects.
         const DEBUG = 1 << 0;

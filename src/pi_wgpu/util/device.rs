@@ -60,16 +60,20 @@ impl DeviceExt for super::super::Device {
 
     fn create_texture_with_data(
         &self,
-        queue: &super::super::Queue,
-        desc: &super::super::TextureDescriptor,
+        queue: &crate::Queue,
+        desc: &crate::TextureDescriptor,
         data: &[u8],
-    ) -> super::super::Texture {
+    ) -> crate::Texture {
         // Implicitly add the COPY_DST usage
         let mut desc = desc.to_owned();
         desc.usage |= crate::TextureUsages::COPY_DST;
         let texture = self.create_texture(&desc);
 
-        let format_info = desc.format.describe();
+        // Will return None only if it's a combined depth-stencil format
+        // If so, default to 4, validation will fail later anyway since the depth or stencil
+        // aspect needs to be written to individually
+        let block_size = desc.format.block_size(None).unwrap_or(4);
+        let (block_width, block_height) = desc.format.block_dimensions();
         let layer_iterations = desc.array_layer_count();
 
         let mut binary_offset = 0;
@@ -88,10 +92,10 @@ impl DeviceExt for super::super::Device {
 
                 // All these calculations are performed on the physical size as that's the
                 // data that exists in the buffer.
-                let width_blocks = mip_physical.width / format_info.block_dimensions.0 as u32;
-                let height_blocks = mip_physical.height / format_info.block_dimensions.1 as u32;
+                let width_blocks = mip_physical.width / block_width;
+                let height_blocks = mip_physical.height / block_height;
 
-                let bytes_per_row = width_blocks * format_info.block_size as u32;
+                let bytes_per_row = width_blocks * block_size;
                 let data_size = bytes_per_row * height_blocks * mip_size.depth_or_array_layers;
 
                 let end_offset = binary_offset + data_size as usize;

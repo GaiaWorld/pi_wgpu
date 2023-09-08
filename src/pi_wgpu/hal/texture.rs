@@ -80,10 +80,12 @@ impl Texture {
             unsafe { gl.bind_texture(target, Some(raw)) };
 
             //Note: this has to be done before defining the storage!
-            match desc.format.describe().sample_type {
-                wgt::TextureSampleType::Float { filterable: false }
-                | wgt::TextureSampleType::Uint
-                | wgt::TextureSampleType::Sint => {
+            match desc.format.sample_type(None) {
+                Some(
+                    wgt::TextureSampleType::Float { filterable: false }
+                    | wgt::TextureSampleType::Uint
+                    | wgt::TextureSampleType::Sint,
+                ) => {
                     // reset default filtering mode
                     unsafe {
                         gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32)
@@ -92,8 +94,7 @@ impl Texture {
                         gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32)
                     };
                 }
-                wgt::TextureSampleType::Float { filterable: true }
-                | wgt::TextureSampleType::Depth => {}
+                _ => {}
             }
 
             if is_3d {
@@ -163,8 +164,6 @@ impl Texture {
 
         let inner = copy.texture.inner.0.as_ref();
 
-        let format_info = inner.format.describe();
-
         let (raw, dst_target, adapter) = match &inner.inner {
             TextureInner::Texture {
                 raw,
@@ -183,7 +182,7 @@ impl Texture {
             gl.bind_texture(dst_target, Some(raw));
         }
 
-        if !format_info.is_compressed() {
+        if !inner.format.is_compressed() {
             let data = glow::PixelUnpackData::Slice(data);
 
             match dst_target {
@@ -386,7 +385,7 @@ impl TextureView {
             array_layers,
 
             format: imp.format,
-            sample_type: imp.format.describe().sample_type,
+            sample_type: imp.format.sample_type(None).unwrap(),
 
             format_desc: imp.format_desc.clone(),
 

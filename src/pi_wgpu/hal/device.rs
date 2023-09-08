@@ -82,7 +82,7 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
-        super::ShaderModule::new(self.state.clone(), &self.adapter, desc)
+        super::ShaderModule::new(self.state.clone(), &self.adapter, &self.features, desc)
     }
 
     #[inline]

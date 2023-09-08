@@ -319,10 +319,9 @@ pass.set_vertex_buffer(vb2)
 + 看 **扩展** 有没有
     - 很多纹理格式: 比如 float 纹理，深度 纹理
     - `VAO`
-    - 几何实例化
-    - 多目标渲染 / drawBuffers
+    - `几何实例化`
+    - 多目标渲染 / drawBuffers clearBuffer
     - 多重采样
-    - ClearBuffer
     - FeedBack
 
 ## 3.2. [微信小游戏: `iOS` 的 `WebGL`](https://developers.weixin.qq.com/minigame/dev/guide/performance/perf-high-performance.html#%E7%AE%80%E4%BB%8B)

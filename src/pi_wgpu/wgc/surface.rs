@@ -24,7 +24,7 @@ impl Surface {
 
         let mut hal_caps = unsafe { adapter.inner.surface_capabilities(&self.inner) }.unwrap();
 
-        hal_caps.formats.sort_by_key(|f| !f.describe().srgb);
+        hal_caps.formats.sort_by_key(|f| !f.is_srgb());
 
         SurfaceCapabilities {
             formats: hal_caps.formats,
@@ -62,7 +62,7 @@ impl Surface {
     /// - A old [`SurfaceTexture`] is still alive referencing an old surface.
     /// - Texture format requested is unsupported on the surface.
     #[inline]
-    pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
+    pub fn configure(&mut self, device: &Device, config: &SurfaceConfiguration) {
         unsafe {
             self.inner.configure(&device.inner, config);
         }
@@ -77,7 +77,7 @@ impl Surface {
     /// If a SurfaceTexture referencing this surface is alive when the swapchain is recreated,
     /// recreating the swapchain will panic.
     #[inline]
-    pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
+    pub fn get_current_texture(&mut self) -> Result<SurfaceTexture, SurfaceError> {
         match unsafe { self.inner.acquire_texture() } {
             Ok(Some(ast)) => {
                 todo!()

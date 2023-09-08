@@ -78,7 +78,7 @@ impl Surface {
                 attributes.push(egl::ATTRIB_NONE as i32);
 
                 #[cfg(not(feature = "emscripten"))]
-                let egl1_5 = self.egl.0.egl.upcast::<egl::EGL1_5>();
+                let egl1_5 = self.egl.instance.upcast::<egl::EGL1_5>();
 
                 #[cfg(feature = "emscripten")]
                 let egl1_5: Option<&Arc<EglInstance>> = Some(&self.egl.instance);
@@ -86,13 +86,12 @@ impl Surface {
                 // Careful, we can still be in 1.4 version even if `upcast` succeeds
                 let raw_result = match egl1_5 {
                     _ => unsafe {
-                        todo!()
-                        // self.egl.0.egl.create_window_surface(
-                        //     self.egl.0.display,
-                        //     self.config,
-                        //     native_window_ptr,
-                        //     Some(&attributes),
-                        // )
+                        self.egl.instance.create_window_surface(
+                            self.egl.display,
+                            self.config,
+                            native_window_ptr,
+                            Some(&attributes),
+                        )
                     },
                 };
 
@@ -107,7 +106,9 @@ impl Surface {
         };
 
         let format_desc = conv::describe_texture_format(config.format);
-        let gl = &device.state.0.borrow().gl;
+
+        let gl = &device.adapter.lock();
+
         let renderbuffer = unsafe { gl.create_renderbuffer() }.unwrap();
         unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer)) };
         unsafe {
@@ -163,7 +164,6 @@ impl Surface {
     ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
         let sc = self.swapchain.as_ref().unwrap();
 
-        
         Ok(Some(super::AcquiredSurfaceTexture {
             texture: todo!(),
             suboptimal: false,

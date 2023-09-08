@@ -129,7 +129,7 @@ impl GLState {
         }
 
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
-            let imp = &mut self.imp.borrow();
+            let imp = &mut self.imp.borrow_mut();
             if let Some(ib) = imp.index_buffer.as_ref() {
                 if ib.raw == buffer {
                     imp.index_buffer = None;

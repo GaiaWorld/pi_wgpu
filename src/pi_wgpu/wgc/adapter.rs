@@ -143,8 +143,8 @@ impl Adapter {
 
         let mut flags = wgt::TextureFormatFeatureFlags::empty();
         flags.set(
-            wgt::TextureFormatFeatureFlags::STORAGE_ATOMICS,
-            caps.contains(Tfc::STORAGE_ATOMIC),
+            wgt::TextureFormatFeatureFlags::BLENDABLE,
+            caps.contains(Tfc::COLOR_ATTACHMENT_BLEND),
         );
         flags.set(
             wgt::TextureFormatFeatureFlags::STORAGE_READ_WRITE,
