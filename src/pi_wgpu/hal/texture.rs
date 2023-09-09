@@ -14,7 +14,7 @@ pub(crate) struct Texture(pub(crate) Share<TextureImpl>);
 impl Texture {
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         desc: &super::super::TextureDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::Texture::new");
@@ -33,7 +33,8 @@ impl Texture {
             depth: 1,
         };
 
-        let gl = adapter.lock();
+        let gl = adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         let (inner, is_cubemap) = if render_usage.contains(usage)
             && desc.dimension == wgt::TextureDimension::D2
             && desc.size.depth_or_array_layers == 1
@@ -176,7 +177,8 @@ impl Texture {
 
         let format_desc = &inner.format_desc;
 
-        let gl = adapter.lock();
+        let gl = adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         unsafe {
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
@@ -395,7 +397,7 @@ impl TextureView {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TextureImpl {
     pub inner: TextureInner,
 
@@ -410,19 +412,19 @@ pub(crate) struct TextureImpl {
     pub is_cubemap: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum TextureInner {
     DefaultRenderbuffer,
 
     Renderbuffer {
         state: GLState,
-        adapter: Share<AdapterContext>,
+        adapter: AdapterContext,
         raw: glow::Renderbuffer,
     },
 
     Texture {
         state: GLState,
-        adapter: Share<AdapterContext>,
+        adapter: AdapterContext,
 
         raw: glow::Texture,
         target: super::BindTarget,
@@ -439,7 +441,8 @@ impl Drop for TextureInner {
                 ref state,
                 ref raw,
             } => {
-                let gl = adapter.lock();
+                let gl = adapter.imp.as_ref().borrow();
+                let gl = gl.lock();
                 unsafe {
                     gl.delete_renderbuffer(*raw);
                 }
@@ -451,7 +454,8 @@ impl Drop for TextureInner {
                 ref raw,
                 ..
             } => {
-                let gl = adapter.lock();
+                let gl = adapter.imp.as_ref().borrow();
+                let gl = gl.lock();
                 unsafe {
                     gl.delete_texture(*raw);
                 }

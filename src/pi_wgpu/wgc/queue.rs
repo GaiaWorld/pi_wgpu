@@ -21,7 +21,8 @@ impl Queue {
     ///
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        let gl = self.inner.adapter.lock();
+        let gl = self.inner.adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         buffer.inner.write_buffer(&gl, offset as i32, data);
     }
 

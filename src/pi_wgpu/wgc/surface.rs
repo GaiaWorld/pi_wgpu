@@ -75,16 +75,15 @@ impl Surface {
     #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
         match self.inner.acquire_texture() {
-            Ok(Some(ast)) => {
-                todo!()
-                // Ok(SurfaceTexture {
-                //     texture: crate::Texture { inner: ast.texture },
-                //     suboptimal: ast.suboptimal,
-                //     presented: true,
-                // })
+            None => Err(SurfaceError::Lost),
+            Some(inner) => {
+                let texture = crate::Texture::into_surface_texture(inner);
+                Ok(SurfaceTexture {
+                    texture,
+                    suboptimal: true,
+                    presented: true,
+                })
             }
-            Ok(None) => Err(SurfaceError::Timeout),
-            Err(err) => Err(err),
         }
     }
 }
@@ -103,7 +102,7 @@ pub struct SurfaceTexture {
     /// but should be recreated for maximum performance.
     pub suboptimal: bool,
 
-    presented: bool,
+    pub(crate) presented: bool,
 }
 
 impl SurfaceTexture {
@@ -144,9 +143,7 @@ impl std::error::Error for SurfaceError {}
 /// [`Instance::create_surface()`] or a related function failed.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
-pub struct CreateSurfaceError {
-    // TODO: Report diagnostic clues
-}
+pub struct CreateSurfaceError {}
 
 impl std::fmt::Display for CreateSurfaceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

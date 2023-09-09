@@ -2,8 +2,12 @@ use glow::HasContext;
 use pi_share::{Share, ShareCell};
 use thiserror::Error;
 
-use super::super::{wgt, DeviceError, MissingDownlevelFlags};
-use super::{gl_conv as conv, EglContext, SrgbFrameBufferKind, TextureFormatDesc};
+use crate::SurfaceTexture;
+
+use super::{
+    super::{wgt, DeviceError, MissingDownlevelFlags},
+    gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
+};
 
 #[derive(Debug)]
 pub(crate) struct Surface {
@@ -12,8 +16,18 @@ pub(crate) struct Surface {
 
 impl Surface {
     #[inline]
+    pub(crate) fn new(
+        adapter: AdapterContext,
+        window_handle: raw_window_handle::RawWindowHandle,
+    ) -> Result<Self, super::InstanceError> {
+        SurfaceImpl::new(adapter, window_handle).map(|imp| Self {
+            imp: Share::new(ShareCell::new(imp)),
+        })
+    }
+
+    #[inline]
     pub(crate) fn get_presentable(&self) -> bool {
-        self.imp.as_ref().borrow().presentable
+        todo!()
     }
 
     #[inline]
@@ -26,9 +40,7 @@ impl Surface {
     }
 
     #[inline]
-    pub(crate) fn acquire_texture(
-        &self,
-    ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
+    pub(crate) fn acquire_texture(&self) -> Option<super::Texture> {
         self.imp.as_ref().borrow_mut().acquire_texture()
     }
 
@@ -40,187 +52,164 @@ impl Surface {
 
 #[derive(Debug)]
 struct SurfaceImpl {
-    egl: EglContext,
-    config: egl::Config,
-    presentable: bool,
-    raw_window_handle: raw_window_handle::RawWindowHandle,
-    swapchain: Option<Swapchain>,
-    srgb_kind: SrgbFrameBufferKind,
+    raw: egl::Surface,
+    adapter: AdapterContext,
+
+    // 永远握住这个
+    swapchain_impl: super::TextureImpl,
+
+    // 当 present 之后，这里就会有新的值，供acquire_texture取
+    swapchain: Option<super::Texture>,
+}
+
+impl Drop for SurfaceImpl {
+    fn drop(&mut self) {
+        self.adapter.remove_surface(self.raw);
+
+        let egl = self.adapter.egl_ref();
+        egl.instance.destroy_surface(egl.display, self.raw);
+    }
 }
 
 unsafe impl Sync for SurfaceImpl {}
 unsafe impl Send for SurfaceImpl {}
 
 impl SurfaceImpl {
-    // config = &SurfaceConfiguration {
-    //     usage: TextureUsages::RENDER_ATTACHMENT,
-    //     format: TextureFormat::Bgra8Unorm 或  TextureFormat::Bgra8UnormSrgb,
-    //     width: 交换链宽, 和 surface 宽 一样,
-    //     height: 交换链高, 和 surface 高 一样,
-    //     present_mode: PresentMode::Fifo,
-    //     alpha_mode: CompositeAlphaMode,
-    //     view_formats: Vec<TextureFormat>,
-    // };
+    fn new(
+        adapter: AdapterContext,
+        window_handle: raw_window_handle::RawWindowHandle,
+    ) -> Result<Self, super::InstanceError> {
+        use raw_window_handle::RawWindowHandle as Rwh;
+
+        #[allow(trivial_casts)]
+        let native_window_ptr = match window_handle {
+            Rwh::Win32(handle) => handle.hwnd,
+            Rwh::AndroidNdk(handle) => handle.a_native_window,
+            #[cfg(feature = "emscripten")]
+            Rwh::Web(handle) => handle.id as *mut std::ffi::c_void,
+            _ => {
+                log::error!(
+                    "Initialized platform doesn't work with window {:?}",
+                    window_handle
+                );
+                return Err(super::InstanceError);
+            }
+        };
+
+        let mut attributes = vec![
+            egl::RENDER_BUFFER,
+            // We don't want any of the buffering done by the driver, because we
+            // manage a swapchain on our side.
+            // Some drivers just fail on surface creation seeing `EGL_SINGLE_BUFFER`.
+            if cfg!(target_os = "android") || cfg!(windows) {
+                egl::BACK_BUFFER
+            } else {
+                egl::SINGLE_BUFFER
+            },
+        ];
+
+        match adapter.egl_srgb_support() {
+            SrgbFrameBufferKind::None => {}
+            SrgbFrameBufferKind::Core => {
+                attributes.push(egl::GL_COLORSPACE);
+                attributes.push(egl::GL_COLORSPACE_SRGB);
+            }
+            SrgbFrameBufferKind::Khr => {
+                attributes.push(super::EGL_GL_COLORSPACE_KHR as i32);
+                attributes.push(super::EGL_GL_COLORSPACE_SRGB_KHR as i32);
+            }
+        }
+        attributes.push(egl::ATTRIB_NONE as i32);
+
+        let raw = {
+            let inner = adapter.egl_ref();
+
+            #[cfg(not(feature = "emscripten"))]
+            let egl1_5 = inner.instance.upcast::<egl::EGL1_5>();
+
+            #[cfg(feature = "emscripten")]
+            let egl1_5: Option<&Arc<EglInstance>> = Some(&inner.instance);
+
+            unsafe {
+                inner
+                    .instance
+                    .create_window_surface(
+                        inner.display,
+                        inner.config.clone(),
+                        native_window_ptr,
+                        Some(&attributes),
+                    )
+                    .map_err(|_| super::InstanceError)?
+            }
+        };
+
+        Ok(Self {
+            raw,
+            adapter,
+            swapchain: None,
+            swapchain_impl: Self::default_swapchain(),
+        })
+    }
+
     fn configure(
         &mut self,
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        use raw_window_handle::RawWindowHandle as Rwh;
+        device.adapter.set_sruface(Some(self.raw));
 
-        let surface = match unsafe { self.unconfigure_impl(device) } {
-            Some(surface) => surface,
-            None => {
-                #[allow(trivial_casts)]
-                let native_window_ptr = match self.raw_window_handle {
-                    Rwh::Win32(handle) => handle.hwnd,
-                    Rwh::AndroidNdk(handle) => handle.a_native_window,
-                    #[cfg(feature = "emscripten")]
-                    Rwh::Web(handle) => handle.id as *mut std::ffi::c_void,
-                    _ => {
-                        log::error!(
-                            "Initialized platform doesn't work with window {:?}",
-                            self.raw_window_handle
-                        );
-                        return Err(super::SurfaceError::Other("incompatible window kind"));
-                    }
-                };
+        let sc = &mut self.swapchain_impl;
+        sc.format = config.format;
+        sc.format_desc = conv::describe_texture_format(config.format);
 
-                let mut attributes = vec![
-                    egl::RENDER_BUFFER,
-                    // We don't want any of the buffering done by the driver, because we
-                    // manage a swapchain on our side.
-                    // Some drivers just fail on surface creation seeing `EGL_SINGLE_BUFFER`.
-                    if cfg!(target_os = "android") || cfg!(windows) {
-                        egl::BACK_BUFFER
-                    } else {
-                        egl::SINGLE_BUFFER
-                    },
-                ];
-
-                match self.srgb_kind {
-                    SrgbFrameBufferKind::None => {}
-                    SrgbFrameBufferKind::Core => {
-                        attributes.push(egl::GL_COLORSPACE);
-                        attributes.push(egl::GL_COLORSPACE_SRGB);
-                    }
-                    SrgbFrameBufferKind::Khr => {
-                        attributes.push(super::EGL_GL_COLORSPACE_KHR as i32);
-                        attributes.push(super::EGL_GL_COLORSPACE_SRGB_KHR as i32);
-                    }
-                }
-                attributes.push(egl::ATTRIB_NONE as i32);
-
-                #[cfg(not(feature = "emscripten"))]
-                let egl1_5 = self.egl.instance.upcast::<egl::EGL1_5>();
-
-                #[cfg(feature = "emscripten")]
-                let egl1_5: Option<&Arc<EglInstance>> = Some(&self.egl.instance);
-
-                // Careful, we can still be in 1.4 version even if `upcast` succeeds
-                let raw_result = match egl1_5 {
-                    _ => unsafe {
-                        self.egl.instance.create_window_surface(
-                            self.egl.display,
-                            self.config,
-                            native_window_ptr,
-                            Some(&attributes),
-                        )
-                    },
-                };
-
-                match raw_result {
-                    Ok(raw) => raw,
-                    Err(e) => {
-                        log::warn!("Error in create_window_surface: {:?}", e);
-                        return Err(super::SurfaceError::Lost);
-                    }
-                }
-            }
-        };
-
-        let format_desc = conv::describe_texture_format(config.format);
-
-        let gl = &device.adapter.lock();
-
-        let renderbuffer = unsafe { gl.create_renderbuffer() }.unwrap();
-        unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer)) };
-        unsafe {
-            gl.renderbuffer_storage(
-                glow::RENDERBUFFER,
-                format_desc.internal,
-                config.width as _,
-                config.height as _,
-            )
-        };
-
-        let framebuffer = unsafe { gl.create_framebuffer() }.unwrap();
-        unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(framebuffer)) };
-        unsafe {
-            gl.framebuffer_renderbuffer(
-                glow::READ_FRAMEBUFFER,
-                glow::COLOR_ATTACHMENT0,
-                glow::RENDERBUFFER,
-                Some(renderbuffer),
-            )
-        };
-        unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, None) };
-        unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None) };
-
-        self.swapchain = Some(Swapchain {
-            surface,
-            extent: wgt::Extent3d {
-                width: config.width,
-                height: config.height,
-                depth_or_array_layers: 1,
-            },
-            format: config.format,
-            format_desc,
-            sample_type: wgt::TextureSampleType::Float { filterable: false },
-        });
+        let size = &mut sc.copy_size;
+        size.width = config.width;
+        size.height = config.height;
 
         Ok(())
     }
 
-    fn acquire_texture(
-        &mut self,
-    ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
-        let sc = self.swapchain.as_ref().unwrap();
-
-        Ok(Some(super::AcquiredSurfaceTexture {
-            texture: todo!(),
-            suboptimal: false,
-        }))
+    #[inline]
+    fn acquire_texture(&mut self) -> Option<super::Texture> {
+        self.swapchain.take()
     }
 }
 
 impl SurfaceImpl {
     #[inline]
-    fn supports_srgb(&self) -> bool {
-        match self.srgb_kind {
-            SrgbFrameBufferKind::None => false,
-            _ => true,
+    fn update_swapchain(&mut self) {
+        let imp = self.swapchain_impl.clone();
+
+        self.swapchain = Some(super::Texture(Share::new(imp)));
+    }
+
+    #[inline]
+    fn default_swapchain() -> super::TextureImpl {
+        let format = wgt::TextureFormat::Rgba8Unorm;
+        let format_desc = conv::describe_texture_format(format);
+
+        super::TextureImpl {
+            inner: super::TextureInner::DefaultRenderbuffer,
+            array_layer_count: 1,
+            mip_level_count: 1,
+            format,
+            format_desc,
+            copy_size: super::CopyExtent {
+                width: 1,
+                height: 1,
+                depth: 1,
+            },
+            is_cubemap: false,
         }
     }
 
     #[inline]
-    fn unconfigure_impl(&mut self, device: &super::Device) -> Option<egl::Surface> {
-        self.swapchain.take().map(|sc| sc.surface)
+    fn supports_srgb(&self) -> bool {
+        match self.adapter.egl_srgb_support() {
+            SrgbFrameBufferKind::None => false,
+            _ => true,
+        }
     }
-}
-
-#[derive(Debug)]
-pub(crate) struct Swapchain {
-    surface: egl::Surface,
-
-    /// Extent because the window lies
-    extent: wgt::Extent3d,
-    format: wgt::TextureFormat,
-
-    format_desc: TextureFormatDesc,
-
-    #[allow(unused)]
-    sample_type: wgt::TextureSampleType,
 }
 
 #[derive(Clone, Debug, Error)]

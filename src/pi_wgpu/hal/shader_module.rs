@@ -23,7 +23,7 @@ impl ShaderModule {
     #[inline]
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         desc: &ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
         let module = ShaderModuleImpl::new(state, adapter, desc)?;
@@ -62,7 +62,7 @@ impl ShaderModule {
 #[derive(Debug)]
 pub(crate) struct ShaderModuleImpl {
     pub(crate) state: GLState,
-    pub(crate) adapter: Share<AdapterContext>,
+    pub(crate) adapter: AdapterContext,
 
     pub(crate) input: Option<ShaderInput>,
     pub(crate) inner: Option<ShaderInner>,
@@ -72,7 +72,8 @@ impl Drop for ShaderModuleImpl {
     #[inline]
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_ref() {
-            let gl = self.adapter.lock();
+            let gl = self.adapter.imp.as_ref().borrow();
+            let gl = gl.lock();
             unsafe {
                 gl.delete_shader(inner.raw);
             }
@@ -84,7 +85,7 @@ impl ShaderModuleImpl {
     #[inline]
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         desc: &ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
         Ok(Self {
@@ -168,7 +169,8 @@ impl ShaderModuleImpl {
         };
 
         let raw = {
-            let gl = self.adapter.lock();
+            let gl = self.adapter.imp.as_ref().borrow();
+            let gl = gl.lock();
             compile_gl_shader(&gl, gl_str.as_ref(), shader_type)?
         };
 

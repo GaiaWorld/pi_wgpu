@@ -9,10 +9,11 @@ pub(crate) struct Sampler(pub(crate) Share<SamplerImpl>);
 impl Sampler {
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         desc: &super::super::SamplerDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
-        let gl = adapter.lock();
+        let gl = adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
 
         let raw = unsafe { gl.create_sampler().unwrap() };
 
@@ -78,13 +79,14 @@ pub(crate) struct SamplerImpl {
     pub(crate) raw: glow::Sampler,
 
     pub(crate) state: GLState,
-    pub(crate) adapter: Share<AdapterContext>,
+    pub(crate) adapter: AdapterContext,
 }
 
 impl Drop for SamplerImpl {
     #[inline]
     fn drop(&mut self) {
-        let gl = self.adapter.lock();
+        let gl = self.adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
 
         unsafe {
             gl.delete_sampler(self.raw);

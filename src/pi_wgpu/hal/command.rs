@@ -16,22 +16,20 @@
 //! + draw / draw_indexed
 //!
 
-use pi_share::Share;
-
 use super::super::wgt;
 use super::{AdapterContext, AdapterContextLock, GLState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CommandEncoder {
     state: GLState,
-    adapter: Share<AdapterContext>,
+    adapter: AdapterContext,
 }
 
 impl CommandEncoder {
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
-        desc: &super::super::CommandEncoderDescriptor,
+        adapter: &AdapterContext,
+        _desc: &super::super::CommandEncoderDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         Ok(Self {
             state,
@@ -46,7 +44,8 @@ impl CommandEncoder {
         &'a self,
         desc: &super::super::RenderPassDescriptor,
     ) -> AdapterContextLock<'a> {
-        let gl = self.adapter.lock();
+        let gl = self.adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         self.state.set_render_target(&gl, desc);
         gl
     }
@@ -66,11 +65,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) fn set_render_pipeline(
-        &self,
-        gl: &glow::Context,
-        pipeline: &super::RenderPipeline,
-    ) {
+    pub(crate) fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         self.state.set_render_pipeline(gl, pipeline);
     }
 
@@ -123,14 +118,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) fn set_scissor_rect(
-        &self,
-        gl: &glow::Context,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-    ) {
+    pub(crate) fn set_scissor_rect(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         self.state.set_scissor(gl, x, y, w, h);
     }
 

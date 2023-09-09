@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use super::super::{
     hal, Extent3d, Label, TextureAspect, TextureDimension, TextureFormat, TextureUsages,
     TextureViewDimension,
@@ -21,6 +23,28 @@ pub struct Texture {
 }
 
 impl Texture {
+    #[inline]
+    pub(crate) fn into_surface_texture(inner: super::super::hal::Texture) -> Self {
+        let imp = inner.0.as_ref();
+
+        let format_impl = imp.format;
+        let size_impl = Extent3d {
+            width: imp.copy_size.width,
+            height: imp.copy_size.height,
+            depth_or_array_layers: 1,
+        };
+
+        Self {
+            inner,
+            size_impl,
+            format_impl,
+            sample_count_impl: 1,
+            mip_level_count_impl: 1,
+            dimension_impl: TextureDimension::D2,
+            usage_impl: TextureUsages::RENDER_ATTACHMENT,
+        }
+    }
+
     #[inline]
     pub(crate) fn from_hal(
         inner: super::super::hal::Texture,

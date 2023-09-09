@@ -1,5 +1,4 @@
 use glow::HasContext;
-use pi_share::Share;
 
 use super::{
     super::{wgt, AstcChannel},
@@ -8,18 +7,18 @@ use super::{
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
-    pub(crate) context: Share<AdapterContext>,
+    pub(crate) context: AdapterContext,
 }
 
 impl Adapter {
     // 枚举 gl 环境的 特性
     pub(crate) fn expose(
-        context: Share<AdapterContext>,
+        context: AdapterContext,
     ) -> Option<super::super::ExposedAdapter<super::GL>> {
-        let info = context.info.clone();
-        let features = context.features.clone();
-        let limits = context.limits.clone();
-        let downlevel = context.downlevel.clone();
+        let info = context.info().clone();
+        let features = context.features().clone();
+        let limits = context.limits().clone();
+        let downlevel = context.downlevel().clone();
 
         let adapter = super::Adapter { context };
 
@@ -38,13 +37,14 @@ impl Adapter {
         _limits: &wgt::Limits,
     ) -> Result<super::OpenDevice<super::GL>, super::super::DeviceError> {
         // Verify all features were exposed by the adapter
-        if !self.context.features.contains(features) {
+        if !self.context.features().contains(features) {
             return Err(super::super::DeviceError::UnsupportedFeature(
-                features - self.context.features,
+                features - self.context.features(),
             ));
         }
 
-        let gl = &self.context.lock();
+        let gl = &self.context.imp.as_ref().borrow();
+        let gl = gl.lock();
 
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
@@ -57,8 +57,8 @@ impl Adapter {
                 adapter: self.context.clone(),
 
                 features,
-                limits: self.context.limits.clone(),
-                downlevel: self.context.downlevel.clone(),
+                limits: self.context.limits().clone(),
+                downlevel: self.context.downlevel().clone(),
             },
             queue: super::Queue {
                 state,
@@ -76,7 +76,14 @@ impl Adapter {
         use wgt::TextureFormat as Tf;
 
         let sample_count = {
-            let max_samples = unsafe { self.context.lock().get_parameter_i32(glow::MAX_SAMPLES) };
+            let max_samples = unsafe {
+                self.context
+                    .imp
+                    .as_ref()
+                    .borrow()
+                    .lock()
+                    .get_parameter_i32(glow::MAX_SAMPLES)
+            };
             if max_samples >= 8 {
                 Tfc::MULTISAMPLE_X2 | Tfc::MULTISAMPLE_X4 | Tfc::MULTISAMPLE_X8
             } else if max_samples >= 4 {
@@ -101,7 +108,7 @@ impl Adapter {
         let storage = base | Tfc::STORAGE | Tfc::STORAGE_READ_WRITE;
 
         let feature_fn = |f, caps| {
-            if self.context.features.contains(f) {
+            if self.context.features().contains(f) {
                 caps
             } else {
                 empty
@@ -114,7 +121,7 @@ impl Adapter {
         let astc_hdr_features = feature_fn(wgt::Features::TEXTURE_COMPRESSION_ASTC_HDR, filterable);
 
         let private_caps_fn = |f, caps| {
-            if self.context.private_caps.contains(f) {
+            if self.context.private_caps().contains(f) {
                 caps
             } else {
                 empty
@@ -244,7 +251,7 @@ impl Adapter {
             }
             if self
                 .context
-                .private_caps
+                .private_caps()
                 .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
             {
                 formats.push(wgt::TextureFormat::Rgba16Float)
@@ -261,8 +268,8 @@ impl Adapter {
                     height: 4,
                     depth_or_array_layers: 1,
                 }..=wgt::Extent3d {
-                    width: self.context.max_texture_size,
-                    height: self.context.max_texture_size,
+                    width: self.context.max_texture_size(),
+                    height: self.context.max_texture_size(),
                     depth_or_array_layers: 1,
                 },
                 usage: super::TextureUses::COLOR_TARGET,

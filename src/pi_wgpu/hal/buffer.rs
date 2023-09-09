@@ -11,7 +11,7 @@ pub(crate) struct Buffer(pub(crate) Share<BufferImpl>);
 impl Buffer {
     pub fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         desc: &super::super::BufferDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::Buffer::new");
@@ -29,7 +29,8 @@ impl Buffer {
         let size = desc.size as i32;
 
         let raw = {
-            let gl = adapter.lock();
+            let gl = adapter.imp.as_ref().borrow();
+            let gl = gl.lock();
             unsafe { gl.create_buffer().unwrap() }
         };
 
@@ -42,7 +43,8 @@ impl Buffer {
             size,
         };
 
-        let gl = adapter.lock();
+        let gl = adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         imp.state.set_buffer_size(&gl, &imp, size);
 
         Ok(Self(Share::new(imp)))
@@ -60,7 +62,7 @@ impl Buffer {
 #[derive(Debug)]
 pub(crate) struct BufferImpl {
     pub(crate) state: GLState,
-    pub(crate) adapter: Share<AdapterContext>,
+    pub(crate) adapter: AdapterContext,
 
     pub(crate) raw: glow::Buffer,
     pub(crate) gl_target: BindTarget, // glow::ARRAY_BUFFER, glow::ELEMENT_ARRAY_BUFFER
@@ -72,7 +74,8 @@ pub(crate) struct BufferImpl {
 impl Drop for BufferImpl {
     #[inline]
     fn drop(&mut self) {
-        let gl = self.adapter.lock();
+        let gl = self.adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
         unsafe {
             gl.delete_buffer(self.raw);
         }

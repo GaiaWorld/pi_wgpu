@@ -39,7 +39,7 @@ impl PipelineLayout {
         writer_flags.set(
             glsl::WriterFlags::TEXTURE_SHADOW_LOD,
             adapter
-                .private_caps
+                .private_caps()
                 .contains(super::PrivateCapabilities::SHADER_TEXTURE_SHADOW_LOD),
         );
         // We always force point size to be written and it will be ignored by the driver if it's not a point list primitive.
@@ -47,7 +47,7 @@ impl PipelineLayout {
         writer_flags.set(glsl::WriterFlags::FORCE_POINT_SIZE, true);
 
         let naga_options = glsl::Options {
-            version: adapter.shading_language_version,
+            version: adapter.shading_language_version(),
             writer_flags,
             binding_map: Default::default(), // 自己分配槽位
             zero_initialize_workgroup_memory: true,
@@ -84,7 +84,7 @@ pub(crate) struct RenderPipelineImpl {
 impl RenderPipelineImpl {
     pub fn new(
         state: &GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         device_features: &wgt::Features,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<Self, super::PipelineError> {
@@ -97,7 +97,8 @@ impl RenderPipelineImpl {
         let layout = desc.layout.as_ref().unwrap().inner.clone();
 
         {
-            let gl = adapter.lock();
+            let gl = adapter.imp.as_ref().borrow();
+            let gl = gl.lock();
             let version = gl.version();
 
             let naga_options = &layout.naga_options;
@@ -108,7 +109,7 @@ impl RenderPipelineImpl {
                     naga::ShaderStage::Vertex,
                     version,
                     device_features,
-                    &adapter.downlevel,
+                    &adapter.downlevel(),
                     vs.entry_point.to_string(),
                     desc.multiview,
                     naga_options,
@@ -123,7 +124,7 @@ impl RenderPipelineImpl {
                     naga::ShaderStage::Fragment,
                     version,
                     device_features,
-                    &adapter.downlevel,
+                    &adapter.downlevel(),
                     fs.entry_point.to_string(),
                     desc.multiview,
                     naga_options,
@@ -169,7 +170,7 @@ impl RenderPipelineImpl {
 impl RenderPipelineImpl {
     fn create_program(
         state: &GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Program, super::PipelineError> {
@@ -569,7 +570,7 @@ pub(crate) struct ProgramImpl {
 
     pub(crate) raw: glow::Program,
     pub(crate) state: GLState,
-    pub(crate) adapter: Share<AdapterContext>,
+    pub(crate) adapter: AdapterContext,
 
     pub(crate) buffer_binding_count: u32,
     pub(crate) sampler_binding_count: u32,
@@ -581,7 +582,8 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        let gl = self.adapter.lock();
+        let gl = self.adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
 
         unsafe {
             gl.delete_program(self.raw);
@@ -593,7 +595,7 @@ impl Drop for ProgramImpl {
 impl ProgramImpl {
     fn new(
         state: GLState,
-        adapter: &Share<AdapterContext>,
+        adapter: &AdapterContext,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
@@ -606,7 +608,8 @@ impl ProgramImpl {
         assert!(vs.shader_type == glow::VERTEX_SHADER);
         assert!(vs.shader_type == glow::FRAGMENT_SHADER);
 
-        let gl = adapter.lock();
+        let gl = adapter.imp.as_ref().borrow();
+        let gl = gl.lock();
 
         let raw = unsafe {
             let raw = gl.create_program().unwrap();

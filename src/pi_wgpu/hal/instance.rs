@@ -1,15 +1,17 @@
 use bitflags::bitflags;
-use pi_share::Share;
 use thiserror::Error;
 
-use crate::pi_wgpu::hal::AdapterContext;
-
-use super::super::{hal::egl_debug_proc, wgt};
-use super::egl_impl::EglContext;
+use super::{
+    super::{
+        hal::{egl_debug_proc, AdapterContext},
+        wgt,
+    },
+    egl_impl::EglContext,
+};
 
 #[derive(Debug)]
 pub(crate) struct Instance {
-    context: Share<AdapterContext>,
+    context: AdapterContext,
     flags: InstanceFlags,
 }
 
@@ -123,57 +125,17 @@ impl Instance {
     // 这里的迭代器，只返回一个值
     #[inline]
     pub(crate) fn enumerate_adapters(&self) -> Vec<super::super::ExposedAdapter<super::GL>> {
-        unsafe { super::Adapter::expose(self.context.clone()) }
+        super::Adapter::expose(self.context.clone())
             .into_iter()
             .collect()
     }
 
     pub(crate) fn create_surface(
         &self,
-        display_handle: raw_window_handle::RawDisplayHandle,
+        _display_handle: raw_window_handle::RawDisplayHandle,
         window_handle: raw_window_handle::RawWindowHandle,
     ) -> Result<super::Surface, super::InstanceError> {
-        use raw_window_handle::RawWindowHandle as Rwh;
-
-        let inner = self.context.egl_ref();
-
-        match (window_handle, display_handle) {
-            (Rwh::Win32(_), _) => {}
-            #[cfg(target_os = "android")]
-            (Rwh::AndroidNdk(handle), _) => {
-                let format = inner
-                    .instance
-                    .get_config_attrib(inner.display, inner.config, egl::NATIVE_VISUAL_ID)
-                    .unwrap();
-
-                let ret = unsafe {
-                    ANativeWindow_setBuffersGeometry(handle.a_native_window, 0, 0, format)
-                };
-
-                if ret != 0 {
-                    log::error!("Error returned from ANativeWindow_setBuffersGeometry");
-                    return Err(crate::InstanceError);
-                }
-            }
-            #[cfg(feature = "emscripten")]
-            (Rwh::Web(_), _) => {}
-            other => {
-                log::error!("Unsupported window: {:?}", other);
-                return Err(super::InstanceError);
-            }
-        };
-
-        inner.unmake_current();
-
-        todo!()
-        // Ok(super::Surface {
-        //     egl: self.context.clone(),
-        //     config: inner.config,
-        //     presentable: inner.supports_native_window,
-        //     raw_window_handle: window_handle,
-        //     swapchain: None,
-        //     srgb_kind: inner.srgb_kind,
-        // })
+        super::Surface::new(self.context.clone(), window_handle)
     }
 }
 
