@@ -44,8 +44,7 @@ impl CommandEncoder {
         &'a self,
         desc: &super::super::RenderPassDescriptor,
     ) -> AdapterContextLock<'a> {
-        let gl = self.adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = self.adapter.lock();
         self.state.set_render_target(&gl, desc);
         gl
     }

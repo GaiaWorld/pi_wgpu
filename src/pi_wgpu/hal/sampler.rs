@@ -12,8 +12,7 @@ impl Sampler {
         adapter: &AdapterContext,
         desc: &super::super::SamplerDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
-        let gl = adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = adapter.lock();
 
         let raw = unsafe { gl.create_sampler().unwrap() };
 
@@ -85,8 +84,7 @@ pub(crate) struct SamplerImpl {
 impl Drop for SamplerImpl {
     #[inline]
     fn drop(&mut self) {
-        let gl = self.adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = self.adapter.lock();
 
         unsafe {
             gl.delete_sampler(self.raw);

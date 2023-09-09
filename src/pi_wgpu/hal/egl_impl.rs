@@ -8,7 +8,7 @@ use std::{
 
 use glow::HasContext;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
-use pi_share::{cell::Ref, Share, ShareCell};
+use pi_share::{Share, ShareCell};
 
 use super::{
     db, InstanceError, PrivateCapabilities, SrgbFrameBufferKind, Workarounds, VALIDATION_CANARY,
@@ -93,8 +93,7 @@ pub(crate) type EGLDEBUGPROCKHR = Option<
 pub(crate) struct EglContext {
     pub(crate) instance: EglInstance,
 
-    pub(crate) egl_surface: Option<egl::Surface>, // 外部设置的egl表面
-    pub(crate) raw: egl::Context,                 // gl-上下文，用来 运行 gl-函数
+    pub(crate) raw: egl::Context, // gl-上下文，用来 运行 gl-函数
     pub(crate) config: egl::Config,
     pub(crate) display: egl::Display,
     pub(crate) version: (i32, i32), // EGL 版本, (1, 5) 或者 (1, 4)
@@ -238,7 +237,6 @@ impl EglContext {
 
         Ok(Self {
             config,
-            egl_surface: None,
             instance: egl,
             display,
             raw,
@@ -247,30 +245,11 @@ impl EglContext {
         })
     }
 
-    #[inline]
-    pub(crate) fn remove_surface(&mut self, surface: egl::Surface) {
-        if let Some(s) = self.egl_surface.as_ref() {
-            if *s == surface {
-                self.egl_surface = None
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn set_egl_surface(&mut self, surface: Option<egl::Surface>) {
-        self.egl_surface = surface;
-    }
-
     pub(crate) fn create_glow_context(&self, flags: super::InstanceFlags) -> glow::Context {
         // =========== 1. 让当前的 Surface 起作用
 
         self.instance
-            .make_current(
-                self.display,
-                self.egl_surface,
-                self.egl_surface,
-                Some(self.raw),
-            )
+            .make_current(self.display, None, None, Some(self.raw))
             .unwrap();
 
         // =========== 2. 取 glow 环境
@@ -303,14 +282,9 @@ impl EglContext {
 }
 
 impl EglContext {
-    pub(crate) fn make_current(&self) {
+    pub(crate) fn make_current(&self, surface: Option<egl::Surface>) {
         self.instance
-            .make_current(
-                self.display,
-                self.egl_surface,
-                self.egl_surface,
-                Some(self.raw),
-            )
+            .make_current(self.display, surface, surface, Some(self.raw))
             .unwrap();
     }
 
@@ -326,126 +300,6 @@ pub(crate) type EglInstance = egl::DynamicInstance<egl::EGL1_4>;
 
 #[cfg(feature = "emscripten")]
 type EglInstance = egl::Instance<egl::Static>;
-
-/// A wrapper around a [`glow::Context`] and the required EGL context that uses locking to guarantee
-/// exclusive access when shared with multiple threads.
-#[derive(Debug, Clone)]
-pub(crate) struct AdapterContext {
-    pub(crate) imp: Share<ShareCell<AdapterContextImpl>>,
-}
-
-impl AdapterContext {
-    #[inline]
-    pub(crate) fn new(gl: glow::Context, context: EglContext) -> Option<Self> {
-        AdapterContextImpl::new(gl, context).map(|imp| Self {
-            imp: Share::new(ShareCell::new(imp)),
-        })
-    }
-
-    /// 供 surface.configure 设置表面
-    /// 当参数为 None 时候，移除设置的表面
-    #[inline]
-    pub(crate) fn set_sruface(&self, surface: Option<egl::Surface>) {
-        self.imp.borrow_mut().egl.set_egl_surface(surface)
-    }
-
-    #[inline]
-    pub(crate) fn remove_surface(&self, surface: egl::Surface) {
-        self.imp.borrow_mut().egl.remove_surface(surface)
-    }
-
-    #[inline]
-    pub(crate) fn egl_ref(&self) -> Ref<'_, EglContext> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.egl);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn egl_instance(&self) -> Ref<'_, EglInstance> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.egl.instance);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn egl_context(&self) -> Ref<'_, egl::Context> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.egl.raw);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn egl_config(&self) -> Ref<'_, egl::Config> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.egl.config);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn egl_display(&self) -> Ref<'_, egl::Display> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.egl.display);
-        r
-    }
-
-    // EGL 版本, (1, 5) 或者 (1, 4)
-    #[inline]
-    pub(crate) fn egl_version(&self) -> (i32, i32) {
-        self.egl_ref().version
-    }
-
-    #[inline]
-    pub(crate) fn egl_srgb_support(&self) -> SrgbFrameBufferKind {
-        self.egl_ref().srgb_kind
-    }
-
-    #[inline]
-    pub(crate) fn private_caps(&self) -> PrivateCapabilities {
-        self.imp.as_ref().borrow().private_caps
-    }
-
-    #[inline]
-    pub(crate) fn features(&self) -> wgt::Features {
-        self.imp.as_ref().borrow().features
-    }
-
-    #[inline]
-    pub(crate) fn limits(&self) -> Ref<'_, wgt::Limits> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.limits);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn downlevel(&self) -> Ref<'_, wgt::DownlevelCapabilities> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.downlevel);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn workarounds(&self) -> Workarounds {
-        self.imp.as_ref().borrow().workarounds
-    }
-
-    #[inline]
-    pub(crate) fn max_texture_size(&self) -> u32 {
-        self.imp.as_ref().borrow().max_texture_size
-    }
-
-    #[inline]
-    pub(crate) fn shading_language_version(&self) -> naga::back::glsl::Version {
-        self.imp.as_ref().borrow().shading_language_version
-    }
-
-    #[inline]
-    pub(crate) fn info(&self) -> Ref<'_, AdapterInfo> {
-        let r = self.imp.as_ref().borrow().map(|e| &e.info);
-        r
-    }
-
-    #[inline]
-    pub(crate) fn surface_capabilities(
-        &self,
-        surface: &super::Surface,
-    ) -> Option<super::SurfaceCapabilities> {
-        self.imp.as_ref().borrow().surface_capabilities(surface)
-    }
-}
 
 /// A wrapper around a [`glow::Context`] and the required EGL context that uses locking to guarantee
 /// exclusive access when shared with multiple threads.
@@ -470,8 +324,18 @@ struct AdapterContextImpl {
 unsafe impl Sync for AdapterContextImpl {}
 unsafe impl Send for AdapterContextImpl {}
 
-impl AdapterContextImpl {
-    fn new(gl: glow::Context, context: EglContext) -> Option<Self> {
+#[derive(Debug, Clone)]
+pub(crate) struct AdapterContext {
+    imp: Share<AdapterContextImpl>,
+    surface: Share<ShareCell<Option<egl::Surface>>>,
+}
+
+unsafe impl Sync for AdapterContext {}
+unsafe impl Send for AdapterContext {}
+
+impl AdapterContext {
+    #[inline]
+    pub(crate) fn new(gl: glow::Context, context: EglContext) -> Option<Self> {
         let extensions = gl.supported_extensions();
 
         let (vendor_const, renderer_const) = if extensions.contains("WEBGL_debug_renderer_info") {
@@ -762,7 +626,7 @@ impl AdapterContextImpl {
             shader_model: wgt::ShaderModel::Sm5,
         };
 
-        Some(Self {
+        let imp = AdapterContextImpl {
             egl: context,
             reentrant_count: Share::new(AtomicUsize::new(0)),
             glow: ReentrantMutex::new(gl),
@@ -775,13 +639,118 @@ impl AdapterContextImpl {
             max_texture_size,
             shading_language_version,
             info,
+        };
+
+        Some(Self {
+            imp: Share::new(imp),
+            surface: Share::new(ShareCell::new(None)),
         })
+    }
+
+    #[inline]
+    pub(crate) fn set_surface(&self, surface: Option<egl::Surface>) {
+        *self.surface.as_ref().borrow_mut() = surface;
+    }
+
+    #[inline]
+    pub(crate) fn remove_surface(&self, surface: egl::Surface) {
+        let need_remove = match self.surface.as_ref().borrow().as_ref() {
+            Some(s) => *s == surface,
+            None => false,
+        };
+
+        if need_remove {
+            self.set_surface(None);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_surface(&self) {}
+
+    #[inline]
+    pub(crate) fn egl_ref(&self) -> &EglContext {
+        &self.imp.egl
+    }
+
+    #[inline]
+    pub(crate) fn egl_instance(&self) -> &EglInstance {
+        &self.egl_ref().instance
+    }
+
+    #[inline]
+    pub(crate) fn egl_context(&self) -> &egl::Context {
+        &self.egl_ref().raw
+    }
+
+    #[inline]
+    pub(crate) fn egl_config(&self) -> &egl::Config {
+        &self.egl_ref().config
+    }
+
+    #[inline]
+    pub(crate) fn egl_display(&self) -> &egl::Display {
+        &self.egl_ref().display
+    }
+
+    // EGL 版本, (1, 5) 或者 (1, 4)
+    #[inline]
+    pub(crate) fn egl_version(&self) -> (i32, i32) {
+        self.egl_ref().version
+    }
+
+    #[inline]
+    pub(crate) fn egl_srgb_support(&self) -> SrgbFrameBufferKind {
+        self.egl_ref().srgb_kind
+    }
+
+    #[inline]
+    pub(crate) fn private_caps(&self) -> PrivateCapabilities {
+        self.imp.private_caps
+    }
+
+    #[inline]
+    pub(crate) fn features(&self) -> wgt::Features {
+        self.imp.features
+    }
+
+    #[inline]
+    pub(crate) fn limits(&self) -> &wgt::Limits {
+        &self.imp.limits
+    }
+
+    #[inline]
+    pub(crate) fn downlevel(&self) -> &wgt::DownlevelCapabilities {
+        &self.imp.downlevel
+    }
+
+    #[inline]
+    pub(crate) fn workarounds(&self) -> Workarounds {
+        self.imp.workarounds
+    }
+
+    #[inline]
+    pub(crate) fn max_texture_size(&self) -> u32 {
+        self.imp.max_texture_size
+    }
+
+    #[inline]
+    pub(crate) fn shading_language_version(&self) -> naga::back::glsl::Version {
+        self.imp.shading_language_version
+    }
+
+    #[inline]
+    pub(crate) fn info(&self) -> &AdapterInfo {
+        &self.imp.info
     }
 
     /// Returns the capabilities of working with a specified surface.
     ///
     /// `None` means presentation is not supported for it.
-    fn surface_capabilities(&self, surface: &super::Surface) -> Option<super::SurfaceCapabilities> {
+    #[inline]
+    pub(crate) fn surface_capabilities(
+        &self,
+        surface: &super::Surface,
+    ) -> Option<super::SurfaceCapabilities> {
         if surface.get_presentable() {
             let mut formats = vec![
                 wgt::TextureFormat::Rgba8Unorm,
@@ -796,6 +765,7 @@ impl AdapterContextImpl {
                 ])
             }
             if self
+                .imp
                 .private_caps
                 .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
             {
@@ -813,8 +783,8 @@ impl AdapterContextImpl {
                     height: 4,
                     depth_or_array_layers: 1,
                 }..=wgt::Extent3d {
-                    width: self.max_texture_size,
-                    height: self.max_texture_size,
+                    width: self.imp.max_texture_size,
+                    height: self.imp.max_texture_size,
                     depth_or_array_layers: 1,
                 },
                 usage: super::TextureUses::COLOR_TARGET,
@@ -825,7 +795,40 @@ impl AdapterContextImpl {
     }
 }
 
-impl AdapterContextImpl {
+impl AdapterContext {
+    /// Obtain a lock to the EGL context and get handle to the [`glow::Context`] that can be used to
+    /// do rendering.
+    #[track_caller]
+    pub(crate) fn lock<'a>(&'a self) -> AdapterContextLock<'a> {
+        let glow = self
+            .imp
+            .glow
+            // Don't lock forever. If it takes longer than 1 second to get the lock we've got a
+            // deadlock and should panic to show where we got stuck
+            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
+            .expect("Could not lock adapter context. This is most-likely a deadlcok.");
+
+        if self.imp.reentrant_count.load(Ordering::SeqCst) == 0 {
+            let surface = self.surface.as_ref().borrow().as_ref().map(|s| *s);
+            self.imp.egl.make_current(surface);
+        }
+        self.imp.reentrant_count.fetch_add(1, Ordering::SeqCst);
+
+        let egl = EglContextLock {
+            instance: &self.imp.egl.instance,
+            display: self.imp.egl.display,
+        };
+
+        let reentrant_count = self.imp.reentrant_count.clone();
+        AdapterContextLock {
+            glow,
+            egl,
+            reentrant_count,
+        }
+    }
+}
+
+impl AdapterContext {
     fn make_info(vendor_orig: String, renderer_orig: String) -> wgt::AdapterInfo {
         let vendor = vendor_orig.to_lowercase();
         let renderer = renderer_orig.to_lowercase();
@@ -994,6 +997,25 @@ impl AdapterContextImpl {
             }
         }
     }
+
+    /// Get's the [`glow::Context`] without waiting for a lock
+    ///
+    /// # Safety
+    ///
+    /// This should only be called when you have manually made sure that the current thread has made
+    /// the EGL context current and that no other thread also has the EGL context current.
+    /// Additionally, you must manually make the EGL context **not** current after you are done with
+    /// it, so that future calls to `lock()` will not fail.
+    ///
+    /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
+    /// > extra safe-guard against accidental concurrent access to the context.
+    #[allow(unused)]
+    unsafe fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
+        self.imp
+            .glow
+            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
+            .expect("Could not lock adapter context. This is most-likely a deadlcok.")
+    }
 }
 
 #[derive(Debug)]
@@ -1028,55 +1050,6 @@ impl<'a> Drop for AdapterContextLock<'a> {
                 .instance
                 .make_current(self.egl.display, None, None, None)
                 .unwrap();
-        }
-    }
-}
-
-impl AdapterContextImpl {
-    /// Get's the [`glow::Context`] without waiting for a lock
-    ///
-    /// # Safety
-    ///
-    /// This should only be called when you have manually made sure that the current thread has made
-    /// the EGL context current and that no other thread also has the EGL context current.
-    /// Additionally, you must manually make the EGL context **not** current after you are done with
-    /// it, so that future calls to `lock()` will not fail.
-    ///
-    /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
-    /// > extra safe-guard against accidental concurrent access to the context.
-    #[allow(unused)]
-    unsafe fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
-        self.glow
-            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
-            .expect("Could not lock adapter context. This is most-likely a deadlcok.")
-    }
-
-    /// Obtain a lock to the EGL context and get handle to the [`glow::Context`] that can be used to
-    /// do rendering.
-    #[track_caller]
-    pub(crate) fn lock<'a>(&'a self) -> AdapterContextLock<'a> {
-        let glow = self
-            .glow
-            // Don't lock forever. If it takes longer than 1 second to get the lock we've got a
-            // deadlock and should panic to show where we got stuck
-            .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
-            .expect("Could not lock adapter context. This is most-likely a deadlcok.");
-
-        if self.reentrant_count.load(Ordering::SeqCst) == 0 {
-            self.egl.make_current();
-        }
-        self.reentrant_count.fetch_add(1, Ordering::SeqCst);
-
-        let egl = EglContextLock {
-            instance: &self.egl.instance,
-            display: self.egl.display,
-        };
-
-        let reentrant_count = self.reentrant_count.clone();
-        AdapterContextLock {
-            glow,
-            egl,
-            reentrant_count,
         }
     }
 }

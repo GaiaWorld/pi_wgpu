@@ -2,8 +2,6 @@ use glow::HasContext;
 use pi_share::{Share, ShareCell};
 use thiserror::Error;
 
-use crate::SurfaceTexture;
-
 use super::{
     super::{wgt, DeviceError, MissingDownlevelFlags},
     gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
@@ -156,7 +154,7 @@ impl SurfaceImpl {
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        device.adapter.set_sruface(Some(self.raw));
+        device.adapter.set_surface(Some(self.raw));
 
         let sc = &mut self.swapchain_impl;
         sc.format = config.format;

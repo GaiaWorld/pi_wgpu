@@ -1,5 +1,3 @@
-use pi_share::Share;
-
 use super::{AdapterContext, GLState};
 
 #[derive(Debug)]

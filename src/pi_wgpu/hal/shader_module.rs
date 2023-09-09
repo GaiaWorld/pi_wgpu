@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
@@ -72,8 +70,7 @@ impl Drop for ShaderModuleImpl {
     #[inline]
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_ref() {
-            let gl = self.adapter.imp.as_ref().borrow();
-            let gl = gl.lock();
+            let gl = self.adapter.lock();
             unsafe {
                 gl.delete_shader(inner.raw);
             }
@@ -169,8 +166,7 @@ impl ShaderModuleImpl {
         };
 
         let raw = {
-            let gl = self.adapter.imp.as_ref().borrow();
-            let gl = gl.lock();
+            let gl = self.adapter.lock();
             compile_gl_shader(&gl, gl_str.as_ref(), shader_type)?
         };
 

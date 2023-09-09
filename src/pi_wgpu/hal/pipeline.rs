@@ -97,8 +97,7 @@ impl RenderPipelineImpl {
         let layout = desc.layout.as_ref().unwrap().inner.clone();
 
         {
-            let gl = adapter.imp.as_ref().borrow();
-            let gl = gl.lock();
+            let gl = adapter.lock();
             let version = gl.version();
 
             let naga_options = &layout.naga_options;
@@ -582,8 +581,7 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        let gl = self.adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = self.adapter.lock();
 
         unsafe {
             gl.delete_program(self.raw);
@@ -608,8 +606,7 @@ impl ProgramImpl {
         assert!(vs.shader_type == glow::VERTEX_SHADER);
         assert!(vs.shader_type == glow::FRAGMENT_SHADER);
 
-        let gl = adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = adapter.lock();
 
         let raw = unsafe {
             let raw = gl.create_program().unwrap();

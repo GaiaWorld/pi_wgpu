@@ -4,7 +4,7 @@ use glow::HasContext;
 use pi_share::Share;
 
 use super::super::{hal::gl_conv as conv, wgt};
-use super::{adapter, AdapterContext, GLState, TextureFormatDesc};
+use super::{AdapterContext, GLState, TextureFormatDesc};
 
 pub(crate) type TextureID = u64;
 
@@ -33,8 +33,7 @@ impl Texture {
             depth: 1,
         };
 
-        let gl = adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = adapter.lock();
         let (inner, is_cubemap) = if render_usage.contains(usage)
             && desc.dimension == wgt::TextureDimension::D2
             && desc.size.depth_or_array_layers == 1
@@ -177,8 +176,7 @@ impl Texture {
 
         let format_desc = &inner.format_desc;
 
-        let gl = adapter.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = adapter.lock();
         unsafe {
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
@@ -441,8 +439,7 @@ impl Drop for TextureInner {
                 ref state,
                 ref raw,
             } => {
-                let gl = adapter.imp.as_ref().borrow();
-                let gl = gl.lock();
+                let gl = adapter.lock();
                 unsafe {
                     gl.delete_renderbuffer(*raw);
                 }
@@ -454,8 +451,7 @@ impl Drop for TextureInner {
                 ref raw,
                 ..
             } => {
-                let gl = adapter.imp.as_ref().borrow();
-                let gl = gl.lock();
+                let gl = adapter.lock();
                 unsafe {
                     gl.delete_texture(*raw);
                 }

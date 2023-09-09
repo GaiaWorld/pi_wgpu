@@ -43,8 +43,7 @@ impl Adapter {
             ));
         }
 
-        let gl = &self.context.imp.as_ref().borrow();
-        let gl = gl.lock();
+        let gl = &self.context.lock();
 
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
@@ -77,11 +76,7 @@ impl Adapter {
 
         let sample_count = {
             let max_samples = unsafe {
-                self.context
-                    .imp
-                    .as_ref()
-                    .borrow()
-                    .lock()
+                self.context.lock()
                     .get_parameter_i32(glow::MAX_SAMPLES)
             };
             if max_samples >= 8 {

@@ -52,8 +52,7 @@ impl DeviceExt for super::super::Device {
             };
 
             let buffer = self.create_buffer(&wgt_descriptor);
-            let gl = self.inner.adapter.imp.as_ref().borrow();
-            let gl = gl.lock();
+            let gl = self.inner.adapter.lock();
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);
             buffer
         }
