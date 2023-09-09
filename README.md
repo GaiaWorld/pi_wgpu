@@ -41,9 +41,9 @@
 | 02   | ~~egl：初始化~~          | 1.5天 | **Done**                           |
 | 03   | ~~压缩纹理：DDS / ASTC~~ | 0.5天 | **Done**                           |
 | 04   | ~~多线程~~               | 1.5天 | **Done**                           |
-| 05   | Shader                   | 0.5天 | **Doing**                          |
-| 06   | Surface                  | 0.5天 |                                    |
-| 07   | `TODO` EXE 联调          | ?天   | ?                                  |
+| 05   | ~~Shader~~               | 2.0天 | **Done**                           |
+| 06   | ~~Surface~~              | 1.0天 | **Done**                           |
+| 07   | EXE 联调                 | 5天+  | **Doing**                          |
 | 08   | `TODO` WebGL2 实现       | ?天   | ?                                  |
 | 08   | `TODO` WebGL2 联调       | ?天   | ?                                  |
 | 08   | `TODO` Android 实现      | ?天   | ?                                  |
