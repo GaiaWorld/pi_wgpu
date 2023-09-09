@@ -42,11 +42,15 @@ impl Instance {
             Ok(egl) => egl,
             Err(e) => {
                 log::info!("Unable to open libEGL: {:?}", e);
+
+                println!("============== error 1 {:?}", e);
+
                 return Err(InstanceError);
             }
         };
 
         // ========= 2. 查询 EGL扩展
+        println!("============== 2");
 
         let client_extensions = egl.query_string(None, egl::EXTENSIONS);
 
@@ -68,6 +72,7 @@ impl Instance {
         }
 
         // ========= 3. 优先使用 EGL 1.5 接口
+        println!("============== 3");
 
         #[cfg(not(feature = "emscripten"))]
         let egl1_5 = egl.upcast::<egl::EGL1_5>();
@@ -76,10 +81,11 @@ impl Instance {
         let egl1_5: Option<&EglInstance> = Some(&egl);
 
         // ========= 4. 取 EglDisplay
-
+        println!("============== 4");
         let display = egl.get_display(egl::DEFAULT_DISPLAY).unwrap();
 
         // ========= 5. 如果参数带验证，而且 egl 含 Debug 扩展，就使用它
+        println!("============== 5");
 
         if desc.flags.contains(InstanceFlags::VALIDATION)
             && client_ext_str.contains("EGL_KHR_debug")
@@ -107,6 +113,7 @@ impl Instance {
         }
 
         // ========= 6. 创建 EglContext
+        println!("============== 6");
 
         let context = EglContext::new(desc.flags, egl, display)?;
 
@@ -117,7 +124,10 @@ impl Instance {
                 flags: desc.flags,
                 context,
             }),
-            None => Err(InstanceError),
+            None => {
+                println!("============== err 7");
+                Err(InstanceError)
+            }
         }
     }
 

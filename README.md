@@ -25,6 +25,8 @@
 
 # pi_wgpu
 
+**注意：** 运行前，需要将 bin/两个dll 拷贝 到 运行目录，或者 exe所在目录
+
 `WebGPU`接口子集的`GL`后端，基于`Rust`实现。
 
 + 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.16` 进行修改；
