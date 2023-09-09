@@ -20,7 +20,7 @@ impl Surface {
     pub fn get_capabilities(&self, adapter: &Adapter) -> SurfaceCapabilities {
         profiling::scope!("Surface::get_capabilities");
 
-        let mut hal_caps = unsafe { adapter.inner.surface_capabilities(&self.inner) }.unwrap();
+        let mut hal_caps = adapter.inner.surface_capabilities(&self.inner).unwrap();
 
         hal_caps.formats.sort_by_key(|f| !f.is_srgb());
 
@@ -61,9 +61,7 @@ impl Surface {
     /// - Texture format requested is unsupported on the surface.
     #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
-        unsafe {
-            self.inner.configure(&device.inner, config);
-        }
+        self.inner.configure(&device.inner, config).unwrap();
     }
 
     /// Returns the next texture to be presented by the swapchain for drawing.
@@ -76,7 +74,7 @@ impl Surface {
     /// recreating the swapchain will panic.
     #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
-        match unsafe { self.inner.acquire_texture() } {
+        match self.inner.acquire_texture() {
             Ok(Some(ast)) => {
                 todo!()
                 // Ok(SurfaceTexture {

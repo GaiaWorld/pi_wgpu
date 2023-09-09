@@ -13,7 +13,7 @@ pub(crate) struct Adapter {
 
 impl Adapter {
     // 枚举 gl 环境的 特性
-    pub(crate) unsafe fn expose(
+    pub(crate) fn expose(
         context: Share<AdapterContext>,
     ) -> Option<super::super::ExposedAdapter<super::GL>> {
         let info = context.info.clone();
@@ -32,7 +32,7 @@ impl Adapter {
         })
     }
 
-    pub(crate) unsafe fn open(
+    pub(crate) fn open(
         &self,
         features: wgt::Features,
         _limits: &wgt::Limits,
@@ -68,7 +68,7 @@ impl Adapter {
     }
 
     /// Return the set of supported capabilities for a texture format.
-    pub(crate) unsafe fn texture_format_capabilities(
+    pub(crate) fn texture_format_capabilities(
         &self,
         format: wgt::TextureFormat,
     ) -> super::TextureFormatCapabilities {
@@ -225,7 +225,7 @@ impl Adapter {
     /// Returns the capabilities of working with a specified surface.
     ///
     /// `None` means presentation is not supported for it.
-    pub(crate) unsafe fn surface_capabilities(
+    pub(crate) fn surface_capabilities(
         &self,
         surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {

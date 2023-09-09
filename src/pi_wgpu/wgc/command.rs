@@ -50,7 +50,7 @@ impl CommandEncoder {
         &'pass mut self,
         desc: &RenderPassDescriptor<'pass, '_>,
     ) -> RenderPass<'pass> {
-        let gl = unsafe { self.inner.begin_render_pass(desc) };
+        let gl = self.inner.begin_render_pass(desc);
 
         RenderPass {
             gl,
@@ -92,7 +92,7 @@ pub struct RenderPass<'a> {
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
-        unsafe { self.encoder.end_render_pass() }
+        self.encoder.end_render_pass()
     }
 }
 
@@ -109,17 +109,15 @@ impl<'a> RenderPass<'a> {
         bind_group: &'a BindGroup,
         offsets: &[DynamicOffset],
     ) {
-        unsafe {
-            self.encoder
-                .set_bind_group(&self.gl, index, &bind_group.inner, offsets)
-        }
+        self.encoder
+            .set_bind_group(&self.gl, index, &bind_group.inner, offsets)
     }
 
     /// Sets the active render pipeline.
     ///
     /// Subsequent draw calls will exhibit the behavior defined by `pipeline`.
     pub fn set_pipeline(&mut self, pipeline: &'a RenderPipeline) {
-        unsafe { self.encoder.set_render_pipeline(&self.gl, &pipeline.inner) }
+        self.encoder.set_render_pipeline(&self.gl, &pipeline.inner)
     }
 
     /// Sets the blend color as used by some of the blending modes.
@@ -132,7 +130,7 @@ impl<'a> RenderPass<'a> {
             color.b as f32,
             color.a as f32,
         ];
-        unsafe { self.encoder.set_blend_constants(&self.gl, &arr) }
+        self.encoder.set_blend_constants(&self.gl, &arr)
     }
 
     /// Sets the active index buffer.
@@ -146,10 +144,8 @@ impl<'a> RenderPass<'a> {
             size: buffer_slice.size,
         };
 
-        unsafe {
-            self.encoder
-                .set_index_buffer(&self.gl, binding, index_format)
-        }
+        self.encoder
+            .set_index_buffer(&self.gl, binding, index_format)
     }
 
     /// Assign a vertex buffer to a slot.
@@ -168,50 +164,44 @@ impl<'a> RenderPass<'a> {
             offset: buffer_slice.offset,
             size: buffer_slice.size,
         };
-        unsafe { self.encoder.set_vertex_buffer(&self.gl, slot, binding) }
+        self.encoder.set_vertex_buffer(&self.gl, slot, binding)
     }
 
     /// Sets the scissor region.
     ///
     /// Subsequent draw calls will discard any fragments that fall outside this region.
     pub fn set_scissor_rect(&mut self, x: u32, y: u32, width: u32, height: u32) {
-        unsafe {
-            self.encoder
-                .set_scissor_rect(&self.gl, x as i32, y as i32, width as i32, height as i32)
-        }
+        self.encoder
+            .set_scissor_rect(&self.gl, x as i32, y as i32, width as i32, height as i32)
     }
 
     /// Sets the viewport region.
     ///
     /// Subsequent draw calls will draw any fragments in this region.
     pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {
-        unsafe {
-            self.encoder.set_viewport(
-                &self.gl, x as i32, y as i32, w as i32, h as i32, min_depth, max_depth,
-            )
-        }
+        self.encoder.set_viewport(
+            &self.gl, x as i32, y as i32, w as i32, h as i32, min_depth, max_depth,
+        )
     }
 
     /// Sets the stencil reference.
     ///
     /// Subsequent stencil tests will test against this value.
     pub fn set_stencil_reference(&mut self, reference: u32) {
-        unsafe { self.encoder.set_stencil_reference(&self.gl, reference) }
+        self.encoder.set_stencil_reference(&self.gl, reference)
     }
 
     /// Draws primitives from the active vertex buffer(s).
     ///
     /// The active vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
-        unsafe {
-            self.encoder.draw(
-                &self.gl,
-                vertices.start,
-                vertices.len() as u32,
-                instances.start,
-                instances.len() as u32,
-            )
-        }
+        self.encoder.draw(
+            &self.gl,
+            vertices.start,
+            vertices.len() as u32,
+            instances.start,
+            instances.len() as u32,
+        )
     }
 
     /// Draws indexed primitives using the active index buffer and the active vertex buffers.
@@ -219,16 +209,14 @@ impl<'a> RenderPass<'a> {
     /// The active index buffer can be set with [`RenderPass::set_index_buffer`], while the active
     /// vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw_indexed(&mut self, indices: Range<u32>, base_vertex: i32, instances: Range<u32>) {
-        unsafe {
-            self.encoder.draw_indexed(
-                &self.gl,
-                indices.start,
-                indices.len() as u32,
-                base_vertex,
-                instances.start,
-                instances.len() as u32,
-            )
-        }
+        self.encoder.draw_indexed(
+            &self.gl,
+            indices.start,
+            indices.len() as u32,
+            base_vertex,
+            instances.start,
+            instances.len() as u32,
+        )
     }
 }
 

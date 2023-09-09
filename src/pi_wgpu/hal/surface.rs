@@ -17,7 +17,7 @@ impl Surface {
     }
 
     #[inline]
-    pub(crate) unsafe fn configure(
+    pub(crate) fn configure(
         &self,
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
@@ -26,12 +26,7 @@ impl Surface {
     }
 
     #[inline]
-    pub(crate) unsafe fn unconfigure(&self, device: &super::Device) {
-        self.imp.as_ref().borrow_mut().unconfigure(device)
-    }
-
-    #[inline]
-    pub(crate) unsafe fn acquire_texture(
+    pub(crate) fn acquire_texture(
         &self,
     ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
         self.imp.as_ref().borrow_mut().acquire_texture()
@@ -66,7 +61,7 @@ impl SurfaceImpl {
     //     alpha_mode: CompositeAlphaMode,
     //     view_formats: Vec<TextureFormat>,
     // };
-    unsafe fn configure(
+    fn configure(
         &mut self,
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
@@ -187,18 +182,7 @@ impl SurfaceImpl {
         Ok(())
     }
 
-    unsafe fn unconfigure(&mut self, device: &super::Device) {
-        todo!()
-        // if let Some(surface) = unsafe { self.unconfigure_impl(device) } {
-        //     self.egl
-        //         .0
-        //         .egl
-        //         .destroy_surface(self.egl.0.display, surface)
-        //         .unwrap();
-        // }
-    }
-
-    unsafe fn acquire_texture(
+    fn acquire_texture(
         &mut self,
     ) -> Result<Option<super::AcquiredSurfaceTexture<super::GL>>, crate::SurfaceError> {
         let sc = self.swapchain.as_ref().unwrap();
@@ -220,7 +204,7 @@ impl SurfaceImpl {
     }
 
     #[inline]
-    unsafe fn unconfigure_impl(&mut self, device: &super::Device) -> Option<egl::Surface> {
+    fn unconfigure_impl(&mut self, device: &super::Device) -> Option<egl::Surface> {
         self.swapchain.take().map(|sc| sc.surface)
     }
 }

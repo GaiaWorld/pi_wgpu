@@ -54,8 +54,10 @@ impl Adapter {
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
-        let open =
-            unsafe { self.inner.open(desc.features, &desc.limits) }.map_err(|err| match err {
+        let open = self
+            .inner
+            .open(desc.features, &desc.limits)
+            .map_err(|err| match err {
                 DeviceError::Lost => RequestDeviceError,
                 DeviceError::OutOfMemory => RequestDeviceError,
                 _ => RequestDeviceError,
@@ -82,8 +84,7 @@ impl Adapter {
         //
         // This could occur if the user is running their app on Wayland but Vulkan does not support
         // VK_KHR_wayland_surface.
-
-        unsafe { self.inner.surface_capabilities(&surface.inner) }.is_some()
+        self.inner.surface_capabilities(&surface.inner).is_some()
     }
 
     /// List all features that are supported with this adapter.
@@ -123,7 +124,7 @@ impl Adapter {
     pub fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures {
         use hal::TextureFormatCapabilities as Tfc;
 
-        let caps = unsafe { self.inner.texture_format_capabilities(format) };
+        let caps = self.inner.texture_format_capabilities(format);
         let mut allowed_usages = wgt::TextureUsages::empty();
 
         allowed_usages.set(wgt::TextureUsages::COPY_SRC, caps.contains(Tfc::COPY_SRC));

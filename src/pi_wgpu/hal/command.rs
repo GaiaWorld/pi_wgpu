@@ -42,7 +42,7 @@ impl CommandEncoder {
 
 impl CommandEncoder {
     #[inline]
-    pub(crate) unsafe fn begin_render_pass<'a>(
+    pub(crate) fn begin_render_pass<'a>(
         &'a self,
         desc: &super::super::RenderPassDescriptor,
     ) -> AdapterContextLock<'a> {
@@ -52,10 +52,10 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn end_render_pass(&self) {}
+    pub(crate) fn end_render_pass(&self) {}
 
     #[inline]
-    pub(crate) unsafe fn set_bind_group(
+    pub(crate) fn set_bind_group(
         &self,
         gl: &glow::Context,
         index: u32,
@@ -66,7 +66,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_render_pipeline(
+    pub(crate) fn set_render_pipeline(
         &self,
         gl: &glow::Context,
         pipeline: &super::RenderPipeline,
@@ -75,7 +75,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_vertex_buffer<'a>(
+    pub(crate) fn set_vertex_buffer<'a>(
         &self,
         gl: &glow::Context,
         index: u32,
@@ -91,7 +91,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_index_buffer<'a>(
+    pub(crate) fn set_index_buffer<'a>(
         &self,
         gl: &glow::Context,
         binding: super::super::BufferBinding<'a>,
@@ -107,7 +107,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_viewport(
+    pub(crate) fn set_viewport(
         &self,
         gl: &glow::Context,
         x: i32,
@@ -123,7 +123,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_scissor_rect(
+    pub(crate) fn set_scissor_rect(
         &self,
         gl: &glow::Context,
         x: i32,
@@ -135,17 +135,17 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_stencil_reference(&self, gl: &glow::Context, value: u32) {
+    pub(crate) fn set_stencil_reference(&self, gl: &glow::Context, value: u32) {
         self.state.set_stencil_reference(gl, value as i32);
     }
 
     #[inline]
-    pub(crate) unsafe fn set_blend_constants(&self, gl: &glow::Context, color: &[f32; 4]) {
+    pub(crate) fn set_blend_constants(&self, gl: &glow::Context, color: &[f32; 4]) {
         self.state.set_blend_color(gl, color);
     }
 
     #[inline]
-    pub(crate) unsafe fn draw(
+    pub(crate) fn draw(
         &self,
         gl: &glow::Context,
         start_vertex: u32,
@@ -160,7 +160,7 @@ impl CommandEncoder {
     }
 
     #[inline]
-    pub(crate) unsafe fn draw_indexed(
+    pub(crate) fn draw_indexed(
         &self,
         gl: &glow::Context,
         start_index: u32,

@@ -17,7 +17,7 @@ unsafe impl Sync for Instance {}
 unsafe impl Send for Instance {}
 
 impl Instance {
-    pub(crate) unsafe fn init(desc: &InstanceDescriptor) -> Result<Instance, InstanceError> {
+    pub(crate) fn init(desc: &InstanceDescriptor) -> Result<Instance, InstanceError> {
         // ========= 1. 加载 EGL 库，初始化 EGL
 
         #[cfg(not(feature = "emscripten"))]
@@ -122,13 +122,13 @@ impl Instance {
     // EGL 所谓的 枚举显卡，实际上是 取 系统默认设置的显卡！
     // 这里的迭代器，只返回一个值
     #[inline]
-    pub(crate) unsafe fn enumerate_adapters(&self) -> Vec<super::super::ExposedAdapter<super::GL>> {
+    pub(crate) fn enumerate_adapters(&self) -> Vec<super::super::ExposedAdapter<super::GL>> {
         unsafe { super::Adapter::expose(self.context.clone()) }
             .into_iter()
             .collect()
     }
 
-    pub(crate) unsafe fn create_surface(
+    pub(crate) fn create_surface(
         &self,
         display_handle: raw_window_handle::RawDisplayHandle,
         window_handle: raw_window_handle::RawWindowHandle,

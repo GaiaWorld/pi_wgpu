@@ -645,7 +645,7 @@ impl AdapterContext {
     /// Returns the capabilities of working with a specified surface.
     ///
     /// `None` means presentation is not supported for it.
-    pub(crate) unsafe fn surface_capabilities(
+    pub(crate) fn surface_capabilities(
         &self,
         surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
@@ -945,7 +945,7 @@ impl AdapterContext {
     /// > **Note:** Calling this function **will** still lock the [`glow::Context`] which adds an
     /// > extra safe-guard against accidental concurrent access to the context.
     #[allow(unused)]
-    pub unsafe fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
+    pub fn get_without_egl_lock(&self) -> ReentrantMutexGuard<glow::Context> {
         self.glow
             .try_lock_for(Duration::from_secs(CONTEXT_LOCK_TIMEOUT_SECS))
             .expect("Could not lock adapter context. This is most-likely a deadlcok.")

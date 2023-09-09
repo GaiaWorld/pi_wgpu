@@ -9,7 +9,7 @@ pub(crate) struct Queue {
 }
 
 impl Queue {
-    pub(crate) unsafe fn present(
+    pub(crate) fn present(
         &mut self,
         surface: &mut super::Surface,
         texture: super::Texture,

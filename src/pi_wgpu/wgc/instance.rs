@@ -58,7 +58,7 @@ impl Instance {
             dx12_shader_compiler: instance_desc.dx12_shader_compiler.clone(),
         };
 
-        let imp = unsafe { hal::Instance::init(&hal_desc).unwrap() };
+        let imp = hal::Instance::init(&hal_desc).unwrap();
 
         Self {
             inner: Share::new(imp),
@@ -79,14 +79,12 @@ impl Instance {
         // 不支持 软件 Adapter
         assert!(!options.force_fallback_adapter);
 
-        let mut adapters = unsafe { self.inner.enumerate_adapters() };
+        let mut adapters = self.inner.enumerate_adapters();
 
         if let Some(surface) = options.compatible_surface {
             let surface = &surface.inner;
 
-            adapters.retain(|exposed| unsafe {
-                exposed.adapter.surface_capabilities(&surface).is_some()
-            });
+            adapters.retain(|exposed| exposed.adapter.surface_capabilities(&surface).is_some());
         }
 
         let mut device_types = Vec::new();
@@ -177,7 +175,7 @@ impl Instance {
     /// - On macOS/Metal: will panic if not called on the main thread.
     /// - On web: will panic if the `raw_window_handle` does not properly refer to a
     ///   canvas element.
-    pub unsafe fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
         &self,
         window: &W,
     ) -> Result<Surface, CreateSurfaceError> {

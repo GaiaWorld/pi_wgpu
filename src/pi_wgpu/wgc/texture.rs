@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use super::super::{
     hal, Extent3d, Label, TextureAspect, TextureDimension, TextureFormat, TextureUsages,
     TextureViewDimension,

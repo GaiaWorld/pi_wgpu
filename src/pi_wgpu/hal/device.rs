@@ -14,7 +14,7 @@ pub(crate) struct Device {
 
 impl Device {
     #[inline]
-    pub(crate) unsafe fn create_buffer(
+    pub(crate) fn create_buffer(
         &self,
         desc: &super::super::BufferDescriptor,
     ) -> Result<super::Buffer, super::super::DeviceError> {
@@ -22,7 +22,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_texture(
+    pub(crate) fn create_texture(
         &self,
         desc: &super::super::TextureDescriptor,
     ) -> Result<super::Texture, super::super::DeviceError> {
@@ -30,7 +30,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_texture_view(
+    pub(crate) fn create_texture_view(
         &self,
         texture: &super::Texture,
         desc: &super::super::TextureViewDescriptor,
@@ -39,7 +39,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_sampler(
+    pub(crate) fn create_sampler(
         &self,
         desc: &super::super::SamplerDescriptor,
     ) -> Result<super::Sampler, super::super::DeviceError> {
@@ -47,7 +47,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_command_encoder(
+    pub(crate) fn create_command_encoder(
         &self,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> Result<super::CommandEncoder, super::super::DeviceError> {
@@ -55,7 +55,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_bind_group_layout(
+    pub(crate) fn create_bind_group_layout(
         &self,
         desc: &super::super::BindGroupLayoutDescriptor,
     ) -> Result<super::BindGroupLayout, super::super::DeviceError> {
@@ -63,7 +63,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_pipeline_layout(
+    pub(crate) fn create_pipeline_layout(
         &self,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<super::PipelineLayout, super::super::DeviceError> {
@@ -71,7 +71,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_bind_group(
+    pub(crate) fn create_bind_group(
         &self,
         desc: &super::super::BindGroupDescriptor,
     ) -> Result<super::BindGroup, super::super::DeviceError> {
@@ -79,7 +79,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_shader_module(
+    pub(crate) fn create_shader_module(
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
@@ -87,7 +87,7 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) unsafe fn create_render_pipeline(
+    pub(crate) fn create_render_pipeline(
         &self,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {

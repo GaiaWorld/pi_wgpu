@@ -40,15 +40,18 @@ impl Device {
     /// Creates a shader module from either SPIR-V or WGSL source code.
     #[inline]
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor) -> ShaderModule {
-        let r = unsafe { self.inner.create_shader_module(&desc) };
+        let r = self.inner.create_shader_module(&desc);
         let r = r.unwrap();
         ShaderModule::from_hal(r)
     }
 
     /// Creates an empty [`CommandEncoder`].
     #[inline]
-    pub fn create_command_encoder(&self, desc: &super::super::CommandEncoderDescriptor) -> CommandEncoder {
-        let r = unsafe { self.inner.create_command_encoder(&desc) };
+    pub fn create_command_encoder(
+        &self,
+        desc: &super::super::CommandEncoderDescriptor,
+    ) -> CommandEncoder {
+        let r = self.inner.create_command_encoder(&desc);
         let r = r.unwrap();
         CommandEncoder::from_hal(r)
     }
@@ -56,7 +59,7 @@ impl Device {
     /// Creates a [`BindGroupLayout`].
     #[inline]
     pub fn create_bind_group_layout(&self, desc: &BindGroupLayoutDescriptor) -> BindGroupLayout {
-        let r = unsafe { self.inner.create_bind_group_layout(&desc) };
+        let r = self.inner.create_bind_group_layout(&desc);
         let r = r.unwrap();
         BindGroupLayout::from_hal(r)
     }
@@ -64,7 +67,7 @@ impl Device {
     /// Creates a new [`BindGroup`].
     #[inline]
     pub fn create_bind_group(&self, desc: &super::super::BindGroupDescriptor) -> BindGroup {
-        let r = unsafe { self.inner.create_bind_group(&desc) };
+        let r = self.inner.create_bind_group(&desc);
         let r = r.unwrap();
         BindGroup::from_hal(r)
     }
@@ -72,7 +75,7 @@ impl Device {
     /// Creates a [`PipelineLayout`].
     #[inline]
     pub fn create_pipeline_layout(&self, desc: &PipelineLayoutDescriptor) -> PipelineLayout {
-        let r = unsafe { self.inner.create_pipeline_layout(&desc) };
+        let r = self.inner.create_pipeline_layout(&desc);
         let r = r.unwrap();
         PipelineLayout::from_hal(r)
     }
@@ -80,7 +83,7 @@ impl Device {
     /// Creates a [`RenderPipeline`].
     #[inline]
     pub fn create_render_pipeline(&self, desc: &RenderPipelineDescriptor) -> RenderPipeline {
-        let r = unsafe { self.inner.create_render_pipeline(&desc) };
+        let r = self.inner.create_render_pipeline(&desc);
         let r = r.unwrap();
         RenderPipeline::from_hal(r)
     }
@@ -118,7 +121,7 @@ impl Device {
             debug_assert!(!desc.usage.contains(BufferUsages::INDIRECT));
         }
 
-        let r = unsafe { self.inner.create_buffer(&desc) };
+        let r = self.inner.create_buffer(&desc);
         let r = r.unwrap();
         Buffer::from_hal(r, desc.usage, desc.size)
     }
@@ -133,7 +136,7 @@ impl Device {
             debug_assert!(!desc.usage.contains(TextureUsages::STORAGE_BINDING));
         }
 
-        let r = unsafe { self.inner.create_texture(&desc) };
+        let r = self.inner.create_texture(&desc);
         let r = r.unwrap();
         Texture::from_hal(r, desc)
     }
@@ -143,7 +146,7 @@ impl Device {
     /// `desc` specifies the behavior of the sampler.
     #[inline]
     pub fn create_sampler(&self, desc: &SamplerDescriptor) -> Sampler {
-        let r = unsafe { self.inner.create_sampler(&desc) };
+        let r = self.inner.create_sampler(&desc);
         let r = r.unwrap();
         Sampler::from_hal(r)
     }
