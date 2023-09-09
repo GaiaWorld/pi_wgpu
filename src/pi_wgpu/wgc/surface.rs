@@ -1,3 +1,5 @@
+use crate::pi_wgpu::hal::AdapterContext;
+
 use super::super::{hal, wgt, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
 
 /// Handle to a presentable surface.
@@ -81,7 +83,7 @@ impl Surface {
                 Ok(SurfaceTexture {
                     texture,
                     suboptimal: true,
-                    presented: true,
+                    surface: self.inner.clone(),
                 })
             }
         }
@@ -102,7 +104,7 @@ pub struct SurfaceTexture {
     /// but should be recreated for maximum performance.
     pub suboptimal: bool,
 
-    pub(crate) presented: bool,
+    pub(crate) surface: hal::Surface,
 }
 
 impl SurfaceTexture {
@@ -110,7 +112,10 @@ impl SurfaceTexture {
     ///
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
-        todo!()
+        let adapter = self.surface.adapter();
+        adapter.swap_buffers().unwrap();
+
+        self.surface.update_swapchain();
     }
 }
 

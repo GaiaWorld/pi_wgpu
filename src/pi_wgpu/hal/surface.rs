@@ -1,5 +1,5 @@
 use glow::HasContext;
-use pi_share::{Share, ShareCell};
+use pi_share::{Share, ShareCell, cell::Ref};
 use thiserror::Error;
 
 use super::{
@@ -7,7 +7,7 @@ use super::{
     gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Surface {
     imp: Share<ShareCell<SurfaceImpl>>,
 }
@@ -24,8 +24,13 @@ impl Surface {
     }
 
     #[inline]
+    pub(crate) fn update_swapchain(&self) {
+        self.imp.as_ref().borrow_mut().update_swapchain()
+    }
+
+    #[inline]
     pub(crate) fn get_presentable(&self) -> bool {
-        todo!()
+        self.imp.as_ref().borrow().swapchain.is_none()
     }
 
     #[inline]
@@ -35,6 +40,11 @@ impl Surface {
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
         self.imp.as_ref().borrow_mut().configure(device, config)
+    }
+
+    #[inline]
+    pub(crate) fn adapter(&self) -> Ref<'_, AdapterContext> {
+        self.imp.as_ref().borrow().map(|s| &s.adapter)
     }
 
     #[inline]
@@ -176,9 +186,10 @@ impl SurfaceImpl {
 impl SurfaceImpl {
     #[inline]
     fn update_swapchain(&mut self) {
-        let imp = self.swapchain_impl.clone();
-
-        self.swapchain = Some(super::Texture(Share::new(imp)));
+        if self.swapchain.is_none() {
+            let imp = self.swapchain_impl.clone();
+            self.swapchain = Some(super::Texture(Share::new(imp)));
+        }
     }
 
     #[inline]

@@ -5,13 +5,3 @@ pub(crate) struct Queue {
     pub(crate) state: GLState,
     pub(crate) adapter: AdapterContext,
 }
-
-impl Queue {
-    pub(crate) fn present(
-        &mut self,
-        surface: &mut super::Surface,
-        texture: super::Texture,
-    ) -> Result<(), super::super::SurfaceError> {
-        todo!()
-    }
-}

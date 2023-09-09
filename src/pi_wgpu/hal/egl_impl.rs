@@ -665,6 +665,17 @@ impl AdapterContext {
     }
 
     #[inline]
+    pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
+        if let Some(surface) = self.surface.as_ref().borrow().as_ref() {
+            let display = self.egl_display();
+
+            unsafe { self.egl_instance().swap_buffers(*display, *surface) }
+        } else {
+            Ok(())
+        }
+    }
+
+    #[inline]
     pub(crate) fn get_surface(&self) {}
 
     #[inline]
