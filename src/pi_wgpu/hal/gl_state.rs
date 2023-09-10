@@ -3,10 +3,14 @@
 //!
 
 use glow::HasContext;
+use pi_share::cell::RefMut;
 use pi_share::{Share, ShareCell};
 
-use super::super::{hal, hal::GLUniformType, wgt, BufferSize};
-use super::{gl_cache::GLCache, gl_conv as conv, RawBinding, ShaderID, VertexAttribKind};
+use super::{
+    super::{hal, wgt, BufferSize},
+    gl_cache::GLCache,
+    gl_conv as conv, PiBindingType, RawBinding, ShaderID, VertexAttribKind,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState {
@@ -21,6 +25,14 @@ impl GLState {
         Self {
             imp: Share::new(ShareCell::new(imp)),
         }
+    }
+
+    #[inline]
+    pub(crate) fn get_shader_binding_map(&self) -> RefMut<'_, super::ShaderBindingMap> {
+        self.imp
+            .as_ref()
+            .borrow_mut()
+            .map(|s| s.cache.get_shader_binding_map())
     }
 
     #[inline]
@@ -366,6 +378,8 @@ impl GLStateImpl {
         let max_color_attachments =
             unsafe { gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS) as usize };
 
+        let cache = GLCache::new(max_uniform_buffer_bindings, max_textures_slots);
+
         Self {
             global_shader_id: 0,
             last_vbs: None,
@@ -375,13 +389,13 @@ impl GLStateImpl {
             max_textures_slots,
             max_color_attachments,
 
-            cache: Default::default(),
+            cache,
 
             render_pipeline: None,
             vertex_buffers: vec![None; max_attribute_slots].into_boxed_slice(),
             index_buffer: None,
 
-            bind_group_set: [None, None, None, None, None, None, None, None],
+            bind_group_set: [None, None, None, None],
 
             viewport: Default::default(),
             scissor: Default::default(),
@@ -837,7 +851,7 @@ impl GLStateImpl {
                         offset,
                         size,
                     } => unsafe {
-                        assert!(binding.u_type == GLUniformType::Buffer);
+                        assert!(binding.ty == PiBindingType::Buffer);
                         let imp = raw.0.as_ref();
 
                         let mut offset = if *dynamic_offset >= 0 {
@@ -850,13 +864,13 @@ impl GLStateImpl {
                         if offset == 0 && *size == imp.size {
                             gl.bind_buffer_base(
                                 glow::UNIFORM_BUFFER,
-                                binding.glsl_binding,
+                                binding.glow_binding,
                                 Some(imp.raw),
                             );
                         } else {
                             gl.bind_buffer_range(
                                 glow::UNIFORM_BUFFER,
-                                binding.glsl_binding,
+                                binding.glow_binding,
                                 Some(imp.raw),
                                 offset,
                                 *size,
@@ -864,14 +878,14 @@ impl GLStateImpl {
                         }
                     },
                     RawBinding::Texture(view) => unsafe {
-                        assert!(binding.u_type == GLUniformType::Texture);
+                        assert!(binding.ty == PiBindingType::Texture);
                         let imp = view.inner.as_ref();
                         match &imp.inner {
                             hal::TextureInner::Texture {
                                 state, raw, target, ..
                             } => {
                                 // TODO 加 比较
-                                gl.active_texture(glow::TEXTURE0 + binding.glsl_binding);
+                                gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
                                 gl.bind_texture(*target, Some(*raw));
                             }
                             _ => panic!("mis match texture size"),
@@ -879,9 +893,9 @@ impl GLStateImpl {
                     },
                     RawBinding::Sampler(sampler) => unsafe {
                         // TODO 加 比较
-                        assert!(binding.u_type == GLUniformType::Sampler);
+                        assert!(binding.ty == PiBindingType::Sampler);
                         let imp = sampler.0.as_ref();
-                        gl.bind_sampler(binding.glsl_binding, Some(imp.raw));
+                        gl.bind_sampler(binding.glow_binding, Some(imp.raw));
                     },
                 }
             }

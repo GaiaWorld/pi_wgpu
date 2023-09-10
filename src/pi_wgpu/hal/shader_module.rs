@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
@@ -5,10 +7,12 @@ use naga::{
     valid::{Capabilities as Caps, ModuleInfo},
     Module, ShaderStage,
 };
-use pi_share::{cell::Ref, Share, ShareCell};
+use pi_share::{Share, ShareCell};
 
-use super::{super::ShaderBindGroupInfo, AdapterContext, GLState};
-use crate::{pi_wgpu::wgt, ShaderModuleDescriptor};
+use super::{
+    super::{wgt, ShaderModuleDescriptor},
+    AdapterContext, GLState,
+};
 
 pub(crate) type ShaderID = u64;
 
@@ -30,11 +34,6 @@ impl ShaderModule {
     }
 
     #[inline]
-    pub fn get_inner<'a>(&'a self) -> Ref<'a, ShaderModuleImpl> {
-        self.imp.as_ref().borrow()
-    }
-
-    #[inline]
     pub fn compile(
         &self,
         shader_stage: naga::ShaderStage,
@@ -44,6 +43,7 @@ impl ShaderModule {
         entry_point: String,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
+        shader_binding_map: &mut ShaderBindingMap,
     ) -> Result<(), super::ShaderError> {
         self.imp.borrow_mut().compile(
             shader_stage,
@@ -53,6 +53,7 @@ impl ShaderModule {
             entry_point,
             multiview,
             naga_options,
+            shader_binding_map,
         )
     }
 }
@@ -103,6 +104,7 @@ impl ShaderModuleImpl {
         entry_point: String,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
+        shader_binding_map: &mut ShaderBindingMap,
     ) -> Result<(), super::ShaderError> {
         // 如果编译过了，直接返回
         if self.inner.is_some() {
@@ -170,17 +172,18 @@ impl ShaderModuleImpl {
             compile_gl_shader(&gl, gl_str.as_ref(), shader_type)?
         };
 
-        let bind_group_layout = consume_naga_reflection(
+        let bg_set_info = consume_naga_reflection(
             module_ref,
             &info.get_entry_point(entry_point_index),
             reflection_info,
+            shader_binding_map,
         )?;
 
         self.inner = Some(ShaderInner {
             id: self.state.next_shader_id(),
             raw,
             shader_type,
-            bind_group_layout,
+            bg_set_info,
         });
         self.input = None;
 
@@ -325,43 +328,63 @@ fn consume_naga_reflection(
     module: &naga::Module,
     ep_info: &naga::valid::FunctionInfo,
     reflection_info: naga::back::glsl::ReflectionInfo,
-) -> Result<Vec<ShaderBindGroupInfo>, super::ShaderError> {
-    let mut r = vec![];
+    shader_binding_map: &mut ShaderBindingMap,
+) -> Result<[Box<[PiBindEntry]>; super::MAX_BIND_GROUPS], super::ShaderError> {
+    let mut r = [vec![], vec![], vec![], vec![]];
 
+    // UBO
     for (handle, name) in reflection_info.uniforms {
         let var = &module.global_variables[handle];
         let br = var.binding.as_ref().unwrap();
-        r.push(ShaderBindGroupInfo {
-            name: name.clone(),
-            set: br.group as usize,
+
+        let glow_binding = shader_binding_map.get_or_insert_ubo(br.clone());
+
+        let set = &mut r[br.group as usize];
+        set.push(PiBindEntry {
             binding: br.binding as usize,
-            ty: crate::PiBindingType::Buffer,
+            ty: PiBindingType::Buffer,
+
+            glsl_name: name,
+            glow_binding,
         });
     }
 
+    // Sampler / Texture
     for (name, mapping) in reflection_info.texture_mapping {
         assert!(mapping.sampler.is_some());
+
         let sampler_handle = mapping.sampler.unwrap();
         let sampler_var = &module.global_variables[sampler_handle];
         let sampler_br = sampler_var.binding.as_ref().unwrap();
-        r.push(ShaderBindGroupInfo {
-            name: name.clone(),
-            set: sampler_br.group as usize,
+
+        let glow_binding = shader_binding_map.get_or_insert_ubo(sampler_br.clone());
+
+        let set = &mut r[sampler_br.group as usize];
+        set.push(PiBindEntry {
             binding: sampler_br.binding as usize,
-            ty: crate::PiBindingType::Sampler,
+            ty: PiBindingType::Sampler,
+
+            glsl_name: name.clone(),
+            glow_binding,
         });
 
         let tex_var = &module.global_variables[mapping.texture];
         let tex_br = tex_var.binding.as_ref().unwrap();
-        r.push(ShaderBindGroupInfo {
-            name: name,
-            set: tex_br.group as usize,
+        let set = &mut r[tex_br.group as usize];
+        set.push(PiBindEntry {
             binding: tex_br.binding as usize,
-            ty: crate::PiBindingType::Texture,
+            ty: PiBindingType::Texture,
+
+            glsl_name: name,
+            glow_binding,
         });
     }
 
-    Ok(r)
+    let mut us: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS] = Default::default();
+    for (boxed_slice, vec) in us.iter_mut().zip(r.iter_mut()) {
+        *boxed_slice = vec.drain(..).collect::<Vec<_>>().into_boxed_slice();
+    }
+    Ok(us)
 }
 
 #[derive(Debug)]
@@ -403,5 +426,91 @@ pub(crate) struct ShaderInner {
     pub(crate) id: ShaderID,
     pub(crate) raw: glow::Shader,
     pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
-    pub(crate) bind_group_layout: Vec<ShaderBindGroupInfo>,
+    pub(crate) bg_set_info: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS],
+}
+
+//
+// create_program: 确定 binding 和 Type
+//      对 UBO:
+//          var blockIndex = gl.getUniformBlockIndex(program, glsl_name);
+//          gl.uniformBlockBinding(program, blockIndex, glow_binding);
+//      对 Texture / Sampler
+//          var mySampler = gl.getUniformLocation(program, glsl_name);
+//          gl.uniform1i(mySampler, glow_binding);
+//
+// set_bind_group: 比较 和 设置 gl-函数
+//      对 UBO:
+//          gl.bindBufferRange(gl.UNIFORM_BUFFER, glow_binding, ubuffer, offset, size);
+//      对 Texture:
+//          gl.activeTexture(gl.TEXTURE0 + glow_binding);
+//          gl.bindTexture(gl.TEXTURE_2D, texture);
+//      对 Sampler:
+//          gl.bindSampler(glow_binding, sampler);
+//
+#[derive(Clone, Debug)]
+pub(crate) struct PiBindEntry {
+    pub(crate) binding: usize, // glsl 450 写的 lyaout(set=yyy, bind=yyy) 的 yyy
+    pub(crate) ty: PiBindingType,
+
+    // glsl 300 中：Sampler 和 Texture 对应的是同一个名字和绑定
+    pub(crate) glsl_name: String, // 编译后的名字
+    pub(crate) glow_binding: u32, // 编译后 由 程序分配的绑定，Buffer 和 Sampler/Texture 分两组编码
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub(crate) enum PiBindingType {
+    Buffer,
+    Texture,
+    Sampler,
+}
+
+#[derive(Debug)]
+pub(crate) struct ShaderBindingMap {
+    pub(crate) next_ubo_id: usize,
+    pub(crate) max_uniform_buffer_bindings: usize,
+    pub(crate) ubo_map: HashMap<naga::ResourceBinding, usize>,
+
+    pub(crate) next_sampler_id: usize,
+    pub(crate) max_textures_slots: usize,
+    pub(crate) sampler_map: HashMap<naga::ResourceBinding, usize>,
+}
+
+impl ShaderBindingMap {
+    #[inline]
+    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
+        Self {
+            next_ubo_id: 0,
+            max_uniform_buffer_bindings,
+            ubo_map: Default::default(),
+
+            next_sampler_id: 0,
+            max_textures_slots,
+            sampler_map: Default::default(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_or_insert_ubo(&mut self, binding: naga::ResourceBinding) -> u32 {
+        let r = self.ubo_map.entry(binding).or_insert_with(|| {
+            let r = self.next_ubo_id;
+            self.next_ubo_id += 1;
+            self.next_ubo_id %= self.max_uniform_buffer_bindings;
+            r
+        });
+
+        *r as u32
+    }
+
+    #[inline]
+    pub(crate) fn get_or_insert_sampler(&mut self, binding: naga::ResourceBinding) -> u32 {
+        let r = self.sampler_map.entry(binding).or_insert_with(|| {
+            let r = self.next_sampler_id;
+            self.next_sampler_id += 1;
+            self.next_sampler_id %= self.max_textures_slots;
+            r
+        });
+
+        *r as u32
+    }
 }

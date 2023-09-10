@@ -49,22 +49,6 @@ pub enum ShaderSource<'a> {
     },
 }
 
-#[derive(Clone, Debug)]
-pub struct ShaderBindGroupInfo {
-    pub set: usize,
-    pub binding: usize,
-    pub name: String,
-    pub ty: PiBindingType,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[repr(C)]
-pub enum PiBindingType {
-    Buffer,
-    Texture,
-    Sampler,
-}
-
 /// Descriptor for use with [`Device::create_shader_module`].
 ///
 /// Corresponds to [WebGPU `GPUShaderModuleDescriptor`](

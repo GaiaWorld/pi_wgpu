@@ -263,15 +263,15 @@ impl EglContext {
         };
 
         if flags.contains(super::InstanceFlags::DEBUG) && gl.supports_debug() {
-            log::info!("Max label length: {}", unsafe {
+            log::error!("Max label length: {}", unsafe {
                 gl.get_parameter_i32(glow::MAX_LABEL_LENGTH)
             });
         }
 
         if flags.contains(super::InstanceFlags::VALIDATION) && gl.supports_debug() {
-            log::info!("Enabling GLES debug output");
-            unsafe { gl.enable(glow::DEBUG_OUTPUT) };
-            unsafe { gl.debug_message_callback(gl_debug_message_callback) };
+            // log::error!("Enabling GLES debug output");
+            // unsafe { gl.enable(glow::DEBUG_OUTPUT) };
+            // unsafe { gl.debug_message_callback(gl_debug_message_callback) };
         }
 
         // =========== 3. 解绑表面
@@ -337,29 +337,14 @@ impl AdapterContext {
     #[inline]
     pub(crate) fn new(gl: glow::Context, context: EglContext) -> Option<Self> {
         let extensions = gl.supported_extensions();
+        log::warn!("GL Extensions: {:#?}", extensions);
 
-        let (vendor_const, renderer_const) = if extensions.contains("WEBGL_debug_renderer_info") {
-            (GL_UNMASKED_VENDOR_WEBGL, GL_UNMASKED_RENDERER_WEBGL)
-        } else {
-            (glow::VENDOR, glow::RENDERER)
-        };
-
-        // ========== 1. 厂商
-        let (vendor, renderer) = {
-            let vendor = unsafe { gl.get_parameter_string(vendor_const) };
-            let renderer = unsafe { gl.get_parameter_string(renderer_const) };
-
-            (vendor, renderer)
-        };
-
-        // ========== 2. 版本，必须大于等于 3.0
+        log::warn!("glow version: {:#?}", gl.version());
+        
+        // ========== 1. 版本，必须大于等于 3.0
 
         let version = unsafe { gl.get_parameter_string(glow::VERSION) };
-        log::info!("GL Vendor: {}", vendor);
-        log::info!("GL Renderer: {}", renderer);
-        log::info!("GL Version: {}", version);
-
-        log::info!("GL Extensions: {:#?}", extensions);
+        log::warn!("GL Version: {}", version);
 
         let ver = Self::parse_version(&version).ok()?;
         if ver < (3, 0) {
@@ -371,12 +356,29 @@ impl AdapterContext {
             return None;
         }
 
+        // ========== 2. 厂商
+
+        let (vendor_const, renderer_const) = if extensions.contains("WEBGL_debug_renderer_info") {
+            (GL_UNMASKED_VENDOR_WEBGL, GL_UNMASKED_RENDERER_WEBGL)
+        } else {
+            (glow::VENDOR, glow::RENDERER)
+        };
+
+        let (vendor, renderer) = {
+            let vendor = unsafe { gl.get_parameter_string(vendor_const) };
+            let renderer = unsafe { gl.get_parameter_string(renderer_const) };
+
+            (vendor, renderer)
+        };
+        log::warn!("GL Renderer: {}", renderer);
+        log::warn!("GL Vendor: {}", vendor);
+
         // ========== 3. glsl shader 版本
 
         let shading_language_version = {
             let sl_version = unsafe { gl.get_parameter_string(glow::SHADING_LANGUAGE_VERSION) };
 
-            log::info!("GLSL version: {}", &sl_version);
+            log::warn!("GLSL version: {}", &sl_version);
 
             let (sl_major, sl_minor) = Self::parse_version(&sl_version).ok()?;
 
@@ -1113,10 +1115,10 @@ pub(super) fn choose_config(
     ]);
 
     // TODO 待定，看不到为什么 srgb就一定要有alpha通道
-    // if srgb_kind != SrgbFrameBufferKind::None {
-    //     attributes.push(egl::ALPHA_SIZE);
-    //     attributes.push(8);
-    // }
+    if srgb_kind != SrgbFrameBufferKind::None {
+        attributes.push(egl::ALPHA_SIZE);
+        attributes.push(8);
+    }
 
     #[cfg(not(target_os = "android"))]
     attributes.extend_from_slice(&[egl::NATIVE_RENDERABLE, egl::TRUE as _]);
@@ -1147,10 +1149,10 @@ pub(super) fn choose_config(
         ]);
 
         // TODO 待定，看不到为什么 srgb就一定要有alpha通道
-        // if srgb_kind != SrgbFrameBufferKind::None {
-        //     attributes.push(egl::ALPHA_SIZE);
-        //     attributes.push(8);
-        // }
+        if srgb_kind != SrgbFrameBufferKind::None {
+            attributes.push(egl::ALPHA_SIZE);
+            attributes.push(8);
+        }
 
         attributes.push(egl::NONE);
 

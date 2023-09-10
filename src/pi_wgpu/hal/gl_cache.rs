@@ -18,6 +18,7 @@ pub(crate) type ProgramID = (ShaderID, ShaderID);
 
 #[derive(Debug)]
 pub(crate) struct GLCache {
+    shader_binding_map: super::ShaderBindingMap,
     vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
     fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
 
@@ -29,8 +30,9 @@ pub(crate) struct GLCache {
     ss_map: HashMap<StencilStateImpl, ShareWeak<StencilState>, RandomXxHashBuilder64>,
 }
 
-impl Default for GLCache {
-    fn default() -> Self {
+impl GLCache {
+    #[inline]
+    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
         Self {
             vao_map: Default::default(),
             fbo_map: Default::default(),
@@ -40,12 +42,17 @@ impl Default for GLCache {
             rs_map: Default::default(),
             ds_map: Default::default(),
             ss_map: Default::default(),
+
+            shader_binding_map: super::ShaderBindingMap::new(max_uniform_buffer_bindings, max_textures_slots),
         }
     }
-}
+    
+    #[inline]
+    pub(crate) fn get_shader_binding_map(&mut self) -> &mut super::ShaderBindingMap {
+        &mut self.shader_binding_map
+    }
 
-impl GLCache {
-    pub fn get_or_insert_rs(&mut self, state: GLState, rs: RasterStateImpl) -> Share<RasterState> {
+    pub(crate) fn get_or_insert_rs(&mut self, state: GLState, rs: RasterStateImpl) -> Share<RasterState> {
         profiling::scope!("hal::GLCache::get_or_insert_rs");
         // 尝试获取一个存在的Weak引用并升级
         if let Some(weak) = self.rs_map.get(&rs) {
@@ -63,7 +70,7 @@ impl GLCache {
         new_strong
     }
 
-    pub fn get_or_insert_bs(
+    pub(crate) fn get_or_insert_bs(
         &mut self,
         state: GLState,
         bs: super::BlendStateImpl,
@@ -85,7 +92,7 @@ impl GLCache {
         new_strong
     }
 
-    pub fn get_or_insert_ds(
+    pub(crate) fn get_or_insert_ds(
         &mut self,
         state: GLState,
         ds: super::DepthStateImpl,
@@ -107,7 +114,7 @@ impl GLCache {
         new_strong
     }
 
-    pub fn get_or_insert_ss(
+    pub(crate) fn get_or_insert_ss(
         &mut self,
         state: GLState,
         ss: super::StencilStateImpl,
@@ -131,27 +138,27 @@ impl GLCache {
     }
 
     #[inline]
-    pub fn remove_bs(&mut self, bs: &super::BlendStateImpl) {
+    pub(crate) fn remove_bs(&mut self, bs: &super::BlendStateImpl) {
         self.bs_map.remove(bs);
     }
 
     #[inline]
-    pub fn remove_rs(&mut self, rs: &super::RasterStateImpl) {
+    pub(crate) fn remove_rs(&mut self, rs: &super::RasterStateImpl) {
         self.rs_map.remove(rs);
     }
 
     #[inline]
-    pub fn remove_ds(&mut self, ds: &super::DepthStateImpl) {
+    pub(crate) fn remove_ds(&mut self, ds: &super::DepthStateImpl) {
         self.ds_map.remove(ds);
     }
 
     #[inline]
-    pub fn remove_ss(&mut self, ss: &super::StencilStateImpl) {
+    pub(crate) fn remove_ss(&mut self, ss: &super::StencilStateImpl) {
         self.ss_map.remove(ss);
     }
 
     #[inline]
-    pub fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
+    pub(crate) fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
         self.program_map.get(id).and_then(|p| {
             let p = p.upgrade();
             p.map(|p| super::Program(p))
@@ -159,16 +166,16 @@ impl GLCache {
     }
 
     #[inline]
-    pub fn insert_program(&mut self, id: super::ProgramID, program: super::Program) {
+    pub(crate) fn insert_program(&mut self, id: super::ProgramID, program: super::Program) {
         self.program_map.insert(id, Share::downgrade(&program.0));
     }
 
     #[inline]
-    pub fn remove_program(&mut self, id: &ProgramID) {
+    pub(crate) fn remove_program(&mut self, id: &ProgramID) {
         self.program_map.remove(id);
     }
 
-    pub fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) {
+    pub(crate) fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) {
         profiling::scope!("hal::GLCache::bind_fbo");
 
         match self.fbo_map.get(render_target) {
@@ -232,7 +239,7 @@ impl GLCache {
         }
     }
 
-    pub fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
+    pub(crate) fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
         profiling::scope!("hal::GLCache::bind_vao");
 
         match self.vao_map.get(geometry) {
@@ -293,7 +300,7 @@ impl GLCache {
         }
     }
 
-    pub fn remove_render_buffer(&mut self, gl: &glow::Context, rb: glow::Renderbuffer) {
+    pub(crate) fn remove_render_buffer(&mut self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLCache::remove_render_buffer");
 
         let set = self
@@ -323,7 +330,7 @@ impl GLCache {
         }
     }
 
-    pub fn remove_texture(&mut self, gl: &glow::Context, texture: glow::Texture) {
+    pub(crate) fn remove_texture(&mut self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLCache::remove_texture");
 
         let set = self
@@ -353,7 +360,7 @@ impl GLCache {
         }
     }
 
-    pub fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+    pub(crate) fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLCache::remove_buffer");
 
         assert!(bind_target == glow::ARRAY_BUFFER);

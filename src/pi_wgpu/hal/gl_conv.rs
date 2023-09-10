@@ -91,8 +91,8 @@ pub(crate) fn map_texture_usage(
     //     usage.contains(wgt::TextureUsages::STORAGE_BINDING),
     // );
 
-    assert!(!usage.contains(wgt::TextureUsages::COPY_DST));
-    assert!(!usage.contains(wgt::TextureUsages::COPY_SRC));
+    // assert!(!usage.contains(wgt::TextureUsages::COPY_DST));
+    // assert!(!usage.contains(wgt::TextureUsages::COPY_SRC));
     assert!(!usage.contains(wgt::TextureUsages::STORAGE_BINDING));
 
     u.set(

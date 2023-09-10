@@ -129,6 +129,9 @@ impl SurfaceImpl {
         }
         attributes.push(egl::ATTRIB_NONE as i32);
 
+        
+        println!("============== create_window_surface attributes = {:?}, srgb = {:?}", attributes, adapter.egl_srgb_support());
+
         let raw = {
             let inner = adapter.egl_ref();
 

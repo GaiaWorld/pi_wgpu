@@ -62,7 +62,7 @@ pub struct ExposedAdapter<A: Api> {
 pub(crate) type MemoryRange = Range<wgt::BufferAddress>;
 
 pub(crate) const MAX_ANISOTROPY: u8 = 16;
-pub(crate) const MAX_BIND_GROUPS: usize = 8;
+pub(crate) const MAX_BIND_GROUPS: usize = 4;
 pub(crate) const MAX_VERTEX_BUFFERS: usize = 16;
 pub(crate) const MAX_COLOR_ATTACHMENTS: usize = 8;
 pub(crate) const MAX_MIP_LEVELS: u32 = 16;
