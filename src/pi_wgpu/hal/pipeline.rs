@@ -101,7 +101,6 @@ impl RenderPipelineImpl {
 
             let naga_options = &layout.naga_options;
 
-            let mut map = state.get_shader_binding_map();
             vs.module
                 .inner
                 .compile(
@@ -112,7 +111,6 @@ impl RenderPipelineImpl {
                     vs.entry_point.to_string(),
                     desc.multiview,
                     naga_options,
-                    &mut map,
                 )
                 .map_err(|e| {
                     super::PipelineError::Linkage(wgt::ShaderStages::VERTEX, e.to_string())
@@ -128,7 +126,6 @@ impl RenderPipelineImpl {
                     fs.entry_point.to_string(),
                     desc.multiview,
                     naga_options,
-                    &mut map,
                 )
                 .map_err(|e| {
                     super::PipelineError::Linkage(wgt::ShaderStages::FRAGMENT, e.to_string())

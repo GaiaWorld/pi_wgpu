@@ -3,7 +3,6 @@
 //!
 
 use glow::HasContext;
-use pi_share::cell::RefMut;
 use pi_share::{Share, ShareCell};
 
 use super::{
@@ -19,7 +18,7 @@ pub(crate) struct GLState {
 
 impl GLState {
     #[inline]
-    pub fn new(gl: &glow::Context) -> Self {
+    pub(crate) fn new(gl: &glow::Context) -> Self {
         let imp = GLStateImpl::new(&gl);
 
         Self {
@@ -28,15 +27,19 @@ impl GLState {
     }
 
     #[inline]
-    pub(crate) fn get_shader_binding_map(&self) -> RefMut<'_, super::ShaderBindingMap> {
-        self.imp
-            .as_ref()
-            .borrow_mut()
-            .map(|s| s.cache.get_shader_binding_map())
+    pub(crate) fn update_ubo(&self, binding: super::PiResourceBinding) -> u32 {
+        let mut s = self.imp.borrow_mut();
+        s.cache.update_ubo(binding)
     }
 
     #[inline]
-    pub fn next_shader_id(&self) -> ShaderID {
+    pub(crate) fn update_sampler(&self, binding: super::PiResourceBinding) -> u32 {
+        let mut s = self.imp.borrow_mut();
+        s.cache.update_sampler(binding)
+    }
+
+    #[inline]
+    pub(crate) fn next_shader_id(&self) -> ShaderID {
         let mut s = self.imp.borrow_mut();
 
         s.global_shader_id += 1;
@@ -44,50 +47,53 @@ impl GLState {
     }
 
     #[inline]
-    pub fn max_attribute_slots(&self) -> usize {
+    pub(crate) fn max_attribute_slots(&self) -> usize {
         self.imp.borrow().max_attribute_slots
     }
 
     #[inline]
-    pub fn max_textures_slots(&self) -> usize {
+    pub(crate) fn max_textures_slots(&self) -> usize {
         self.imp.borrow().max_textures_slots
     }
 
     #[inline]
-    pub fn max_color_attachments(&self) -> usize {
+    pub(crate) fn max_color_attachments(&self) -> usize {
         self.imp.borrow().max_color_attachments
     }
 
     #[inline]
-    pub fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
+    pub(crate) fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
         self.imp.borrow().cache.get_program(id)
     }
 
     #[inline]
-    pub fn insert_program(&self, id: super::ProgramID, program: super::Program) {
+    pub(crate) fn insert_program(&self, id: super::ProgramID, program: super::Program) {
         self.imp.borrow_mut().cache.insert_program(id, program)
     }
 
     #[inline]
-    pub fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
+    pub(crate) fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
         let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_rs(rs)
     }
 
     #[inline]
-    pub fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
+    pub(crate) fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
         let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_ds(ds)
     }
 
     #[inline]
-    pub fn get_or_insert_ss(&self, rs: super::StencilStateImpl) -> Share<super::StencilState> {
+    pub(crate) fn get_or_insert_ss(
+        &self,
+        rs: super::StencilStateImpl,
+    ) -> Share<super::StencilState> {
         let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_ss(rs)
     }
 
     #[inline]
-    pub fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
+    pub(crate) fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
         let mut s = self.imp.borrow_mut();
         s.cache.get_or_insert_bs(bs)
     }
@@ -100,13 +106,13 @@ impl GLState {
     }
 
     #[inline]
-    pub fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
+    pub(crate) fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLState::remove_render_buffer");
         let cache = &mut self.imp.borrow_mut().cache;
         cache.remove_render_buffer(gl, rb);
     }
 
-    pub fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+    pub(crate) fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLState::remove_buffer");
 
         if bind_target == glow::UNIFORM_BUFFER {
@@ -128,7 +134,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
+    pub(crate) fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLState::remove_texture");
         let cache = &mut self.imp.borrow_mut().cache;
         cache.remove_texture(gl, texture);
@@ -137,13 +143,18 @@ impl GLState {
     }
 
     #[inline]
-    pub fn remove_sampler(&self, gl: &glow::Context, sampler: glow::Sampler) {
+    pub(crate) fn remove_sampler(&self, gl: &glow::Context, sampler: glow::Sampler) {
         profiling::scope!("hal::GLState::remove_sampler");
         // TODO 到 TextureCache 移除 对应的 槽位
     }
 
     #[inline]
-    pub fn set_buffer_size(&self, gl: &glow::Context, buffer: &super::BufferImpl, size: i32) {
+    pub(crate) fn set_buffer_size(
+        &self,
+        gl: &glow::Context,
+        buffer: &super::BufferImpl,
+        size: i32,
+    ) {
         profiling::scope!("hal::GLState::set_buffer_size");
 
         let imp = &mut self.imp.borrow_mut();
@@ -152,7 +163,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_buffer_sub_data(
+    pub(crate) fn set_buffer_sub_data(
         &self,
         gl: &glow::Context,
         buffer: &super::BufferImpl,
@@ -166,7 +177,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
+    pub(crate) fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         profiling::scope!("hal::GLState::set_render_pipeline");
 
         let imp = &mut self.imp.borrow_mut();
@@ -174,7 +185,11 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_render_target(&self, gl: &glow::Context, desc: &super::super::RenderPassDescriptor) {
+    pub(crate) fn set_render_target(
+        &self,
+        gl: &glow::Context,
+        desc: &super::super::RenderPassDescriptor,
+    ) {
         profiling::scope!("hal::GLState::set_render_target");
 
         let imp = &mut self.imp.borrow_mut();
@@ -182,7 +197,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_bind_group(
+    pub(crate) fn set_bind_group(
         &self,
         index: u32,
         bind_group: &super::BindGroup,
@@ -195,7 +210,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_vertex_buffer(
+    pub(crate) fn set_vertex_buffer(
         &self,
         index: usize,
         buffer: &super::Buffer,
@@ -209,7 +224,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_index_buffer(
+    pub(crate) fn set_index_buffer(
         &self,
         gl: &glow::Context,
         buffer: &super::Buffer,
@@ -224,7 +239,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn draw(
+    pub(crate) fn draw(
         &self,
         gl: &glow::Context,
         start_vertex: u32,
@@ -238,7 +253,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn draw_indexed(
+    pub(crate) fn draw_indexed(
         &self,
         gl: &glow::Context,
         start_index: i32,
@@ -252,7 +267,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+    pub(crate) fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
 
         let imp = &mut self.imp.borrow_mut();
@@ -260,7 +275,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
+    pub(crate) fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
 
         let imp = &mut self.imp.borrow_mut();
@@ -268,7 +283,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
+    pub(crate) fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
 
         let imp = &mut self.imp.borrow_mut();
@@ -276,7 +291,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
+    pub(crate) fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
 
         let imp = &mut self.imp.borrow_mut();
@@ -284,7 +299,7 @@ impl GLState {
     }
 
     #[inline]
-    pub fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
+    pub(crate) fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
 
         let imp = &mut self.imp.borrow_mut();

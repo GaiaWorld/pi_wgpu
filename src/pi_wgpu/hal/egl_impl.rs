@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     ffi,
     os::raw,
     ptr,
@@ -267,9 +268,6 @@ impl EglContext {
                 gl.get_parameter_i32(glow::MAX_LABEL_LENGTH)
             });
         }
-
-        // =========== 3. 解绑表面
-        self.unmake_current();
 
         gl
     }
@@ -660,16 +658,19 @@ impl AdapterContext {
     #[inline]
     pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
         if let Some(surface) = self.surface.as_ref().borrow().as_ref() {
+            self.egl_ref().make_current(Some(*surface));
+
             let display = self.egl_display();
 
-            unsafe { self.egl_instance().swap_buffers(*display, *surface) }
+            let r = self.egl_instance().swap_buffers(*display, *surface);
+
+            self.egl_ref().make_current(None);
+
+            r
         } else {
             Ok(())
         }
     }
-
-    #[inline]
-    pub(crate) fn get_surface(&self) {}
 
     #[inline]
     pub(crate) fn egl_ref(&self) -> &EglContext {
@@ -815,8 +816,7 @@ impl AdapterContext {
         self.imp.reentrant_count.fetch_add(1, Ordering::SeqCst);
 
         let egl = EglContextLock {
-            instance: &self.imp.egl.instance,
-            display: self.imp.egl.display,
+            instance: &self.imp.egl,
         };
 
         let reentrant_count = self.imp.reentrant_count.clone();
@@ -1020,8 +1020,7 @@ impl AdapterContext {
 
 #[derive(Debug)]
 struct EglContextLock<'a> {
-    instance: &'a EglInstance,
-    display: egl::Display,
+    instance: &'a EglContext,
 }
 
 /// A guard containing a lock to an [`AdapterContext`]
@@ -1046,10 +1045,7 @@ impl<'a> Drop for AdapterContextLock<'a> {
         self.reentrant_count.fetch_sub(1, Ordering::SeqCst);
 
         if self.reentrant_count.load(Ordering::SeqCst) == 0 {
-            self.egl
-                .instance
-                .make_current(self.egl.display, None, None, None)
-                .unwrap();
+            self.egl.instance.unmake_current();
         }
     }
 }

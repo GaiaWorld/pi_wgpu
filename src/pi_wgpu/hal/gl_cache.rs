@@ -71,8 +71,13 @@ impl GLCache {
     }
 
     #[inline]
-    pub(crate) fn get_shader_binding_map(&mut self) -> &mut super::ShaderBindingMap {
-        &mut self.shader_binding_map
+    pub(crate) fn update_ubo(&mut self, binding: super::PiResourceBinding) -> u32 {
+        self.shader_binding_map.get_or_insert_ubo(binding)
+    }
+
+    #[inline]
+    pub(crate) fn update_sampler(&mut self, binding: super::PiResourceBinding) -> u32 {
+        self.shader_binding_map.get_or_insert_sampler(binding)
     }
 
     pub(crate) fn get_or_insert_rs(

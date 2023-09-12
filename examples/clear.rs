@@ -1,128 +1,51 @@
-#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
-
-use std::collections::HashMap;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowId},
+    window::Window,
 };
 
-const WINDOW_SIZE: u32 = 1024;
-
-const ROWS: u32 = 1;
-const COLUMNS: u32 = 1;
-
 fn main() {
+    let event_loop = EventLoop::new();
+    let window = winit::window::Window::new(&event_loop).unwrap();
     #[cfg(not(target_arch = "wasm32"))]
     {
-        const WINDOW_PADDING: u32 = 16;
-        const WINDOW_TITLEBAR: u32 = 32;
-        const WINDOW_OFFSET: u32 = WINDOW_SIZE + WINDOW_PADDING;
+        env_logger::Builder::new()
+            .filter(None, log::LevelFilter::Info)
+            .init();
 
-        let event_loop = EventLoop::new();
-        let mut viewports = Vec::with_capacity((ROWS * COLUMNS) as usize);
-        for row in 0..ROWS {
-            for column in 0..COLUMNS {
-                let window = winit::window::WindowBuilder::new()
-                    .with_title(format!("x{column}y{row}"))
-                    .with_inner_size(winit::dpi::PhysicalSize::new(WINDOW_SIZE, WINDOW_SIZE))
-                    .build(&event_loop)
-                    .unwrap();
-                window.set_outer_position(winit::dpi::PhysicalPosition::new(
-                    WINDOW_PADDING + column * WINDOW_OFFSET,
-                    WINDOW_PADDING + row * (WINDOW_OFFSET + WINDOW_TITLEBAR),
-                ));
-                fn frac(index: u32, max: u32) -> f64 {
-                    index as f64 / max as f64
-                }
-                viewports.push((
-                    window,
-                    pi_wgpu::Color {
-                        r: frac(row, ROWS),
-                        g: 0.5 - frac(row * column, ROWS * COLUMNS) * 0.5,
-                        b: frac(column, COLUMNS),
-                        a: 1.0,
-                    },
-                ))
-            }
-        }
-
-        env_logger::init();
-        pollster::block_on(run(event_loop, viewports));
+        pollster::block_on(run(event_loop, window));
     }
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        panic!("wasm32 is not supported")
+        console_log::init().expect("could not initialize logger");
+        use winit::platform::web::WindowExtWebSys;
+        // On wasm, append the canvas to the document body
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("couldn't append canvas to document body");
+        wasm_bindgen_futures::spawn_local(run(event_loop, window));
     }
 }
 
-struct ViewportDesc {
-    window: Window,
-    background: pi_wgpu::Color,
-    surface: pi_wgpu::Surface,
-}
+async fn run(event_loop: EventLoop<()>, window: Window) {
+    let size = window.inner_size();
 
-struct Viewport {
-    desc: ViewportDesc,
-    config: pi_wgpu::SurfaceConfiguration,
-}
-
-impl ViewportDesc {
-    fn new(window: Window, background: pi_wgpu::Color, instance: &pi_wgpu::Instance) -> Self {
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
-        Self {
-            window,
-            background,
-            surface,
-        }
-    }
-
-    fn build(self, adapter: &pi_wgpu::Adapter, device: &pi_wgpu::Device) -> Viewport {
-        let size = self.window.inner_size();
-
-        let caps = self.surface.get_capabilities(adapter);
-        let config = pi_wgpu::SurfaceConfiguration {
-            usage: pi_wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: caps.formats[0],
-            width: size.width,
-            height: size.height,
-            present_mode: pi_wgpu::PresentMode::Fifo,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-        };
-
-        self.surface.configure(device, &config);
-
-        Viewport { desc: self, config }
-    }
-}
-
-impl Viewport {
-    fn resize(&mut self, device: &pi_wgpu::Device, size: winit::dpi::PhysicalSize<u32>) {
-        self.config.width = size.width;
-        self.config.height = size.height;
-        self.desc.surface.configure(device, &self.config);
-    }
-    fn get_current_texture(&mut self) -> pi_wgpu::SurfaceTexture {
-        self.desc
-            .surface
-            .get_current_texture()
-            .expect("Failed to acquire next swap chain texture")
-    }
-}
-
-async fn run(event_loop: EventLoop<()>, viewports: Vec<(Window, pi_wgpu::Color)>) {
     let instance = pi_wgpu::Instance::default();
-    let viewports: Vec<_> = viewports
-        .into_iter()
-        .map(|(window, color)| ViewportDesc::new(window, color, &instance))
-        .collect();
+
+    let surface = unsafe { instance.create_surface(&window) }.unwrap();
+
     let adapter = instance
         .request_adapter(&pi_wgpu::RequestAdapterOptions {
+            power_preference: pi_wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
             // Request an adapter which can render to our surface
-            compatible_surface: viewports.first().map(|desc| &desc.surface),
-            ..Default::default()
+            compatible_surface: None,
         })
         .await
         .expect("Failed to find an appropriate adapter");
@@ -133,17 +56,29 @@ async fn run(event_loop: EventLoop<()>, viewports: Vec<(Window, pi_wgpu::Color)>
             &pi_wgpu::DeviceDescriptor {
                 label: None,
                 features: pi_wgpu::Features::empty(),
-                limits: pi_wgpu::Limits::downlevel_defaults(),
+                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                limits: pi_wgpu::Limits::downlevel_webgl2_defaults()
+                    .using_resolution(adapter.limits()),
             },
             None,
         )
         .await
         .expect("Failed to create device");
 
-    let mut viewports: HashMap<WindowId, Viewport> = viewports
-        .into_iter()
-        .map(|desc| (desc.window.id(), desc.build(&adapter, &device)))
-        .collect();
+    let swapchain_capabilities = surface.get_capabilities(&adapter);
+    let swapchain_format = swapchain_capabilities.formats[0];
+
+    let mut config = pi_wgpu::SurfaceConfiguration {
+        usage: pi_wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: swapchain_format,
+        width: size.width,
+        height: size.height,
+        present_mode: pi_wgpu::PresentMode::Fifo,
+        alpha_mode: swapchain_capabilities.alpha_modes[0],
+        view_formats: vec![],
+    };
+
+    surface.configure(&device, &config);
 
     event_loop.run(move |event, _, control_flow| {
         // Have the closure take ownership of the resources.
@@ -154,54 +89,54 @@ async fn run(event_loop: EventLoop<()>, viewports: Vec<(Window, pi_wgpu::Color)>
         *control_flow = ControlFlow::Wait;
         match event {
             Event::WindowEvent {
-                window_id,
                 event: WindowEvent::Resized(size),
                 ..
             } => {
-                // Recreate the swap chain with the new size
-                if let Some(viewport) = viewports.get_mut(&window_id) {
-                    viewport.resize(&device, size);
-                    // On macos the window needs to be redrawn manually after resizing
-                    viewport.desc.window.request_redraw();
-                }
-            }
-            Event::RedrawRequested(window_id) => {
-                if let Some(viewport) = viewports.get_mut(&window_id) {
-                    let frame = viewport.get_current_texture();
-                    let view = frame
-                        .texture
-                        .create_view(&pi_wgpu::TextureViewDescriptor::default());
-                    let mut encoder = device
-                        .create_command_encoder(&pi_wgpu::CommandEncoderDescriptor { label: None });
-                    {
-                        let _rpass = encoder.begin_render_pass(&pi_wgpu::RenderPassDescriptor {
-                            label: None,
-                            color_attachments: &[Some(pi_wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: pi_wgpu::Operations {
-                                    load: pi_wgpu::LoadOp::Clear(viewport.desc.background),
-                                    store: true,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                        });
-                    }
+                // Reconfigure the surface with the new size
+                config.width = size.width;
+                config.height = size.height;
+                surface.configure(&device, &config);
 
-                    queue.submit(Some(encoder.finish()));
-                    frame.present();
+                // On macos the window needs to be redrawn manually after resizing
+                window.request_redraw();
+            }
+            Event::MainEventsCleared => {
+                window.request_redraw();
+            }
+            Event::RedrawRequested(_) => {
+                let frame = surface
+                    .get_current_texture()
+                    .expect("Failed to acquire next swap chain texture");
+
+                let view = frame
+                    .texture
+                    .create_view(&pi_wgpu::TextureViewDescriptor::default());
+
+                let mut encoder = device
+                    .create_command_encoder(&pi_wgpu::CommandEncoderDescriptor { label: None });
+                {
+                    let _rpass = encoder.begin_render_pass(&pi_wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(pi_wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: pi_wgpu::Operations {
+                                load: pi_wgpu::LoadOp::Clear(pi_wgpu::Color::GREEN),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
                 }
+
+                queue.submit(Some(encoder.finish()));
+
+                frame.present();
             }
             Event::WindowEvent {
-                window_id,
                 event: WindowEvent::CloseRequested,
                 ..
-            } => {
-                viewports.remove(&window_id);
-                if viewports.is_empty() {
-                    *control_flow = ControlFlow::Exit
-                }
-            }
+            } => *control_flow = ControlFlow::Exit,
             _ => {}
         }
     });

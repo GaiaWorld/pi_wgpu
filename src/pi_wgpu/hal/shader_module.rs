@@ -43,7 +43,6 @@ impl ShaderModule {
         entry_point: String,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
-        shader_binding_map: &mut ShaderBindingMap,
     ) -> Result<(), super::ShaderError> {
         self.imp.borrow_mut().compile(
             shader_stage,
@@ -53,7 +52,6 @@ impl ShaderModule {
             entry_point,
             multiview,
             naga_options,
-            shader_binding_map,
         )
     }
 }
@@ -108,7 +106,6 @@ impl ShaderModuleImpl {
         entry_point: String,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
-        shader_binding_map: &mut ShaderBindingMap,
     ) -> Result<(), super::ShaderError> {
         // 如果编译过了，直接返回
         if self.inner.is_some() {
@@ -176,11 +173,10 @@ impl ShaderModuleImpl {
             compile_gl_shader(&gl, gl_str.as_ref(), shader_type)?
         };
 
-        let bg_set_info = consume_naga_reflection(
+        let bg_set_info = self.consume_naga_reflection(
             module_ref,
             &info.get_entry_point(entry_point_index),
             reflection_info,
-            shader_binding_map,
         )?;
 
         self.inner = Some(ShaderInner {
@@ -191,6 +187,90 @@ impl ShaderModuleImpl {
         self.input = None;
 
         Ok(())
+    }
+
+    fn consume_naga_reflection(
+        &self,
+        module: &naga::Module,
+        ep_info: &naga::valid::FunctionInfo,
+        reflection_info: naga::back::glsl::ReflectionInfo,
+    ) -> Result<Box<[Box<[PiBindEntry]>]>, super::ShaderError> {
+        let mut r = [vec![], vec![], vec![], vec![]];
+        let mut max_set = 0;
+
+        // UBO
+        for (handle, name) in reflection_info.uniforms {
+            let var = &module.global_variables[handle];
+            let br = var.binding.as_ref().unwrap();
+
+            let pi_br = PiResourceBinding {
+                group: br.group,
+                binding: br.binding,
+            };
+
+            let glow_binding = self.state.update_ubo(pi_br);
+
+            if br.group > max_set {
+                max_set = br.group;
+            }
+            let set = &mut r[br.group as usize];
+            set.push(PiBindEntry {
+                binding: br.binding as usize,
+                ty: PiBindingType::Buffer,
+
+                glsl_name: name,
+                glow_binding,
+            });
+        }
+
+        // Sampler / Texture
+        for (name, mapping) in reflection_info.texture_mapping {
+            assert!(mapping.sampler.is_some());
+
+            let sampler_handle = mapping.sampler.unwrap();
+            let sampler_var = &module.global_variables[sampler_handle];
+            let sampler_br = sampler_var.binding.as_ref().unwrap();
+
+            let pi_br = PiResourceBinding {
+                group: sampler_br.group,
+                binding: sampler_br.binding,
+            };
+            let glow_binding = self.state.update_sampler(pi_br);
+
+            if sampler_br.group > max_set {
+                max_set = sampler_br.group;
+            }
+            let set = &mut r[sampler_br.group as usize];
+            set.push(PiBindEntry {
+                binding: sampler_br.binding as usize,
+                ty: PiBindingType::Sampler,
+
+                glsl_name: name.clone(),
+                glow_binding,
+            });
+
+            let tex_var = &module.global_variables[mapping.texture];
+            let tex_br = tex_var.binding.as_ref().unwrap();
+            if tex_br.group > max_set {
+                max_set = tex_br.group;
+            }
+            let set = &mut r[tex_br.group as usize];
+            set.push(PiBindEntry {
+                binding: tex_br.binding as usize,
+                ty: PiBindingType::Texture,
+
+                glsl_name: name,
+                glow_binding,
+            });
+        }
+
+        let max_set = max_set as usize + 1;
+        let mut us = Vec::with_capacity(max_set);
+        for i in 0..max_set {
+            let v: Vec<_> = r[i].drain(..).collect();
+            us.push(v.into_boxed_slice());
+        }
+        Ok(us.into_boxed_slice())
     }
 }
 
@@ -327,80 +407,6 @@ fn compile_gl_shader(
     }
 }
 
-fn consume_naga_reflection(
-    module: &naga::Module,
-    ep_info: &naga::valid::FunctionInfo,
-    reflection_info: naga::back::glsl::ReflectionInfo,
-    shader_binding_map: &mut ShaderBindingMap,
-) -> Result<Box<[Box<[PiBindEntry]>]>, super::ShaderError> {
-    let mut r = [vec![], vec![], vec![], vec![]];
-    let mut max_set = 0;
-
-    // UBO
-    for (handle, name) in reflection_info.uniforms {
-        let var = &module.global_variables[handle];
-        let br = var.binding.as_ref().unwrap();
-
-        let glow_binding = shader_binding_map.get_or_insert_ubo(br.clone());
-
-        if br.group > max_set {
-            max_set = br.group;
-        }
-        let set = &mut r[br.group as usize];
-        set.push(PiBindEntry {
-            binding: br.binding as usize,
-            ty: PiBindingType::Buffer,
-
-            glsl_name: name,
-            glow_binding,
-        });
-    }
-
-    // Sampler / Texture
-    for (name, mapping) in reflection_info.texture_mapping {
-        assert!(mapping.sampler.is_some());
-
-        let sampler_handle = mapping.sampler.unwrap();
-        let sampler_var = &module.global_variables[sampler_handle];
-        let sampler_br = sampler_var.binding.as_ref().unwrap();
-
-        let glow_binding = shader_binding_map.get_or_insert_ubo(sampler_br.clone());
-        if sampler_br.group > max_set {
-            max_set = sampler_br.group;
-        }
-        let set = &mut r[sampler_br.group as usize];
-        set.push(PiBindEntry {
-            binding: sampler_br.binding as usize,
-            ty: PiBindingType::Sampler,
-
-            glsl_name: name.clone(),
-            glow_binding,
-        });
-
-        let tex_var = &module.global_variables[mapping.texture];
-        let tex_br = tex_var.binding.as_ref().unwrap();
-        if tex_br.group > max_set {
-            max_set = tex_br.group;
-        }
-        let set = &mut r[tex_br.group as usize];
-        set.push(PiBindEntry {
-            binding: tex_br.binding as usize,
-            ty: PiBindingType::Texture,
-
-            glsl_name: name,
-            glow_binding,
-        });
-    }
-
-    let max_set = max_set as usize + 1;
-    let mut us = Vec::with_capacity(max_set);
-    for i in 0..max_set {
-        let v: Vec<_> = r[i].drain(..).collect();
-        us.push(v.into_boxed_slice());
-    }
-    Ok(us.into_boxed_slice())
-}
-
 #[derive(Debug)]
 pub(crate) enum ShaderInput {
     Naga(naga::Module),
@@ -480,13 +486,13 @@ pub(crate) enum PiBindingType {
 
 #[derive(Debug)]
 pub(crate) struct ShaderBindingMap {
-    pub(crate) next_ubo_id: usize,
-    pub(crate) max_uniform_buffer_bindings: usize,
-    pub(crate) ubo_map: HashMap<naga::ResourceBinding, usize>,
+    next_ubo_id: usize,
+    max_uniform_buffer_bindings: usize,
+    ubo_map: HashMap<PiResourceBinding, usize>,
 
-    pub(crate) next_sampler_id: usize,
-    pub(crate) max_textures_slots: usize,
-    pub(crate) sampler_map: HashMap<naga::ResourceBinding, usize>,
+    next_sampler_id: usize,
+    max_textures_slots: usize,
+    sampler_map: HashMap<PiResourceBinding, usize>,
 }
 
 impl ShaderBindingMap {
@@ -504,11 +510,13 @@ impl ShaderBindingMap {
     }
 
     #[inline]
-    pub(crate) fn get_or_insert_ubo(&mut self, binding: naga::ResourceBinding) -> u32 {
+    pub(crate) fn get_or_insert_ubo(&mut self, binding: PiResourceBinding) -> u32 {
         let r = self.ubo_map.entry(binding).or_insert_with(|| {
             let r = self.next_ubo_id;
+
             self.next_ubo_id += 1;
             self.next_ubo_id %= self.max_uniform_buffer_bindings;
+
             r
         });
 
@@ -516,14 +524,25 @@ impl ShaderBindingMap {
     }
 
     #[inline]
-    pub(crate) fn get_or_insert_sampler(&mut self, binding: naga::ResourceBinding) -> u32 {
+    pub(crate) fn get_or_insert_sampler(&mut self, binding: PiResourceBinding) -> u32 {
         let r = self.sampler_map.entry(binding).or_insert_with(|| {
             let r = self.next_sampler_id;
+
             self.next_sampler_id += 1;
             self.next_sampler_id %= self.max_textures_slots;
+
             r
         });
 
         *r as u32
     }
+}
+
+/// Pipeline binding information for global resources.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct PiResourceBinding {
+    /// The bind group index.
+    pub group: u32,
+    /// Binding number within the group.
+    pub binding: u32,
 }
