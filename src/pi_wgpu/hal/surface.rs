@@ -1,14 +1,17 @@
-use pi_share::{cell::Ref, Share, ShareCell};
+use std::thread;
+
+use parking_lot::Mutex;
+use pi_share::Share;
 use thiserror::Error;
 
 use super::{
     super::{wgt, DeviceError, MissingDownlevelFlags},
-    gl_conv as conv, AdapterContext, GLState, SrgbFrameBufferKind,
+    gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
 };
 
 #[derive(Debug, Clone)]
 pub(crate) struct Surface {
-    imp: Share<ShareCell<SurfaceImpl>>,
+    imp: Share<Mutex<SurfaceImpl>>,
 }
 
 impl Surface {
@@ -18,13 +21,42 @@ impl Surface {
         window_handle: raw_window_handle::RawWindowHandle,
     ) -> Result<Self, super::InstanceError> {
         SurfaceImpl::new(adapter, window_handle).map(|imp| Self {
-            imp: Share::new(ShareCell::new(imp)),
+            imp: Share::new(Mutex::new(imp)),
         })
     }
 
     #[inline]
+    pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
+        log::info!(
+            "========== Surface::swap_buffers lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.as_ref().lock().adapter.swap_buffers() };
+
+        log::info!(
+            "========== Surface::swap_buffers unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
+    }
+
+    #[inline]
     pub(crate) fn update_swapchain(&self) {
-        self.imp.as_ref().borrow_mut().update_swapchain()
+        log::info!(
+            "========== Surface::update_swapchain lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            self.imp.as_ref().lock().update_swapchain();
+        }
+
+        log::info!(
+            "========== Surface::update_swapchain unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -33,22 +65,53 @@ impl Surface {
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        self.imp.as_ref().borrow_mut().configure(device, config)
-    }
+        log::info!(
+            "========== Surface::configure lock, thread_id = {:?}",
+            thread::current().id()
+        );
 
-    #[inline]
-    pub(crate) fn adapter(&self) -> Ref<'_, AdapterContext> {
-        self.imp.as_ref().borrow().map(|s| &s.adapter)
+        let r = { self.imp.as_ref().lock().configure(device, config) };
+
+        log::info!(
+            "========== Surface::configure unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn acquire_texture(&self) -> Option<super::Texture> {
-        self.imp.as_ref().borrow_mut().acquire_texture()
+        log::info!(
+            "========== Surface::acquire_texture lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.as_ref().lock().acquire_texture() };
+
+        log::info!(
+            "========== Surface::acquire_texture unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn supports_srgb(&self) -> bool {
-        self.imp.as_ref().borrow().supports_srgb()
+        log::info!(
+            "========== Surface::supports_srgb lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.as_ref().lock().supports_srgb() };
+
+        log::info!(
+            "========== Surface::supports_srgb unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 }
 
@@ -178,12 +241,22 @@ impl SurfaceImpl {
         size.width = config.width;
         size.height = config.height;
 
+        log::info!(
+            "======== hal::Surface configure, w = {}, h = {}",
+            config.width,
+            config.height
+        );
+
         Ok(())
     }
 
     #[inline]
     fn acquire_texture(&mut self) -> Option<super::Texture> {
-        self.swapchain.take()
+        let r = self.swapchain.take();
+
+        log::info!("======== hal::Surface acquire_texture = {:#?}", r);
+
+        r
     }
 }
 

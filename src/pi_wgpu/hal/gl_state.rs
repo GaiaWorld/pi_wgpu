@@ -2,8 +2,16 @@
 //! 全局 缓冲表，见 GLCache
 //!
 
+use std::thread;
+
 use glow::HasContext;
-use pi_share::{Share, ShareCell};
+use naga::{
+    back::glsl::{self, ReflectionInfo},
+    proc::BoundsCheckPolicy,
+    valid::{Capabilities as Caps, ModuleInfo},
+};
+use parking_lot::Mutex;
+use pi_share::Share;
 
 use super::{
     super::{hal, wgt, BufferSize},
@@ -13,7 +21,7 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState {
-    imp: Share<ShareCell<GLStateImpl>>,
+    imp: Share<Mutex<GLStateImpl>>,
 }
 
 impl GLState {
@@ -22,65 +30,154 @@ impl GLState {
         let imp = GLStateImpl::new(&gl);
 
         Self {
-            imp: Share::new(ShareCell::new(imp)),
+            imp: Share::new(Mutex::new(imp)),
         }
     }
 
     #[inline]
-    pub(crate) fn update_ubo(&self, binding: super::PiResourceBinding) -> u32 {
-        let mut s = self.imp.borrow_mut();
-        s.cache.update_ubo(binding)
-    }
-
-    #[inline]
-    pub(crate) fn update_sampler(&self, binding: super::PiResourceBinding) -> u32 {
-        let mut s = self.imp.borrow_mut();
-        s.cache.update_sampler(binding)
-    }
-
-    #[inline]
     pub(crate) fn next_shader_id(&self) -> ShaderID {
-        let mut s = self.imp.borrow_mut();
+        log::info!(
+            "========== GLState::next_shader_id lock, thread_id = {:?}",
+            thread::current().id()
+        );
 
-        s.global_shader_id += 1;
-        s.global_shader_id
+        let r = {
+            let mut s = self.imp.lock();
+            s.global_shader_id += 1;
+            s.global_shader_id
+        };
+
+        log::info!(
+            "========== GLState::next_shader_id unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn max_attribute_slots(&self) -> usize {
-        self.imp.borrow().max_attribute_slots
+        log::info!(
+            "========== GLState::max_attribute_slots lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.lock().max_attribute_slots };
+
+        log::info!(
+            "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn max_textures_slots(&self) -> usize {
-        self.imp.borrow().max_textures_slots
+        log::info!(
+            "========== GLState::max_textures_slots lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.lock().max_textures_slots };
+
+        log::info!(
+            "========== GLState::max_textures_slots unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn max_color_attachments(&self) -> usize {
-        self.imp.borrow().max_color_attachments
+        log::info!(
+            "========== GLState::max_color_attachments lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.lock().max_color_attachments };
+
+        log::info!(
+            "========== GLState::max_color_attachments unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
-        self.imp.borrow().cache.get_program(id)
+        log::info!(
+            "========== GLState::get_program lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = { self.imp.lock().cache.get_program(id) };
+
+        log::info!(
+            "========== GLState::get_program unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn insert_program(&self, id: super::ProgramID, program: super::Program) {
-        self.imp.borrow_mut().cache.insert_program(id, program)
+        log::info!(
+            "========== GLState::insert_program lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            self.imp.lock().cache.insert_program(id, program);
+        }
+
+        log::info!(
+            "========== GLState::insert_program unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
-        let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_rs(rs)
+        log::info!(
+            "========== GLState::get_or_insert_rs lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.lock();
+            s.cache.get_or_insert_rs(rs)
+        };
+
+        log::info!(
+            "========== GLState::get_or_insert_rs unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
-        let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_ds(ds)
+        log::info!(
+            "========== GLState::get_or_insert_ds lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.lock();
+            s.cache.get_or_insert_ds(ds)
+        };
+
+        log::info!(
+            "========== GLState::get_or_insert_ds unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
@@ -88,28 +185,164 @@ impl GLState {
         &self,
         rs: super::StencilStateImpl,
     ) -> Share<super::StencilState> {
-        let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_ss(rs)
+        log::info!(
+            "========== GLState::get_or_insert_ss lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.lock();
+            s.cache.get_or_insert_ss(rs)
+        };
+
+        log::info!(
+            "========== GLState::get_or_insert_ss unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
     #[inline]
     pub(crate) fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
-        let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_bs(bs)
+        log::info!(
+            "========== GLState::get_or_insert_bs lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.lock();
+            s.cache.get_or_insert_bs(bs)
+        };
+
+        log::info!(
+            "========== GLState::get_or_insert_bs unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
     }
 
-    // 每帧present时调用一次
+    #[inline]
+    pub(crate) fn create_program(
+        &self,
+        gl: &glow::Context,
+        vs_id: ShaderID,
+        fs_id: ShaderID,
+    ) -> Result<(glow::Program, Box<[Box<[super::PiBindEntry]>]>), super::ShaderError> {
+        log::info!(
+            "========== GLState::create_program lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.lock();
+            s.create_program(gl, vs_id, fs_id)
+        };
+
+        log::info!(
+            "========== GLState::create_program unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
+    }
+
+    #[inline]
+    pub(crate) fn compile_shader(
+        &self,
+        gl: &glow::Context,
+        shader: &super::ShaderModule,
+        shader_stage: naga::ShaderStage,
+        version: &glow::Version,
+        features: &wgt::Features,
+        downlevel: &wgt::DownlevelCapabilities,
+        entry_point: String,
+        multiview: Option<std::num::NonZeroU32>,
+        naga_options: &naga::back::glsl::Options,
+    ) -> Result<(), super::ShaderError> {
+        log::info!(
+            "========== GLState::compile_shader lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let r = {
+            let mut s = self.imp.as_ref().lock();
+            s.compile_shader(
+                gl,
+                shader,
+                shader_stage,
+                version,
+                features,
+                downlevel,
+                entry_point,
+                multiview,
+                naga_options,
+            )
+        };
+
+        log::info!(
+            "========== GLState::compile_shader unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        r
+    }
+
+    #[inline]
+    pub(crate) fn remove_shader(&self, id: ShaderID) {
+        log::info!(
+            "========== GLState::remove_shader lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let mut s = self.imp.as_ref().lock();
+            s.cache.remove_shader(id);
+        }
+
+        log::info!(
+            "========== GLState::remove_shader unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+    }
+
     #[inline]
     pub(crate) fn clear_cache(&self) {
-        let mut s = self.imp.borrow_mut();
-        s.cache.clear_weak_refs();
+        log::info!(
+            "========== GLState::clear_cache lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let mut s = self.imp.lock();
+            s.cache.clear_weak_refs();
+        }
+
+        log::info!(
+            "========== GLState::clear_cache unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLState::remove_render_buffer");
-        let cache = &mut self.imp.borrow_mut().cache;
-        cache.remove_render_buffer(gl, rb);
+
+        log::info!(
+            "========== GLState::remove_render_buffer lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let cache = &mut self.imp.lock().cache;
+            cache.remove_render_buffer(gl, rb);
+        }
+
+        log::info!(
+            "========== GLState::remove_render_buffer unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     pub(crate) fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
@@ -120,25 +353,60 @@ impl GLState {
         }
 
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
-            let imp = &mut self.imp.borrow_mut();
-            if let Some(ib) = imp.index_buffer.as_ref() {
-                if ib.raw == buffer {
-                    imp.index_buffer = None;
+            log::info!(
+                "========== GLState::remove_buffer lock, thread_id = {:?}",
+                thread::current().id()
+            );
+
+            {
+                let imp = &mut self.imp.lock();
+                if let Some(ib) = imp.index_buffer.as_ref() {
+                    if ib.raw == buffer {
+                        imp.index_buffer = None;
+                    }
                 }
             }
+
+            log::info!(
+                "========== GLState::remove_buffer unlock, thread_id = {:?}",
+                thread::current().id()
+            );
+
             return;
         }
 
-        let cache = &mut self.imp.borrow_mut().cache;
+        log::info!(
+            "========== GLState::remove_buffer 2 lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        let cache = &mut self.imp.lock().cache;
         cache.remove_buffer(gl, bind_target, buffer);
+
+        log::info!(
+            "========== GLState::remove_buffer 2 unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLState::remove_texture");
-        let cache = &mut self.imp.borrow_mut().cache;
-        cache.remove_texture(gl, texture);
 
+        log::info!(
+            "========== GLState::remove_texture lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let cache = &mut self.imp.lock().cache;
+            cache.remove_texture(gl, texture);
+        }
+
+        log::info!(
+            "========== GLState::remove_texture unlock, thread_id = {:?}",
+            thread::current().id()
+        );
         // TODO 到 TextureCache 移除 对应的 槽位
     }
 
@@ -157,9 +425,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_size");
 
-        let imp = &mut self.imp.borrow_mut();
+        log::info!(
+            "========== GLState::set_buffer_size lock, thread_id = {:?}",
+            thread::current().id()
+        );
 
-        imp.set_buffer_size(gl, buffer, size)
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_buffer_size(gl, buffer, size);
+        }
+
+        log::info!(
+            "========== GLState::set_buffer_size unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -172,16 +452,39 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_sub_data");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_buffer_sub_data(gl, buffer, offset, data)
+        log::info!(
+            "========== GLState::set_buffer_sub_data lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+            imp.set_buffer_sub_data(gl, buffer, offset, data)
+        }
+        log::info!(
+            "========== GLState::set_buffer_sub_data unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         profiling::scope!("hal::GLState::set_render_pipeline");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_render_pipeline(gl, pipeline)
+        log::info!(
+            "========== GLState::set_render_pipeline lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+            imp.set_render_pipeline(gl, pipeline);
+        }
+
+        log::info!(
+            "========== GLState::set_render_pipeline unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -192,8 +495,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_render_target");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_render_target(gl, desc)
+        log::info!(
+            "========== GLState::set_render_target lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_render_target(gl, desc);
+        }
+
+        log::info!(
+            "========== GLState::set_render_target unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -205,8 +521,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_bind_group(index, bind_group, dynamic_offsets)
+        log::info!(
+            "========== GLState::set_bind_group lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_bind_group(index, bind_group, dynamic_offsets);
+        }
+
+        log::info!(
+            "========== GLState::set_bind_group unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -219,8 +548,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_vertex_buffer");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_vertex_buffer(index, buffer, offset, size)
+        log::info!(
+            "========== GLState::set_vertex_buffer lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_vertex_buffer(index, buffer, offset, size)
+        }
+
+        log::info!(
+            "========== GLState::set_vertex_buffer unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -234,8 +576,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_index_buffer");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_index_buffer(gl, buffer, format, offset, size)
+        log::info!(
+            "========== GLState::set_index_buffer lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_index_buffer(gl, buffer, format, offset, size)
+        }
+
+        log::info!(
+            "========== GLState::set_index_buffer unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -248,8 +603,21 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.draw(gl, start_vertex, vertex_count, instance_count)
+        log::info!(
+            "========== GLState::draw lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.draw(gl, start_vertex, vertex_count, instance_count);
+        }
+
+        log::info!(
+            "========== GLState::draw unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
@@ -262,48 +630,125 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw_indexed");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.draw_indexed(gl, start_index, index_count, instance_count)
+        log::info!(
+            "========== GLState::draw_indexed lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.draw_indexed(gl, start_index, index_count, instance_count);
+        }
+
+        log::info!(
+            "========== GLState::draw_indexed unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_viewport(gl, x, y, w, h)
+        log::info!(
+            "========== GLState::set_viewport lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_viewport(gl, x, y, w, h);
+        }
+
+        log::info!(
+            "========== GLState::set_viewport unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_scissor(gl, x, y, w, h)
+        log::info!(
+            "========== GLState::set_scissor lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_scissor(gl, x, y, w, h)
+        }
+
+        log::info!(
+            "========== GLState::set_scissor unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_depth_range(gl, min_depth, max_depth)
+        log::info!(
+            "========== GLState::set_depth_range lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_depth_range(gl, min_depth, max_depth);
+        }
+
+        log::info!(
+            "========== GLState::set_depth_range unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_blend_color(gl, color)
+        log::info!(
+            "========== GLState::set_blend_color lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.set_blend_color(gl, color);
+        }
+
+        log::info!(
+            "========== GLState::set_blend_color unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 
     #[inline]
     pub(crate) fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
 
-        let imp = &mut self.imp.borrow_mut();
-        imp.set_stencil_reference(gl, reference)
+        log::info!(
+            "========== GLState::set_stencil_reference lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+            imp.set_stencil_reference(gl, reference);
+        }
+
+        log::info!(
+            "========== GLState::set_stencil_reference unlock, thread_id = {:?}",
+            thread::current().id()
+        );
     }
 }
 
@@ -756,6 +1201,280 @@ impl GLStateImpl {
         self.stencil_ref = reference;
     }
 
+    fn compile_shader(
+        &mut self,
+        gl: &glow::Context,
+        shader: &super::ShaderModule,
+        shader_stage: naga::ShaderStage,
+        version: &glow::Version,
+        features: &wgt::Features,
+        downlevel: &wgt::DownlevelCapabilities,
+        entry_point: String,
+        multiview: Option<std::num::NonZeroU32>,
+        naga_options: &naga::back::glsl::Options,
+    ) -> Result<(), super::ShaderError> {
+        // 如果编译过了，直接返回
+        if self.cache.get_shader(shader.id).is_some() {
+            return Ok(());
+        }
+
+        let mut module: Option<naga::Module> = None;
+
+        let module_ref: &naga::Module = match &shader.input {
+            super::ShaderInput::Naga(module) => module,
+            super::ShaderInput::Glsl {
+                shader,
+                stage,
+                defines,
+            } => {
+                assert!(*stage == shader_stage);
+
+                let options = naga::front::glsl::Options {
+                    stage: *stage,
+                    defines: defines.clone(),
+                };
+                let mut parser = naga::front::glsl::Frontend::default();
+                let m = parser.parse(&options, shader).map_err(|e| {
+                    super::ShaderError::Compilation(format!("naga compile shader err = {:?}", e))
+                })?;
+
+                module = Some(m);
+                module.as_ref().unwrap()
+            }
+        };
+
+        let entry_point_index = module_ref
+            .entry_points
+            .iter()
+            .position(|ep| ep.name.as_str() == entry_point)
+            .ok_or(super::ShaderError::Compilation(
+                "Shader not find entry point".to_string(),
+            ))?;
+
+        let info = get_shader_info(module_ref, features, downlevel)?;
+
+        let (gl_str, reflection_info) = compile_naga_shader(
+            module_ref,
+            version,
+            &info,
+            shader_stage,
+            entry_point,
+            naga_options,
+            multiview,
+        )?;
+
+        let shader_type = match shader_stage {
+            naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
+            naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
+            naga::ShaderStage::Compute => unreachable!(),
+        };
+
+        let raw = compile_gl_shader(gl, gl_str.as_ref(), shader_type)?;
+
+        let bg_set_info = self.consume_naga_reflection(
+            module_ref,
+            &info.get_entry_point(entry_point_index),
+            reflection_info,
+        )?;
+
+        self.cache.insert_shader(
+            shader.id,
+            super::ShaderInner {
+                raw,
+                shader_type,
+                bg_set_info,
+            },
+        );
+
+        Ok(())
+    }
+
+    fn create_program(
+        &mut self,
+        gl: &glow::Context,
+        vs_id: ShaderID,
+        fs_id: ShaderID,
+    ) -> Result<(glow::Program, Box<[Box<[super::PiBindEntry]>]>), super::ShaderError> {
+        let vs_inner = self.cache.get_shader(vs_id).unwrap();
+        let fs_inner = self.cache.get_shader(fs_id).unwrap();
+
+        assert!(vs_inner.shader_type == glow::VERTEX_SHADER);
+        assert!(fs_inner.shader_type == glow::FRAGMENT_SHADER);
+
+        let raw = unsafe {
+            let raw = gl.create_program().unwrap();
+
+            gl.attach_shader(raw, vs_inner.raw);
+            gl.attach_shader(raw, fs_inner.raw);
+
+            gl.link_program(raw);
+
+            if !gl.get_program_link_status(raw) {
+                let info = gl.get_program_info_log(raw);
+
+                log::error!("program link error, info = {:?}", info);
+
+                gl.delete_program(raw);
+
+                return Err(super::ShaderError::LinkProgram(format!(
+                    "program link error, info = {:?}",
+                    info
+                )));
+            }
+
+            raw
+        };
+
+        let mut us: [Vec<super::PiBindEntry>; super::MAX_BIND_GROUPS] =
+            [vec![], vec![], vec![], vec![]];
+        let mut max_set = 0;
+
+        vs_inner
+            .bg_set_info
+            .iter()
+            .enumerate()
+            .chain(vs_inner.bg_set_info.iter().enumerate())
+            .for_each(|(index, bg)| {
+                if max_set < index {
+                    max_set = index;
+                }
+
+                let us = &mut us[index];
+
+                bg.iter().for_each(|entry| {
+                    let pos = us.iter().position(|u| u.glsl_name == entry.glsl_name);
+
+                    if let Some(pos) = pos {
+                        let u = &us[pos];
+                        assert!(u.glow_binding == entry.glow_binding);
+                        if u.ty == crate::pi_wgpu::hal::PiBindingType::Buffer {
+                            assert!(entry.ty == crate::pi_wgpu::hal::PiBindingType::Buffer);
+
+                            assert!(u.binding == entry.binding);
+                        } else {
+                            // 必然是 一个 Texture 和 一个 Sampler
+                            assert!(entry.ty != crate::pi_wgpu::hal::PiBindingType::Buffer);
+
+                            assert!(u.ty != entry.ty);
+                            assert!(u.binding != entry.binding);
+                        }
+                        return;
+                    }
+
+                    us.push(entry.clone());
+                    match entry.ty {
+                        crate::pi_wgpu::hal::PiBindingType::Buffer => unsafe {
+                            let loc = gl
+                                .get_uniform_block_index(raw, entry.glsl_name.as_ref())
+                                .unwrap();
+
+                            gl.uniform_block_binding(raw, loc, entry.glow_binding as u32);
+                        },
+                        crate::pi_wgpu::hal::PiBindingType::Sampler => unsafe {
+                            let loc = gl.get_uniform_location(raw, entry.glsl_name.as_ref());
+
+                            gl.uniform_1_i32(loc.as_ref(), entry.glow_binding as i32);
+                        },
+                        crate::pi_wgpu::hal::PiBindingType::Texture => {}
+                    }
+                });
+            });
+
+        max_set += 1;
+        let mut uniforms: Vec<Box<[super::PiBindEntry]>> = Vec::with_capacity(max_set);
+
+        for i in 0..max_set {
+            let v: Vec<_> = us[i].drain(..).collect();
+            uniforms.push(v.into_boxed_slice());
+        }
+
+        Ok((raw, uniforms.into_boxed_slice()))
+    }
+
+    fn consume_naga_reflection(
+        &mut self,
+        module: &naga::Module,
+        ep_info: &naga::valid::FunctionInfo,
+        reflection_info: naga::back::glsl::ReflectionInfo,
+    ) -> Result<Box<[Box<[super::PiBindEntry]>]>, super::ShaderError> {
+        let mut r = [vec![], vec![], vec![], vec![]];
+        let mut max_set = 0;
+
+        // UBO
+        for (handle, name) in reflection_info.uniforms {
+            let var = &module.global_variables[handle];
+            let br = var.binding.as_ref().unwrap();
+
+            let pi_br = super::PiResourceBinding {
+                group: br.group,
+                binding: br.binding,
+            };
+
+            let glow_binding = self.cache.update_ubo(pi_br);
+
+            if br.group > max_set {
+                max_set = br.group;
+            }
+            let set = &mut r[br.group as usize];
+            set.push(super::PiBindEntry {
+                binding: br.binding as usize,
+                ty: super::PiBindingType::Buffer,
+
+                glsl_name: name,
+                glow_binding,
+            });
+        }
+
+        // Sampler / Texture
+        for (name, mapping) in reflection_info.texture_mapping {
+            assert!(mapping.sampler.is_some());
+
+            let sampler_handle = mapping.sampler.unwrap();
+            let sampler_var = &module.global_variables[sampler_handle];
+            let sampler_br = sampler_var.binding.as_ref().unwrap();
+
+            let pi_br = super::PiResourceBinding {
+                group: sampler_br.group,
+                binding: sampler_br.binding,
+            };
+            let glow_binding = self.cache.update_sampler(pi_br);
+
+            if sampler_br.group > max_set {
+                max_set = sampler_br.group;
+            }
+            let set = &mut r[sampler_br.group as usize];
+            set.push(super::PiBindEntry {
+                binding: sampler_br.binding as usize,
+                ty: PiBindingType::Sampler,
+
+                glsl_name: name.clone(),
+                glow_binding,
+            });
+
+            let tex_var = &module.global_variables[mapping.texture];
+            let tex_br = tex_var.binding.as_ref().unwrap();
+            if tex_br.group > max_set {
+                max_set = tex_br.group;
+            }
+            let set = &mut r[tex_br.group as usize];
+            set.push(super::PiBindEntry {
+                binding: tex_br.binding as usize,
+                ty: PiBindingType::Texture,
+
+                glsl_name: name,
+                glow_binding,
+            });
+        }
+
+        let max_set = max_set as usize + 1;
+        let mut us = Vec::with_capacity(max_set);
+        for i in 0..max_set {
+            let v: Vec<_> = r[i].drain(..).collect();
+            us.push(v.into_boxed_slice());
+        }
+        Ok(us.into_boxed_slice())
+    }
+
     #[inline]
     fn before_draw(&mut self, gl: &glow::Context) {
         self.update_vao(gl);
@@ -810,7 +1529,8 @@ impl GLStateImpl {
     // 根据 render_pipeline.program + bind_group 更新 uniform
     fn update_uniforms(&mut self, gl: &glow::Context) {
         let program = &self.render_pipeline.as_ref().unwrap().0.program;
-        let program = program.0.borrow_mut();
+
+        let program = program.0.as_ref();
 
         let bg_set = &mut self.bind_group_set;
 
@@ -974,7 +1694,7 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_program(gl: &glow::Context, program: &super::Program) {
-        let program = program.0.borrow();
+        let program = program.0.as_ref();
         unsafe {
             gl.use_program(Some(program.raw));
         }
@@ -1394,4 +2114,137 @@ pub(crate) struct BindGroupState {
     bind_group: Box<[super::RawBinding]>,
 
     dynamic_offsets: Box<[wgt::DynamicOffset]>,
+}
+
+fn get_shader_info(
+    module: &naga::Module,
+    features: &wgt::Features,
+    downlevel: &wgt::DownlevelCapabilities,
+) -> Result<ModuleInfo, super::ShaderError> {
+    let mut caps = Caps::empty();
+    caps.set(
+        Caps::PUSH_CONSTANT,
+        features.contains(wgt::Features::PUSH_CONSTANTS),
+    );
+    caps.set(Caps::FLOAT64, features.contains(wgt::Features::SHADER_F64));
+    caps.set(
+        Caps::PRIMITIVE_INDEX,
+        features.contains(wgt::Features::SHADER_PRIMITIVE_INDEX),
+    );
+    caps.set(
+        Caps::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    caps.set(
+        Caps::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    caps.set(
+        Caps::SAMPLER_NON_UNIFORM_INDEXING,
+        features
+            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
+    );
+    caps.set(
+        Caps::STORAGE_TEXTURE_16BIT_NORM_FORMATS,
+        features.contains(wgt::Features::TEXTURE_FORMAT_16BIT_NORM),
+    );
+    caps.set(Caps::MULTIVIEW, features.contains(wgt::Features::MULTIVIEW));
+    caps.set(
+        Caps::EARLY_DEPTH_TEST,
+        features.contains(wgt::Features::SHADER_EARLY_DEPTH_TEST),
+    );
+    caps.set(
+        Caps::MULTISAMPLED_SHADING,
+        downlevel
+            .flags
+            .contains(wgt::DownlevelFlags::MULTISAMPLED_SHADING),
+    );
+
+    naga::valid::Validator::new(naga::valid::ValidationFlags::all(), caps)
+        .validate(&module)
+        .map_err(|e| super::ShaderError::Compilation(e.to_string()))
+}
+
+fn compile_naga_shader(
+    module: &naga::Module,
+    version: &glow::Version,
+    module_info: &ModuleInfo,
+    shader_stage: naga::ShaderStage,
+    entry_point: String,
+    naga_options: &naga::back::glsl::Options,
+    multiview: Option<std::num::NonZeroU32>,
+) -> Result<(String, ReflectionInfo), super::ShaderError> {
+    let image_check = if !version.is_embedded && (version.major, version.minor) >= (1, 3) {
+        BoundsCheckPolicy::ReadZeroSkipWrite
+    } else {
+        BoundsCheckPolicy::Unchecked
+    };
+
+    // Other bounds check are either provided by glsl or not implemented yet.
+    let policies = naga::proc::BoundsCheckPolicies {
+        index: BoundsCheckPolicy::Unchecked,
+        buffer: BoundsCheckPolicy::Unchecked,
+        image: image_check,
+        binding_array: BoundsCheckPolicy::Unchecked,
+    };
+
+    let pipeline_options = glsl::PipelineOptions {
+        shader_stage,
+        entry_point,
+        multiview,
+    };
+
+    let mut output = String::new();
+    let mut writer = glsl::Writer::new(
+        &mut output,
+        &module,
+        &module_info,
+        naga_options,
+        &pipeline_options,
+        policies,
+    )
+    .map_err(|e| super::ShaderError::Compilation(format!("glsl::Writer::new() error = {:?}", e)))?;
+
+    let reflection_info = writer.write().map_err(|e| {
+        super::ShaderError::Compilation(format!("glsl::Writer::write() error = {:?}", e))
+    })?;
+
+    Ok((output, reflection_info))
+}
+
+fn compile_gl_shader(
+    gl: &glow::Context,
+    source: &str,
+    shader_type: u32,
+) -> Result<glow::Shader, super::ShaderError> {
+    let raw = unsafe {
+        gl.create_shader(shader_type)
+            .map_err(|e| super::ShaderError::Compilation("gl.create_shader error".to_string()))
+    }?;
+
+    unsafe { gl.shader_source(raw, source.as_ref()) };
+
+    unsafe { gl.compile_shader(raw) };
+
+    if unsafe { gl.get_shader_completion_status(raw) } {
+        Ok(raw)
+    } else {
+        let info = unsafe { gl.get_shader_info_log(raw) };
+
+        // log::warn!(
+        //     "shader compile error, type = {:?}, info = {}, source = {}",
+        //     shader_type,
+        //     info,
+        //     source
+        // );
+
+        Ok(raw)
+        // unsafe { gl.delete_shader(raw) };
+        // Err(super::ShaderError::Compilation(format!(
+        //     "shader compile error, info = {:?}",
+        //     info
+        // )))
+    }
 }

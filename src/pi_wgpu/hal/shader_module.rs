@@ -1,16 +1,7 @@
 use std::collections::HashMap;
 
-use glow::HasContext;
-use naga::{
-    back::glsl::{self, ReflectionInfo},
-    proc::BoundsCheckPolicy,
-    valid::{Capabilities as Caps, ModuleInfo},
-    Module, ShaderStage,
-};
-use pi_share::{Share, ShareCell};
-
 use super::{
-    super::{wgt, ShaderModuleDescriptor},
+    super::ShaderModuleDescriptor,
     AdapterContext, GLState,
 };
 
@@ -18,69 +9,23 @@ pub(crate) type ShaderID = u64;
 
 #[derive(Debug)]
 pub(crate) struct ShaderModule {
-    pub(crate) imp: Share<ShareCell<ShaderModuleImpl>>,
+    state: GLState,
+    adapter: AdapterContext,
+
+    pub(crate) id: ShaderID,
+    pub(crate) input: ShaderInput,
+}
+
+impl Drop for ShaderModule {
+    #[inline]
+    fn drop(&mut self) {
+        self.state.remove_shader(self.id);
+    }
 }
 
 impl ShaderModule {
     #[inline]
-    pub fn new(
-        state: GLState,
-        adapter: &AdapterContext,
-        desc: &ShaderModuleDescriptor,
-    ) -> Result<Self, super::ShaderError> {
-        let module = ShaderModuleImpl::new(state, adapter, desc)?;
-        let imp = Share::new(ShareCell::new(module));
-        Ok(Self { imp })
-    }
-
-    #[inline]
-    pub fn compile(
-        &self,
-        shader_stage: naga::ShaderStage,
-        version: &glow::Version,
-        features: &wgt::Features,
-        downlevel: &wgt::DownlevelCapabilities,
-        entry_point: String,
-        multiview: Option<std::num::NonZeroU32>,
-        naga_options: &naga::back::glsl::Options,
-    ) -> Result<(), super::ShaderError> {
-        self.imp.borrow_mut().compile(
-            shader_stage,
-            version,
-            features,
-            downlevel,
-            entry_point,
-            multiview,
-            naga_options,
-        )
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ShaderModuleImpl {
-    pub(crate) state: GLState,
-    pub(crate) adapter: AdapterContext,
-
-    pub(crate) id: ShaderID,
-    pub(crate) input: Option<ShaderInput>,
-    pub(crate) inner: Option<ShaderInner>,
-}
-
-impl Drop for ShaderModuleImpl {
-    #[inline]
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_ref() {
-            let gl = self.adapter.lock();
-            unsafe {
-                gl.delete_shader(inner.raw);
-            }
-        }
-    }
-}
-
-impl ShaderModuleImpl {
-    #[inline]
-    pub fn new(
+    pub(crate) fn new(
         state: GLState,
         adapter: &AdapterContext,
         desc: &ShaderModuleDescriptor,
@@ -91,319 +36,8 @@ impl ShaderModuleImpl {
             state,
             adapter: adapter.clone(),
             id,
-            input: Some(ShaderInput::from(desc)),
-            inner: None,
+            input: ShaderInput::from(desc),
         })
-    }
-
-    // 在 crate_render_pipeline 中调用
-    pub fn compile(
-        &mut self,
-        shader_stage: naga::ShaderStage,
-        version: &glow::Version,
-        features: &wgt::Features,
-        downlevel: &wgt::DownlevelCapabilities,
-        entry_point: String,
-        multiview: Option<std::num::NonZeroU32>,
-        naga_options: &naga::back::glsl::Options,
-    ) -> Result<(), super::ShaderError> {
-        // 如果编译过了，直接返回
-        if self.inner.is_some() {
-            return Ok(());
-        }
-
-        let mut module: Option<Module> = None;
-
-        let input = self
-            .input
-            .as_ref()
-            .ok_or_else(|| super::ShaderError::Compilation("no input parameter".to_string()))?;
-
-        let module_ref: &Module = match input {
-            ShaderInput::Naga(module) => module,
-            ShaderInput::Glsl {
-                shader,
-                stage,
-                defines,
-            } => {
-                assert!(*stage == shader_stage);
-
-                let options = naga::front::glsl::Options {
-                    stage: *stage,
-                    defines: defines.clone(),
-                };
-                let mut parser = naga::front::glsl::Frontend::default();
-                let m = parser.parse(&options, shader).map_err(|e| {
-                    super::ShaderError::Compilation(format!("naga compile shader err = {:?}", e))
-                })?;
-
-                module = Some(m);
-                module.as_ref().unwrap()
-            }
-        };
-
-        let entry_point_index = module_ref
-            .entry_points
-            .iter()
-            .position(|ep| ep.name.as_str() == entry_point)
-            .ok_or(super::ShaderError::Compilation(
-                "Shader not find entry point".to_string(),
-            ))?;
-
-        let info = get_shader_info(module_ref, features, downlevel)?;
-
-        let (gl_str, reflection_info) = compile_naga_shader(
-            module_ref,
-            version,
-            &info,
-            shader_stage,
-            entry_point,
-            naga_options,
-            multiview,
-        )?;
-
-        let shader_type = match shader_stage {
-            naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
-            naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
-            naga::ShaderStage::Compute => unreachable!(),
-        };
-
-        let raw = {
-            let gl = self.adapter.lock();
-            compile_gl_shader(&gl, gl_str.as_ref(), shader_type)?
-        };
-
-        let bg_set_info = self.consume_naga_reflection(
-            module_ref,
-            &info.get_entry_point(entry_point_index),
-            reflection_info,
-        )?;
-
-        self.inner = Some(ShaderInner {
-            raw,
-            shader_type,
-            bg_set_info,
-        });
-        self.input = None;
-
-        Ok(())
-    }
-
-    fn consume_naga_reflection(
-        &self,
-        module: &naga::Module,
-        ep_info: &naga::valid::FunctionInfo,
-        reflection_info: naga::back::glsl::ReflectionInfo,
-    ) -> Result<Box<[Box<[PiBindEntry]>]>, super::ShaderError> {
-        let mut r = [vec![], vec![], vec![], vec![]];
-        let mut max_set = 0;
-
-        // UBO
-        for (handle, name) in reflection_info.uniforms {
-            let var = &module.global_variables[handle];
-            let br = var.binding.as_ref().unwrap();
-
-            let pi_br = PiResourceBinding {
-                group: br.group,
-                binding: br.binding,
-            };
-
-            let glow_binding = self.state.update_ubo(pi_br);
-
-            if br.group > max_set {
-                max_set = br.group;
-            }
-            let set = &mut r[br.group as usize];
-            set.push(PiBindEntry {
-                binding: br.binding as usize,
-                ty: PiBindingType::Buffer,
-
-                glsl_name: name,
-                glow_binding,
-            });
-        }
-
-        // Sampler / Texture
-        for (name, mapping) in reflection_info.texture_mapping {
-            assert!(mapping.sampler.is_some());
-
-            let sampler_handle = mapping.sampler.unwrap();
-            let sampler_var = &module.global_variables[sampler_handle];
-            let sampler_br = sampler_var.binding.as_ref().unwrap();
-
-            let pi_br = PiResourceBinding {
-                group: sampler_br.group,
-                binding: sampler_br.binding,
-            };
-            let glow_binding = self.state.update_sampler(pi_br);
-
-            if sampler_br.group > max_set {
-                max_set = sampler_br.group;
-            }
-            let set = &mut r[sampler_br.group as usize];
-            set.push(PiBindEntry {
-                binding: sampler_br.binding as usize,
-                ty: PiBindingType::Sampler,
-
-                glsl_name: name.clone(),
-                glow_binding,
-            });
-
-            let tex_var = &module.global_variables[mapping.texture];
-            let tex_br = tex_var.binding.as_ref().unwrap();
-            if tex_br.group > max_set {
-                max_set = tex_br.group;
-            }
-            let set = &mut r[tex_br.group as usize];
-            set.push(PiBindEntry {
-                binding: tex_br.binding as usize,
-                ty: PiBindingType::Texture,
-
-                glsl_name: name,
-                glow_binding,
-            });
-        }
-
-        let max_set = max_set as usize + 1;
-        let mut us = Vec::with_capacity(max_set);
-        for i in 0..max_set {
-            let v: Vec<_> = r[i].drain(..).collect();
-            us.push(v.into_boxed_slice());
-        }
-        Ok(us.into_boxed_slice())
-    }
-}
-
-fn get_shader_info(
-    module: &Module,
-    features: &wgt::Features,
-    downlevel: &wgt::DownlevelCapabilities,
-) -> Result<ModuleInfo, super::ShaderError> {
-    let mut caps = Caps::empty();
-    caps.set(
-        Caps::PUSH_CONSTANT,
-        features.contains(wgt::Features::PUSH_CONSTANTS),
-    );
-    caps.set(Caps::FLOAT64, features.contains(wgt::Features::SHADER_F64));
-    caps.set(
-        Caps::PRIMITIVE_INDEX,
-        features.contains(wgt::Features::SHADER_PRIMITIVE_INDEX),
-    );
-    caps.set(
-        Caps::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
-        features
-            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
-    );
-    caps.set(
-        Caps::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
-        features
-            .contains(wgt::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
-    );
-    caps.set(
-        Caps::SAMPLER_NON_UNIFORM_INDEXING,
-        features
-            .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
-    );
-    caps.set(
-        Caps::STORAGE_TEXTURE_16BIT_NORM_FORMATS,
-        features.contains(wgt::Features::TEXTURE_FORMAT_16BIT_NORM),
-    );
-    caps.set(Caps::MULTIVIEW, features.contains(wgt::Features::MULTIVIEW));
-    caps.set(
-        Caps::EARLY_DEPTH_TEST,
-        features.contains(wgt::Features::SHADER_EARLY_DEPTH_TEST),
-    );
-    caps.set(
-        Caps::MULTISAMPLED_SHADING,
-        downlevel
-            .flags
-            .contains(wgt::DownlevelFlags::MULTISAMPLED_SHADING),
-    );
-
-    naga::valid::Validator::new(naga::valid::ValidationFlags::all(), caps)
-        .validate(&module)
-        .map_err(|e| super::ShaderError::Compilation(e.to_string()))
-}
-
-fn compile_naga_shader(
-    module: &Module,
-    version: &glow::Version,
-    module_info: &ModuleInfo,
-    shader_stage: ShaderStage,
-    entry_point: String,
-    naga_options: &naga::back::glsl::Options,
-    multiview: Option<std::num::NonZeroU32>,
-) -> Result<(String, ReflectionInfo), super::ShaderError> {
-    let image_check = if !version.is_embedded && (version.major, version.minor) >= (1, 3) {
-        BoundsCheckPolicy::ReadZeroSkipWrite
-    } else {
-        BoundsCheckPolicy::Unchecked
-    };
-
-    // Other bounds check are either provided by glsl or not implemented yet.
-    let policies = naga::proc::BoundsCheckPolicies {
-        index: BoundsCheckPolicy::Unchecked,
-        buffer: BoundsCheckPolicy::Unchecked,
-        image: image_check,
-        binding_array: BoundsCheckPolicy::Unchecked,
-    };
-
-    let pipeline_options = glsl::PipelineOptions {
-        shader_stage,
-        entry_point,
-        multiview,
-    };
-
-    let mut output = String::new();
-    let mut writer = glsl::Writer::new(
-        &mut output,
-        &module,
-        &module_info,
-        naga_options,
-        &pipeline_options,
-        policies,
-    )
-    .map_err(|e| super::ShaderError::Compilation(format!("glsl::Writer::new() error = {:?}", e)))?;
-
-    let reflection_info = writer.write().map_err(|e| {
-        super::ShaderError::Compilation(format!("glsl::Writer::write() error = {:?}", e))
-    })?;
-
-    Ok((output, reflection_info))
-}
-
-fn compile_gl_shader(
-    gl: &glow::Context,
-    source: &str,
-    shader_type: u32,
-) -> Result<glow::Shader, super::ShaderError> {
-    let raw = unsafe {
-        gl.create_shader(shader_type)
-            .map_err(|e| super::ShaderError::Compilation("gl.create_shader error".to_string()))
-    }?;
-
-    unsafe { gl.shader_source(raw, source.as_ref()) };
-
-    unsafe { gl.compile_shader(raw) };
-
-    if unsafe { gl.get_shader_completion_status(raw) } {
-        Ok(raw)
-    } else {
-        let info = unsafe { gl.get_shader_info_log(raw) };
-
-        log::warn!(
-            "shader compile error, type = {:?}, info = {:?}, source = {:?}",
-            shader_type,
-            info,
-            source
-        );
-
-        Ok(raw)
-        // unsafe { gl.delete_shader(raw) };
-        // Err(super::ShaderError::Compilation(format!(
-        //     "shader compile error, info = {:?}",
-        //     info
-        // )))
     }
 }
 
@@ -439,13 +73,6 @@ impl From<&ShaderModuleDescriptor<'_>> for ShaderInput {
             },
         }
     }
-}
-
-#[derive(Debug)]
-pub(crate) struct ShaderInner {
-    pub(crate) raw: glow::Shader,
-    pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
-    pub(crate) bg_set_info: Box<[Box<[PiBindEntry]>]>,
 }
 
 //

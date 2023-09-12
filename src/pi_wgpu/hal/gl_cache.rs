@@ -9,11 +9,11 @@ use std::{
 };
 
 use glow::HasContext;
-use pi_share::{Share, ShareCell, ShareWeak};
+use pi_share::{Share, ShareWeak};
 use twox_hash::RandomXxHashBuilder64;
 
 use super::{
-    super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl, GLState,
+    super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl,
     RasterState, RasterStateImpl, RenderTarget, ShaderID, StencilState, StencilStateImpl, VBState,
 };
 
@@ -26,9 +26,9 @@ pub(crate) struct GLCache {
     shader_binding_map: super::ShaderBindingMap,
     vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
     fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
+    shader_map: HashMap<ShaderID, ShaderInner, RandomXxHashBuilder64>,
 
-    program_map:
-        HashMap<ProgramID, ShareWeak<ShareCell<super::ProgramImpl>>, RandomXxHashBuilder64>,
+    program_map: HashMap<ProgramID, ShareWeak<super::ProgramImpl>, RandomXxHashBuilder64>,
     bs_map: HashMap<BlendStateImpl, ShareWeak<BlendState>, RandomXxHashBuilder64>,
     rs_map: HashMap<RasterStateImpl, ShareWeak<RasterState>, RandomXxHashBuilder64>,
     ds_map: HashMap<DepthStateImpl, ShareWeak<DepthState>, RandomXxHashBuilder64>,
@@ -42,6 +42,8 @@ impl GLCache {
             last_clear_time: Instant::now(),
             vao_map: Default::default(),
             fbo_map: Default::default(),
+            shader_map: Default::default(),
+
             program_map: Default::default(),
 
             bs_map: Default::default(),
@@ -71,6 +73,21 @@ impl GLCache {
     }
 
     #[inline]
+    pub(crate) fn get_shader(&self, id: ShaderID) -> Option<&ShaderInner> {
+        self.shader_map.get(&id)
+    }
+
+    #[inline]
+    pub(crate) fn insert_shader(&mut self, id: ShaderID, inner: ShaderInner) {
+        self.shader_map.insert(id, inner);
+    }
+
+    #[inline]
+    pub(crate) fn remove_shader(&mut self, id: ShaderID) {
+        self.shader_map.remove(&id);
+    }
+
+    #[inline]
     pub(crate) fn update_ubo(&mut self, binding: super::PiResourceBinding) -> u32 {
         self.shader_binding_map.get_or_insert_ubo(binding)
     }
@@ -80,10 +97,7 @@ impl GLCache {
         self.shader_binding_map.get_or_insert_sampler(binding)
     }
 
-    pub(crate) fn get_or_insert_rs(
-        &mut self,
-        rs: RasterStateImpl,
-    ) -> Share<RasterState> {
+    pub(crate) fn get_or_insert_rs(&mut self, rs: RasterStateImpl) -> Share<RasterState> {
         profiling::scope!("hal::GLCache::get_or_insert_rs");
         // 尝试获取一个存在的Weak引用并升级
         if let Some(weak) = self.rs_map.get(&rs) {
@@ -402,6 +416,13 @@ impl GLCache {
 pub(crate) struct GeometryState {
     pub(crate) attributes: AttributeState,
     pub(crate) vbs: Box<[Option<VBState>]>, // 长度 为 attributes.vb_count
+}
+
+#[derive(Debug)]
+pub(crate) struct ShaderInner {
+    pub(crate) raw: glow::Shader,
+    pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
+    pub(crate) bg_set_info: Box<[Box<[super::PiBindEntry]>]>,
 }
 
 const CLEAR_DURATION: u64 = 20;

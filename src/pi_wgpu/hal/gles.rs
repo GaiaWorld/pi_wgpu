@@ -103,23 +103,6 @@ bitflags::bitflags! {
     }
 }
 
-bitflags::bitflags! {
-    /// Flags that indicate necessary workarounds for specific devices or driver bugs
-    #[repr(transparent)]
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub(crate) struct Workarounds: u32 {
-        // Needs workaround for Intel Mesa bug:
-        // https://gitlab.freedesktop.org/mesa/mesa/-/issues/2565.
-        //
-        // This comment
-        // (https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/4972/diffs?diff_id=75888#22f5d1004713c9bbf857988c7efb81631ab88f99_323_327)
-        // seems to indicate all skylake models are effected.
-        const MESA_I915_SRGB_SHADER_CLEAR = 1 << 0;
-        /// Buffer map must emulated becuase it is not supported natively
-        const EMULATE_BUFFER_MAP = 1 << 1;
-    }
-}
-
 pub(crate) mod db {
     pub mod amd {
         pub const VENDOR: u32 = 0x1002;

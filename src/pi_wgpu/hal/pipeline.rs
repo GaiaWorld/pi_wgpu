@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use glow::HasContext;
 use naga::back::glsl;
 use ordered_float::OrderedFloat;
-use pi_share::{Share, ShareCell, ShareWeak};
+use pi_share::Share;
 
 use crate::pi_wgpu::hal::PiBindEntry;
 
@@ -95,17 +93,18 @@ impl RenderPipelineImpl {
 
         let layout = desc.layout.as_ref().unwrap().inner.clone();
 
+        let version = { adapter.lock().version().clone() };
+
+        let naga_options = &layout.naga_options;
+
         {
             let gl = adapter.lock();
-            let version = gl.version();
-
-            let naga_options = &layout.naga_options;
-
-            vs.module
-                .inner
-                .compile(
+            state
+                .compile_shader(
+                    &gl,
+                    &vs.module.inner,
                     naga::ShaderStage::Vertex,
-                    version,
+                    &version,
                     device_features,
                     &adapter.downlevel(),
                     vs.entry_point.to_string(),
@@ -116,11 +115,12 @@ impl RenderPipelineImpl {
                     super::PipelineError::Linkage(wgt::ShaderStages::VERTEX, e.to_string())
                 })?;
 
-            fs.module
-                .inner
-                .compile(
+            state
+                .compile_shader(
+                    &gl,
+                    &vs.module.inner,
                     naga::ShaderStage::Fragment,
-                    version,
+                    &version,
                     device_features,
                     &adapter.downlevel(),
                     fs.entry_point.to_string(),
@@ -172,15 +172,17 @@ impl RenderPipelineImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Program, super::PipelineError> {
-        let vs_inner = vs.imp.as_ref().borrow();
-        let fs_inner = fs.imp.as_ref().borrow();
+        let vs_id = vs.id;
+        let fs_id = fs.id;
 
-        match state.get_program(&(vs_inner.id, fs_inner.id)) {
+        match state.get_program(&(vs_id, fs_id)) {
             Some(program) => Ok(program),
             None => {
                 let program = ProgramImpl::new(state, adapter, vs, fs).unwrap();
+
                 let id = program.id;
-                let program = Program(Share::new(ShareCell::new(program)));
+
+                let program = Program(Share::new(program));
 
                 state.insert_program(id, program.clone());
                 Ok(program)
@@ -499,24 +501,22 @@ impl Default for StencilFaceState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Program(pub(crate) Share<ShareCell<ProgramImpl>>);
+pub(crate) struct Program(pub(crate) Share<ProgramImpl>);
 
 impl Program {
     #[inline]
     pub(crate) fn get_id(&self) -> ProgramID {
-        let r = self.0.borrow();
-        r.id
+        self.0.id
     }
 
     #[inline]
     pub(crate) fn get_raw(&self) -> glow::Program {
-        let r = self.0.borrow();
-        r.raw
+        self.0.raw
     }
 
     // 找 program 的 每个 binding 在 layout 的 索引
     pub(crate) fn reorder(&self, layout: &PipelineLayout) -> Box<[Box<[usize]>]> {
-        let imp = &self.0.borrow().uniforms;
+        let imp = &self.0.uniforms;
 
         let mut r = vec![];
 
@@ -571,107 +571,15 @@ impl ProgramImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
-        let vs_inner = vs.imp.as_ref().borrow();
-        let fs_inner = fs.imp.as_ref().borrow();
-
-        let vs = vs_inner.inner.as_ref().unwrap();
-        let fs = fs_inner.inner.as_ref().unwrap();
-
-        assert!(vs.shader_type == glow::VERTEX_SHADER);
-        assert!(fs.shader_type == glow::FRAGMENT_SHADER);
-
         let gl = adapter.lock();
 
-        let raw = unsafe {
-            let raw = gl.create_program().unwrap();
-
-            gl.attach_shader(raw, vs.raw);
-            gl.attach_shader(raw, fs.raw);
-
-            gl.link_program(raw);
-
-            if !gl.get_program_link_status(raw) {
-                let info = gl.get_program_info_log(raw);
-
-                log::error!("program link error, info = {:?}", info);
-
-                gl.delete_program(raw);
-
-                return Err(super::ShaderError::LinkProgram(format!(
-                    "program link error, info = {:?}",
-                    info
-                )));
-            }
-
-            raw
-        };
-
-        let mut us: [Vec<PiBindEntry>; super::MAX_BIND_GROUPS] = [vec![], vec![], vec![], vec![]];
-        let mut max_set = 0;
-
-        vs.bg_set_info
-            .iter()
-            .enumerate()
-            .chain(vs.bg_set_info.iter().enumerate())
-            .for_each(|(index, bg)| {
-                if max_set < index {
-                    max_set = index;
-                }
-
-                let us = &mut us[index];
-
-                bg.iter().for_each(|entry| {
-                    let pos = us.iter().position(|u| u.glsl_name == entry.glsl_name);
-
-                    if let Some(pos) = pos {
-                        let u = &us[pos];
-                        assert!(u.glow_binding == entry.glow_binding);
-                        if u.ty == crate::pi_wgpu::hal::PiBindingType::Buffer {
-                            assert!(entry.ty == crate::pi_wgpu::hal::PiBindingType::Buffer);
-
-                            assert!(u.binding == entry.binding);
-                        } else {
-                            // 必然是 一个 Texture 和 一个 Sampler
-                            assert!(entry.ty != crate::pi_wgpu::hal::PiBindingType::Buffer);
-
-                            assert!(u.ty != entry.ty);
-                            assert!(u.binding != entry.binding);
-                        }
-                        return;
-                    }
-
-                    us.push(entry.clone());
-                    match entry.ty {
-                        crate::pi_wgpu::hal::PiBindingType::Buffer => unsafe {
-                            let loc = gl
-                                .get_uniform_block_index(raw, entry.glsl_name.as_ref())
-                                .unwrap();
-
-                            gl.uniform_block_binding(raw, loc, entry.glow_binding as u32);
-                        },
-                        crate::pi_wgpu::hal::PiBindingType::Sampler => unsafe {
-                            let loc = gl.get_uniform_location(raw, entry.glsl_name.as_ref());
-
-                            gl.uniform_1_i32(loc.as_ref(), entry.glow_binding as i32);
-                        },
-                        crate::pi_wgpu::hal::PiBindingType::Texture => {}
-                    }
-                });
-            });
-
-        max_set += 1;
-        let mut uniforms: Vec<Box<[PiBindEntry]>> = Vec::with_capacity(max_set);
-
-        for i in 0..max_set {
-            let v: Vec<_> = us[i].drain(..).collect();
-            uniforms.push(v.into_boxed_slice());
-        }
+        let (raw, uniforms) = state.create_program(&gl, vs.id, fs.id)?;
 
         Ok(Self {
             raw,
             adapter: adapter.clone(),
-            id: (vs_inner.id, fs_inner.id),
-            uniforms: uniforms.into_boxed_slice(),
+            id: (vs.id, fs.id),
+            uniforms,
         })
     }
 }

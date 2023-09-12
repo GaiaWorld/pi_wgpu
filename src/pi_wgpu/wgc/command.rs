@@ -56,6 +56,8 @@ impl CommandEncoder {
     ) -> RenderPass<'pass> {
         let gl = self.inner.begin_render_pass(desc);
 
+        log::info!("==================== begin_render_pass");
+
         RenderPass {
             gl,
             encoder: &self.inner,
@@ -96,6 +98,7 @@ pub struct RenderPass<'a> {
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
+        log::info!("++++++++++++ RenderPass Drop");
         self.encoder.end_render_pass()
     }
 }

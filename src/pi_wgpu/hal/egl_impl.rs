@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     ffi,
     os::raw,
     ptr,
@@ -11,9 +10,7 @@ use glow::HasContext;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use pi_share::{Share, ShareCell};
 
-use super::{
-    db, InstanceError, PrivateCapabilities, SrgbFrameBufferKind, Workarounds, VALIDATION_CANARY,
-};
+use super::{db, InstanceError, PrivateCapabilities, SrgbFrameBufferKind};
 use crate::{pi_wgpu::wgt, AdapterInfo};
 
 /// The amount of time to wait while trying to obtain a lock to the adapter context
@@ -305,8 +302,6 @@ struct AdapterContextImpl {
     features: wgt::Features,
     limits: wgt::Limits,
     downlevel: wgt::DownlevelCapabilities,
-
-    workarounds: Workarounds,
 
     max_texture_size: u32,
     shading_language_version: naga::back::glsl::Version,
@@ -605,8 +600,6 @@ impl AdapterContext {
             max_buffer_size: i32::MAX as u64,
         };
 
-        let mut workarounds = super::Workarounds::empty();
-
         let downlevel_defaults = wgt::DownlevelLimits {};
 
         let info = Self::make_info(vendor, renderer);
@@ -626,7 +619,6 @@ impl AdapterContext {
             features,
             limits,
             downlevel,
-            workarounds,
             max_texture_size,
             shading_language_version,
             info,
@@ -726,11 +718,6 @@ impl AdapterContext {
     #[inline]
     pub(crate) fn downlevel(&self) -> &wgt::DownlevelCapabilities {
         &self.imp.downlevel
-    }
-
-    #[inline]
-    pub(crate) fn workarounds(&self) -> Workarounds {
-        self.imp.workarounds
     }
 
     #[inline]
