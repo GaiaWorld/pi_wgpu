@@ -102,7 +102,6 @@ impl RenderPipelineImpl {
             let naga_options = &layout.naga_options;
 
             let mut map = state.get_shader_binding_map();
-
             vs.module
                 .inner
                 .compile(
@@ -179,13 +178,10 @@ impl RenderPipelineImpl {
         let vs_inner = vs.imp.as_ref().borrow();
         let fs_inner = fs.imp.as_ref().borrow();
 
-        let vs_inner = vs_inner.inner.as_ref().unwrap();
-        let fs_inner = fs_inner.inner.as_ref().unwrap();
-
         match state.get_program(&(vs_inner.id, fs_inner.id)) {
             Some(program) => Ok(program),
             None => {
-                let program = ProgramImpl::new(state.clone(), adapter, vs, fs).unwrap();
+                let program = ProgramImpl::new(state, adapter, vs, fs).unwrap();
                 let id = program.id;
                 let program = Program(Share::new(ShareCell::new(program)));
 
@@ -348,19 +344,13 @@ impl RenderPipelineImpl {
 
 #[derive(Debug)]
 pub(crate) struct BlendState {
-    pub(crate) state: GLState,
     pub(crate) imp: BlendStateImpl,
 }
 
 impl BlendState {
-    pub(crate) fn new(state: GLState, imp: BlendStateImpl) -> Self {
-        Self { state, imp }
-    }
-}
-
-impl Drop for BlendState {
-    fn drop(&mut self) {
-        self.state.remove_bs(&self.imp)
+    #[inline]
+    pub(crate) fn new(imp: BlendStateImpl) -> Self {
+        Self { imp }
     }
 }
 
@@ -373,6 +363,7 @@ pub(crate) struct BlendStateImpl {
 }
 
 impl Default for BlendStateImpl {
+    #[inline]
     fn default() -> Self {
         Self {
             is_enable: true,
@@ -385,18 +376,12 @@ impl Default for BlendStateImpl {
 #[derive(Debug)]
 pub(crate) struct DepthState {
     pub(crate) imp: DepthStateImpl,
-    pub(crate) state: GLState,
-}
-
-impl Drop for DepthState {
-    fn drop(&mut self) {
-        self.state.remove_ds(&self.imp);
-    }
 }
 
 impl DepthState {
-    pub(crate) fn new(state: GLState, imp: DepthStateImpl) -> Self {
-        Self { state, imp }
+    #[inline]
+    pub(crate) fn new(imp: DepthStateImpl) -> Self {
+        Self { imp }
     }
 }
 
@@ -410,6 +395,7 @@ pub(crate) struct DepthStateImpl {
 }
 
 impl Default for DepthStateImpl {
+    #[inline]
     fn default() -> Self {
         Self {
             is_test_enable: false,
@@ -430,18 +416,12 @@ pub(crate) struct DepthBiasState {
 #[derive(Debug)]
 pub(crate) struct RasterState {
     pub(crate) imp: RasterStateImpl,
-    pub(crate) state: GLState,
-}
-
-impl Drop for RasterState {
-    fn drop(&mut self) {
-        self.state.remove_rs(&self.imp);
-    }
 }
 
 impl RasterState {
-    pub(crate) fn new(state: GLState, imp: RasterStateImpl) -> Self {
-        Self { state, imp }
+    #[inline]
+    pub(crate) fn new(imp: RasterStateImpl) -> Self {
+        Self { imp }
     }
 }
 
@@ -453,6 +433,7 @@ pub(crate) struct RasterStateImpl {
 }
 
 impl Default for RasterStateImpl {
+    #[inline]
     fn default() -> Self {
         Self {
             is_cull_enable: false,
@@ -464,19 +445,13 @@ impl Default for RasterStateImpl {
 
 #[derive(Debug)]
 pub(crate) struct StencilState {
-    pub(crate) state: GLState,
     pub(crate) imp: StencilStateImpl,
 }
 
-impl Drop for StencilState {
-    fn drop(&mut self) {
-        self.state.remove_ss(&self.imp);
-    }
-}
-
 impl StencilState {
-    pub(crate) fn new(state: GLState, imp: StencilStateImpl) -> Self {
-        Self { state, imp }
+    #[inline]
+    pub(crate) fn new(imp: StencilStateImpl) -> Self {
+        Self { imp }
     }
 }
 
@@ -491,6 +466,7 @@ pub(crate) struct StencilStateImpl {
 }
 
 impl Default for StencilStateImpl {
+    #[inline]
     fn default() -> Self {
         Self {
             is_enable: false,
@@ -513,6 +489,7 @@ pub(crate) struct StencilFaceState {
 }
 
 impl Default for StencilFaceState {
+    #[inline]
     fn default() -> Self {
         Self {
             test_func: glow::ALWAYS,
@@ -545,6 +522,9 @@ impl Program {
         let imp = &self.0.borrow().uniforms;
 
         let mut r = vec![];
+
+        log::debug!("program reorder: layout = {:#?}, imp = {:#?}", layout, imp);
+
         for (i, info) in imp.iter().enumerate() {
             let mut v = vec![];
 
@@ -571,11 +551,10 @@ pub(crate) struct ProgramImpl {
     pub(crate) id: ProgramID,
 
     pub(crate) raw: glow::Program,
-    pub(crate) state: GLState,
     pub(crate) adapter: AdapterContext,
 
     // Box 中的顺序 和 RenderPipelineLayout 的 一样
-    pub(crate) uniforms: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS],
+    pub(crate) uniforms: Box<[Box<[PiBindEntry]>]>,
 }
 
 impl Drop for ProgramImpl {
@@ -585,13 +564,12 @@ impl Drop for ProgramImpl {
         unsafe {
             gl.delete_program(self.raw);
         }
-        self.state.remove_program(&self.id);
     }
 }
 
 impl ProgramImpl {
     fn new(
-        state: GLState,
+        state: &GLState,
         adapter: &AdapterContext,
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
@@ -603,7 +581,7 @@ impl ProgramImpl {
         let fs = fs_inner.inner.as_ref().unwrap();
 
         assert!(vs.shader_type == glow::VERTEX_SHADER);
-        assert!(vs.shader_type == glow::FRAGMENT_SHADER);
+        assert!(fs.shader_type == glow::FRAGMENT_SHADER);
 
         let gl = adapter.lock();
 
@@ -632,12 +610,17 @@ impl ProgramImpl {
         };
 
         let mut us: [Vec<PiBindEntry>; super::MAX_BIND_GROUPS] = [vec![], vec![], vec![], vec![]];
+        let mut max_set = 0;
 
         vs.bg_set_info
             .iter()
             .enumerate()
             .chain(vs.bg_set_info.iter().enumerate())
             .for_each(|(index, bg)| {
+                if max_set < index {
+                    max_set = index;
+                }
+
                 let us = &mut us[index];
 
                 bg.iter().for_each(|entry| {
@@ -679,18 +662,19 @@ impl ProgramImpl {
                 });
             });
 
-        log::info!("ProgramImpl::new(), uniforms: {:#?}", us);
+        max_set += 1;
+        let mut uniforms: Vec<Box<[PiBindEntry]>> = Vec::with_capacity(max_set);
 
-        let mut uniforms: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS] = Default::default();
-        for (boxed_slice, vec) in uniforms.iter_mut().zip(us.iter_mut()) {
-            *boxed_slice = vec.drain(..).collect::<Vec<_>>().into_boxed_slice();
+        for i in 0..max_set {
+            let v: Vec<_> = us[i].drain(..).collect();
+            uniforms.push(v.into_boxed_slice());
         }
+
         Ok(Self {
             raw,
-            state,
             adapter: adapter.clone(),
-            id: (vs.id, fs.id),
-            uniforms,
+            id: (vs_inner.id, fs_inner.id),
+            uniforms: uniforms.into_boxed_slice(),
         })
     }
 }

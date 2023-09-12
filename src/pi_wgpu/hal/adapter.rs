@@ -22,6 +22,8 @@ impl Adapter {
 
         let adapter = super::Adapter { context };
 
+        log::info!("hal::Adatper, adapter = {:#?}", info);
+
         Some(super::ExposedAdapter {
             adapter,
             info,
@@ -75,10 +77,7 @@ impl Adapter {
         use wgt::TextureFormat as Tf;
 
         let sample_count = {
-            let max_samples = unsafe {
-                self.context.lock()
-                    .get_parameter_i32(glow::MAX_SAMPLES)
-            };
+            let max_samples = unsafe { self.context.lock().get_parameter_i32(glow::MAX_SAMPLES) };
             if max_samples >= 8 {
                 Tfc::MULTISAMPLE_X2 | Tfc::MULTISAMPLE_X4 | Tfc::MULTISAMPLE_X8
             } else if max_samples >= 4 {
@@ -231,46 +230,42 @@ impl Adapter {
         &self,
         surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
-        if surface.get_presentable() {
-            let mut formats = vec![
-                wgt::TextureFormat::Rgba8Unorm,
+        let mut formats = vec![
+            wgt::TextureFormat::Rgba8Unorm,
+            #[cfg(not(target_arch = "wasm32"))]
+            wgt::TextureFormat::Bgra8Unorm,
+        ];
+        if surface.supports_srgb() {
+            formats.extend([
+                wgt::TextureFormat::Rgba8UnormSrgb,
                 #[cfg(not(target_arch = "wasm32"))]
-                wgt::TextureFormat::Bgra8Unorm,
-            ];
-            if surface.supports_srgb() {
-                formats.extend([
-                    wgt::TextureFormat::Rgba8UnormSrgb,
-                    #[cfg(not(target_arch = "wasm32"))]
-                    wgt::TextureFormat::Bgra8UnormSrgb,
-                ])
-            }
-            if self
-                .context
-                .private_caps()
-                .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
-            {
-                formats.push(wgt::TextureFormat::Rgba16Float)
-            }
-
-            Some(super::SurfaceCapabilities {
-                formats,
-                present_modes: vec![wgt::PresentMode::Fifo], //TODO
-                composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
-                swap_chain_sizes: 2..=2,
-                current_extent: None,
-                extents: wgt::Extent3d {
-                    width: 4,
-                    height: 4,
-                    depth_or_array_layers: 1,
-                }..=wgt::Extent3d {
-                    width: self.context.max_texture_size(),
-                    height: self.context.max_texture_size(),
-                    depth_or_array_layers: 1,
-                },
-                usage: super::TextureUses::COLOR_TARGET,
-            })
-        } else {
-            None
+                wgt::TextureFormat::Bgra8UnormSrgb,
+            ])
         }
+        if self
+            .context
+            .private_caps()
+            .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
+        {
+            formats.push(wgt::TextureFormat::Rgba16Float)
+        }
+
+        Some(super::SurfaceCapabilities {
+            formats,
+            present_modes: vec![wgt::PresentMode::Fifo], //TODO
+            composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
+            swap_chain_sizes: 2..=2,
+            current_extent: None,
+            extents: wgt::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            }..=wgt::Extent3d {
+                width: self.context.max_texture_size(),
+                height: self.context.max_texture_size(),
+                depth_or_array_layers: 1,
+            },
+            usage: super::TextureUses::COLOR_TARGET,
+        })
     }
 }

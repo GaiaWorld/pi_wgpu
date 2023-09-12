@@ -175,7 +175,7 @@ impl Instance {
     /// - On macOS/Metal: will panic if not called on the main thread.
     /// - On web: will panic if the `raw_window_handle` does not properly refer to a
     ///   canvas element.
-    pub fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub unsafe fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
         &self,
         window: &W,
     ) -> Result<Surface, CreateSurfaceError> {

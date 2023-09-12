@@ -263,15 +263,9 @@ impl EglContext {
         };
 
         if flags.contains(super::InstanceFlags::DEBUG) && gl.supports_debug() {
-            log::error!("Max label length: {}", unsafe {
+            log::info!("Max label length: {}", unsafe {
                 gl.get_parameter_i32(glow::MAX_LABEL_LENGTH)
             });
-        }
-
-        if flags.contains(super::InstanceFlags::VALIDATION) && gl.supports_debug() {
-            // log::error!("Enabling GLES debug output");
-            // unsafe { gl.enable(glow::DEBUG_OUTPUT) };
-            // unsafe { gl.debug_message_callback(gl_debug_message_callback) };
         }
 
         // =========== 3. 解绑表面
@@ -337,18 +331,18 @@ impl AdapterContext {
     #[inline]
     pub(crate) fn new(gl: glow::Context, context: EglContext) -> Option<Self> {
         let extensions = gl.supported_extensions();
-        log::warn!("GL Extensions: {:#?}", extensions);
+        log::info!("GL Extensions: {:#?}", extensions);
 
-        log::warn!("glow version: {:#?}", gl.version());
-        
+        log::info!("glow version: {:#?}", gl.version());
+
         // ========== 1. 版本，必须大于等于 3.0
 
         let version = unsafe { gl.get_parameter_string(glow::VERSION) };
-        log::warn!("GL Version: {}", version);
+        log::info!("GL Version: {}", version);
 
         let ver = Self::parse_version(&version).ok()?;
         if ver < (3, 0) {
-            log::warn!(
+            log::info!(
                 "Returned GLES context is {}.{}, when 3.0+ was requested",
                 ver.0,
                 ver.1
@@ -358,11 +352,8 @@ impl AdapterContext {
 
         // ========== 2. 厂商
 
-        let (vendor_const, renderer_const) = if extensions.contains("WEBGL_debug_renderer_info") {
-            (GL_UNMASKED_VENDOR_WEBGL, GL_UNMASKED_RENDERER_WEBGL)
-        } else {
-            (glow::VENDOR, glow::RENDERER)
-        };
+        let vendor_const = glow::VENDOR;
+        let renderer_const = glow::RENDERER;
 
         let (vendor, renderer) = {
             let vendor = unsafe { gl.get_parameter_string(vendor_const) };
@@ -370,15 +361,15 @@ impl AdapterContext {
 
             (vendor, renderer)
         };
-        log::warn!("GL Renderer: {}", renderer);
-        log::warn!("GL Vendor: {}", vendor);
+        log::info!("GL Renderer: {}", renderer);
+        log::info!("GL Vendor: {}", vendor);
 
         // ========== 3. glsl shader 版本
 
         let shading_language_version = {
             let sl_version = unsafe { gl.get_parameter_string(glow::SHADING_LANGUAGE_VERSION) };
 
-            log::warn!("GLSL version: {}", &sl_version);
+            log::info!("GLSL version: {}", &sl_version);
 
             let (sl_major, sl_minor) = Self::parse_version(&sl_version).ok()?;
 
@@ -764,47 +755,43 @@ impl AdapterContext {
         &self,
         surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
-        if surface.get_presentable() {
-            let mut formats = vec![
-                wgt::TextureFormat::Rgba8Unorm,
+        let mut formats = vec![
+            wgt::TextureFormat::Rgba8Unorm,
+            #[cfg(not(target_arch = "wasm32"))]
+            wgt::TextureFormat::Bgra8Unorm,
+        ];
+        if surface.supports_srgb() {
+            formats.extend([
+                wgt::TextureFormat::Rgba8UnormSrgb,
                 #[cfg(not(target_arch = "wasm32"))]
-                wgt::TextureFormat::Bgra8Unorm,
-            ];
-            if surface.supports_srgb() {
-                formats.extend([
-                    wgt::TextureFormat::Rgba8UnormSrgb,
-                    #[cfg(not(target_arch = "wasm32"))]
-                    wgt::TextureFormat::Bgra8UnormSrgb,
-                ])
-            }
-            if self
-                .imp
-                .private_caps
-                .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
-            {
-                formats.push(wgt::TextureFormat::Rgba16Float)
-            }
-
-            Some(super::SurfaceCapabilities {
-                formats,
-                present_modes: vec![wgt::PresentMode::Fifo], //TODO
-                composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
-                swap_chain_sizes: 2..=2,
-                current_extent: None,
-                extents: wgt::Extent3d {
-                    width: 4,
-                    height: 4,
-                    depth_or_array_layers: 1,
-                }..=wgt::Extent3d {
-                    width: self.imp.max_texture_size,
-                    height: self.imp.max_texture_size,
-                    depth_or_array_layers: 1,
-                },
-                usage: super::TextureUses::COLOR_TARGET,
-            })
-        } else {
-            None
+                wgt::TextureFormat::Bgra8UnormSrgb,
+            ])
         }
+        if self
+            .imp
+            .private_caps
+            .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
+        {
+            formats.push(wgt::TextureFormat::Rgba16Float)
+        }
+
+        Some(super::SurfaceCapabilities {
+            formats,
+            present_modes: vec![wgt::PresentMode::Fifo], //TODO
+            composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
+            swap_chain_sizes: 2..=2,
+            current_extent: None,
+            extents: wgt::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            }..=wgt::Extent3d {
+                width: self.imp.max_texture_size,
+                height: self.imp.max_texture_size,
+                depth_or_array_layers: 1,
+            },
+            usage: super::TextureUses::COLOR_TARGET,
+        })
     }
 }
 
@@ -1120,104 +1107,18 @@ pub(super) fn choose_config(
         attributes.push(8);
     }
 
-    #[cfg(not(target_os = "android"))]
-    attributes.extend_from_slice(&[egl::NATIVE_RENDERABLE, egl::TRUE as _]);
-
     attributes.push(egl::NONE);
 
-    let mut config = match egl.choose_first_config(display, &attributes[..]) {
+    match egl.choose_first_config(display, &attributes[..]) {
         Ok(Some(config)) => Ok(config),
         Ok(None) => {
-            log::error!("1 in choose_first_config: Missing config");
+            log::error!("choose_first_config: Missing config");
             Err(InstanceError)
         }
         Err(e) => {
-            log::error!("1 error in choose_first_config: {:?}", e);
+            log::error!("choose_first_config error = {:?}", e);
             Err(InstanceError)
         }
-    };
-
-    #[cfg(not(target_os = "android"))]
-    if config.is_err() {
-        attributes.clear();
-
-        attributes.extend_from_slice(&[
-            egl::SURFACE_TYPE,
-            egl::WINDOW_BIT,
-            egl::RENDERABLE_TYPE,
-            egl::OPENGL_ES2_BIT, // 最低支持 gles2，到创建 context 才指定 gles3
-        ]);
-
-        // TODO 待定，看不到为什么 srgb就一定要有alpha通道
-        if srgb_kind != SrgbFrameBufferKind::None {
-            attributes.push(egl::ALPHA_SIZE);
-            attributes.push(8);
-        }
-
-        attributes.push(egl::NONE);
-
-        config = match egl.choose_first_config(display, &attributes[..]) {
-            Ok(Some(config)) => Ok(config),
-            Ok(None) => {
-                log::error!("2 error in choose_first_config: Missing config");
-                Err(InstanceError)
-            }
-            Err(e) => {
-                log::error!("2 error in choose_first_config: {:?}", e);
-                Err(InstanceError)
-            }
-        };
-    }
-
-    config
-}
-
-fn gl_debug_message_callback(source: u32, gltype: u32, id: u32, severity: u32, message: &str) {
-    let source_str = match source {
-        glow::DEBUG_SOURCE_API => "API",
-        glow::DEBUG_SOURCE_WINDOW_SYSTEM => "Window System",
-        glow::DEBUG_SOURCE_SHADER_COMPILER => "ShaderCompiler",
-        glow::DEBUG_SOURCE_THIRD_PARTY => "Third Party",
-        glow::DEBUG_SOURCE_APPLICATION => "Application",
-        glow::DEBUG_SOURCE_OTHER => "Other",
-        _ => unreachable!(),
-    };
-
-    let log_severity = match severity {
-        glow::DEBUG_SEVERITY_HIGH => log::Level::Error,
-        glow::DEBUG_SEVERITY_MEDIUM => log::Level::Warn,
-        glow::DEBUG_SEVERITY_LOW => log::Level::Info,
-        glow::DEBUG_SEVERITY_NOTIFICATION => log::Level::Trace,
-        _ => unreachable!(),
-    };
-
-    let type_str = match gltype {
-        glow::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Deprecated Behavior",
-        glow::DEBUG_TYPE_ERROR => "Error",
-        glow::DEBUG_TYPE_MARKER => "Marker",
-        glow::DEBUG_TYPE_OTHER => "Other",
-        glow::DEBUG_TYPE_PERFORMANCE => "Performance",
-        glow::DEBUG_TYPE_POP_GROUP => "Pop Group",
-        glow::DEBUG_TYPE_PORTABILITY => "Portability",
-        glow::DEBUG_TYPE_PUSH_GROUP => "Push Group",
-        glow::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Undefined Behavior",
-        _ => unreachable!(),
-    };
-
-    let _ = std::panic::catch_unwind(|| {
-        log::log!(
-            log_severity,
-            "GLES: [{}/{}] ID {} : {}",
-            source_str,
-            type_str,
-            id,
-            message
-        );
-    });
-
-    if cfg!(debug_assertions) && log_severity == log::Level::Error {
-        // Set canary and continue
-        VALIDATION_CANARY.set();
     }
 }
 

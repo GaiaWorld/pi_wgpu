@@ -113,6 +113,7 @@ impl SurfaceTexture {
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
         let adapter = self.surface.adapter();
+        
         adapter.swap_buffers().unwrap();
 
         self.surface.update_swapchain();

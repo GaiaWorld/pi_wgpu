@@ -54,7 +54,7 @@ impl Instance {
             Ok(ext) => ext.to_string_lossy().into_owned(),
             Err(_) => String::new(),
         };
-        log::warn!(
+        log::info!(
             "EGL Extensions: {:#?}",
             client_ext_str.split_whitespace().collect::<Vec<_>>()
         );
@@ -81,7 +81,7 @@ impl Instance {
         if desc.flags.contains(InstanceFlags::VALIDATION)
             && client_ext_str.contains("EGL_KHR_debug")
         {
-            log::error!("Enabling EGL debug output");
+            log::info!("Enabling EGL debug output");
 
             let function: super::egl_impl::EglDebugMessageControlFun = {
                 let addr = egl.get_proc_address("eglDebugMessageControlKHR").unwrap();

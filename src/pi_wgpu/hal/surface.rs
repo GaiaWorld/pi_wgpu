@@ -1,10 +1,9 @@
-use glow::HasContext;
-use pi_share::{Share, ShareCell, cell::Ref};
+use pi_share::{cell::Ref, Share, ShareCell};
 use thiserror::Error;
 
 use super::{
     super::{wgt, DeviceError, MissingDownlevelFlags},
-    gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
+    gl_conv as conv, AdapterContext, GLState, SrgbFrameBufferKind,
 };
 
 #[derive(Debug, Clone)]
@@ -26,11 +25,6 @@ impl Surface {
     #[inline]
     pub(crate) fn update_swapchain(&self) {
         self.imp.as_ref().borrow_mut().update_swapchain()
-    }
-
-    #[inline]
-    pub(crate) fn get_presentable(&self) -> bool {
-        self.imp.as_ref().borrow().swapchain.is_none()
     }
 
     #[inline]
@@ -129,8 +123,11 @@ impl SurfaceImpl {
         }
         attributes.push(egl::ATTRIB_NONE as i32);
 
-        
-        println!("============== create_window_surface attributes = {:?}, srgb = {:?}", attributes, adapter.egl_srgb_support());
+        println!(
+            "============== create_window_surface attributes = {:?}, srgb = {:?}",
+            attributes,
+            adapter.egl_srgb_support()
+        );
 
         let raw = {
             let inner = adapter.egl_ref();
@@ -154,12 +151,16 @@ impl SurfaceImpl {
             }
         };
 
-        Ok(Self {
+        let mut r = Self {
             raw,
             adapter,
-            swapchain: None,
             swapchain_impl: Self::default_swapchain(),
-        })
+            swapchain: None,
+        };
+
+        r.update_swapchain();
+
+        Ok(r)
     }
 
     fn configure(

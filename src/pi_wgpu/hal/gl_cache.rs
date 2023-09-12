@@ -3,7 +3,10 @@
 //! 作用：状态机 分配资源时，先到这里找，找到了就返回，有利于设置时候，全局比较指针
 //!
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::{Duration, Instant},
+};
 
 use glow::HasContext;
 use pi_share::{Share, ShareCell, ShareWeak};
@@ -18,6 +21,8 @@ pub(crate) type ProgramID = (ShaderID, ShaderID);
 
 #[derive(Debug)]
 pub(crate) struct GLCache {
+    last_clear_time: Instant,
+
     shader_binding_map: super::ShaderBindingMap,
     vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
     fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
@@ -34,6 +39,7 @@ impl GLCache {
     #[inline]
     pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
         Self {
+            last_clear_time: Instant::now(),
             vao_map: Default::default(),
             fbo_map: Default::default(),
             program_map: Default::default(),
@@ -43,16 +49,36 @@ impl GLCache {
             ds_map: Default::default(),
             ss_map: Default::default(),
 
-            shader_binding_map: super::ShaderBindingMap::new(max_uniform_buffer_bindings, max_textures_slots),
+            shader_binding_map: super::ShaderBindingMap::new(
+                max_uniform_buffer_bindings,
+                max_textures_slots,
+            ),
         }
     }
-    
+
+    pub(crate) fn clear_weak_refs(&mut self) {
+        let now = Instant::now();
+        if now - self.last_clear_time < Duration::from_secs(CLEAR_DURATION) {
+            return;
+        }
+        self.last_clear_time = now;
+
+        self.bs_map.retain(|_, v| v.upgrade().is_some());
+        self.rs_map.retain(|_, v| v.upgrade().is_some());
+        self.ds_map.retain(|_, v| v.upgrade().is_some());
+        self.ss_map.retain(|_, v| v.upgrade().is_some());
+        self.program_map.retain(|_, v| v.upgrade().is_some());
+    }
+
     #[inline]
     pub(crate) fn get_shader_binding_map(&mut self) -> &mut super::ShaderBindingMap {
         &mut self.shader_binding_map
     }
 
-    pub(crate) fn get_or_insert_rs(&mut self, state: GLState, rs: RasterStateImpl) -> Share<RasterState> {
+    pub(crate) fn get_or_insert_rs(
+        &mut self,
+        rs: RasterStateImpl,
+    ) -> Share<RasterState> {
         profiling::scope!("hal::GLCache::get_or_insert_rs");
         // 尝试获取一个存在的Weak引用并升级
         if let Some(weak) = self.rs_map.get(&rs) {
@@ -62,7 +88,7 @@ impl GLCache {
         }
 
         // 如果没有找到或者无法升级，创建一个新的Share（Arc）并插入
-        let new: RasterState = super::RasterState::new(state, rs.clone());
+        let new: RasterState = super::RasterState::new(rs.clone());
         let new_strong = Share::new(new);
 
         self.rs_map.insert(rs, Share::downgrade(&new_strong));
@@ -72,7 +98,6 @@ impl GLCache {
 
     pub(crate) fn get_or_insert_bs(
         &mut self,
-        state: GLState,
         bs: super::BlendStateImpl,
     ) -> Share<super::BlendState> {
         profiling::scope!("hal::GLCache::get_or_insert_bs");
@@ -84,7 +109,7 @@ impl GLCache {
         }
 
         // 如果没有找到或者无法升级，创建一个新的Share（Arc）并插入
-        let new = super::BlendState::new(state, bs.clone());
+        let new = super::BlendState::new(bs.clone());
         let new_strong = Share::new(new);
 
         self.bs_map.insert(bs, Share::downgrade(&new_strong));
@@ -94,7 +119,6 @@ impl GLCache {
 
     pub(crate) fn get_or_insert_ds(
         &mut self,
-        state: GLState,
         ds: super::DepthStateImpl,
     ) -> Share<super::DepthState> {
         profiling::scope!("hal::GLCache::get_or_insert_ds");
@@ -106,7 +130,7 @@ impl GLCache {
         }
 
         // 如果没有找到或者无法升级，创建一个新的Share（Arc）并插入
-        let new = super::DepthState::new(state, ds.clone());
+        let new = super::DepthState::new(ds.clone());
         let new_strong = Share::new(new);
 
         self.ds_map.insert(ds, Share::downgrade(&new_strong));
@@ -116,7 +140,6 @@ impl GLCache {
 
     pub(crate) fn get_or_insert_ss(
         &mut self,
-        state: GLState,
         ss: super::StencilStateImpl,
     ) -> Share<super::StencilState> {
         profiling::scope!("hal::GLCache::get_or_insert_ss");
@@ -129,32 +152,12 @@ impl GLCache {
         }
 
         // 如果没有找到或者无法升级，创建一个新的Share（Arc）并插入
-        let new = super::StencilState::new(state, ss.clone());
+        let new = super::StencilState::new(ss.clone());
         let new_strong = Share::new(new);
 
         self.ss_map.insert(ss, Share::downgrade(&new_strong));
 
         new_strong
-    }
-
-    #[inline]
-    pub(crate) fn remove_bs(&mut self, bs: &super::BlendStateImpl) {
-        self.bs_map.remove(bs);
-    }
-
-    #[inline]
-    pub(crate) fn remove_rs(&mut self, rs: &super::RasterStateImpl) {
-        self.rs_map.remove(rs);
-    }
-
-    #[inline]
-    pub(crate) fn remove_ds(&mut self, ds: &super::DepthStateImpl) {
-        self.ds_map.remove(ds);
-    }
-
-    #[inline]
-    pub(crate) fn remove_ss(&mut self, ss: &super::StencilStateImpl) {
-        self.ss_map.remove(ss);
     }
 
     #[inline]
@@ -168,11 +171,6 @@ impl GLCache {
     #[inline]
     pub(crate) fn insert_program(&mut self, id: super::ProgramID, program: super::Program) {
         self.program_map.insert(id, Share::downgrade(&program.0));
-    }
-
-    #[inline]
-    pub(crate) fn remove_program(&mut self, id: &ProgramID) {
-        self.program_map.remove(id);
     }
 
     pub(crate) fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) {
@@ -360,7 +358,12 @@ impl GLCache {
         }
     }
 
-    pub(crate) fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+    pub(crate) fn remove_buffer(
+        &mut self,
+        gl: &glow::Context,
+        bind_target: u32,
+        buffer: glow::Buffer,
+    ) {
         profiling::scope!("hal::GLCache::remove_buffer");
 
         assert!(bind_target == glow::ARRAY_BUFFER);
@@ -395,3 +398,5 @@ pub(crate) struct GeometryState {
     pub(crate) attributes: AttributeState,
     pub(crate) vbs: Box<[Option<VBState>]>, // 长度 为 attributes.vb_count
 }
+
+const CLEAR_DURATION: u64 = 20;

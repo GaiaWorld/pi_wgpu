@@ -20,6 +20,7 @@ impl Queue {
     /// internally to happen at the start of the next `submit()` call.
     ///
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
+    #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
         let gl = self.inner.adapter.lock();
         buffer.inner.write_buffer(&gl, offset as i32, data);
@@ -42,6 +43,7 @@ impl Queue {
     /// discard it any time after this call completes.
     ///
     /// This method fails if `size` overruns the size of `texture`, or if `data` is too short.
+    #[inline]
     pub fn write_texture(
         &self,
         texture: super::super::ImageCopyTexture,
@@ -53,10 +55,14 @@ impl Queue {
     }
 
     /// Submits a series of finished command buffers for execution.
+    #[inline]
     pub fn submit<I: IntoIterator<Item = CommandBuffer>>(
         &self,
-        _command_buffers: I,
+        command_buffers: I,
     ) -> SubmissionIndex {
+        let iter = command_buffers.into_iter().map(|v| v.inner);
+        
+        self.inner.submit(iter);
         SubmissionIndex
     }
 }

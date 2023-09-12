@@ -15,7 +15,9 @@ use super::super::{
 ///
 /// Corresponds to [WebGPU `GPUCommandBuffer`](https://gpuweb.github.io/gpuweb/#command-buffer).
 #[derive(Debug)]
-pub struct CommandBuffer;
+pub struct CommandBuffer {
+    pub(crate) inner: hal::CommandBuffer,
+}
 
 /// Encodes a series of GPU operations.
 ///
@@ -41,7 +43,9 @@ impl CommandEncoder {
 impl CommandEncoder {
     /// Finishes recording and returns a [`CommandBuffer`] that can be submitted for execution.
     pub fn finish(mut self) -> CommandBuffer {
-        CommandBuffer
+        CommandBuffer {
+            inner: hal::CommandBuffer,
+        }
     }
     /// Begins recording of a render pass.
     ///
@@ -110,7 +114,7 @@ impl<'a> RenderPass<'a> {
         offsets: &[DynamicOffset],
     ) {
         self.encoder
-            .set_bind_group(&self.gl, index, &bind_group.inner, offsets)
+            .set_bind_group(index, &bind_group.inner, offsets)
     }
 
     /// Sets the active render pipeline.
@@ -164,7 +168,7 @@ impl<'a> RenderPass<'a> {
             offset: buffer_slice.offset,
             size: buffer_slice.size,
         };
-        self.encoder.set_vertex_buffer(&self.gl, slot, binding)
+        self.encoder.set_vertex_buffer(slot, binding)
     }
 
     /// Sets the scissor region.

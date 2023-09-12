@@ -14,7 +14,7 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct GLState {
-    pub(crate) imp: Share<ShareCell<GLStateImpl>>,
+    imp: Share<ShareCell<GLStateImpl>>,
 }
 
 impl GLState {
@@ -47,6 +47,7 @@ impl GLState {
     pub fn max_attribute_slots(&self) -> usize {
         self.imp.borrow().max_attribute_slots
     }
+
     #[inline]
     pub fn max_textures_slots(&self) -> usize {
         self.imp.borrow().max_textures_slots
@@ -70,60 +71,32 @@ impl GLState {
     #[inline]
     pub fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
         let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_rs(self.clone(), rs)
+        s.cache.get_or_insert_rs(rs)
     }
 
     #[inline]
     pub fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
         let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_ds(self.clone(), ds)
+        s.cache.get_or_insert_ds(ds)
     }
 
     #[inline]
     pub fn get_or_insert_ss(&self, rs: super::StencilStateImpl) -> Share<super::StencilState> {
         let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_ss(self.clone(), rs)
+        s.cache.get_or_insert_ss(rs)
     }
 
     #[inline]
     pub fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
         let mut s = self.imp.borrow_mut();
-        s.cache.get_or_insert_bs(self.clone(), bs)
+        s.cache.get_or_insert_bs(bs)
     }
 
+    // 每帧present时调用一次
     #[inline]
-    pub fn remove_bs(&self, bs: &super::BlendStateImpl) {
-        profiling::scope!("hal::GLState::remove_bs");
+    pub(crate) fn clear_cache(&self) {
         let mut s = self.imp.borrow_mut();
-        s.cache.remove_bs(bs);
-    }
-
-    #[inline]
-    pub fn remove_rs(&self, rs: &super::RasterStateImpl) {
-        profiling::scope!("hal::GLState::remove_rs");
-        let mut s = self.imp.borrow_mut();
-        s.cache.remove_rs(rs);
-    }
-
-    #[inline]
-    pub fn remove_ds(&self, ds: &super::DepthStateImpl) {
-        profiling::scope!("hal::GLState::remove_ds");
-        let mut s = self.imp.borrow_mut();
-        s.cache.remove_ds(ds);
-    }
-
-    #[inline]
-    pub fn remove_ss(&self, ss: &super::StencilStateImpl) {
-        profiling::scope!("hal::GLState::remove_ss");
-        let mut s = self.imp.borrow_mut();
-        s.cache.remove_ss(ss);
-    }
-
-    #[inline]
-    pub fn remove_program(&self, id: &super::ProgramID) {
-        profiling::scope!("hal::GLState::remove_program");
-        let mut s = self.imp.borrow_mut();
-        s.cache.remove_program(id);
+        s.cache.clear_weak_refs();
     }
 
     #[inline]
@@ -211,7 +184,6 @@ impl GLState {
     #[inline]
     pub fn set_bind_group(
         &self,
-        gl: &glow::Context,
         index: u32,
         bind_group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
@@ -219,13 +191,12 @@ impl GLState {
         profiling::scope!("hal::GLState::set_bind_group");
 
         let imp = &mut self.imp.borrow_mut();
-        imp.set_bind_group(gl, index, bind_group, dynamic_offsets)
+        imp.set_bind_group(index, bind_group, dynamic_offsets)
     }
 
     #[inline]
     pub fn set_vertex_buffer(
         &self,
-        gl: &glow::Context,
         index: usize,
         buffer: &super::Buffer,
         offset: i32,
@@ -234,7 +205,7 @@ impl GLState {
         profiling::scope!("hal::GLState::set_vertex_buffer");
 
         let imp = &mut self.imp.borrow_mut();
-        imp.set_vertex_buffer(gl, index, buffer, offset, size)
+        imp.set_vertex_buffer(index, buffer, offset, size)
     }
 
     #[inline]
@@ -322,7 +293,7 @@ impl GLState {
 }
 
 #[derive(Debug)]
-pub(crate) struct GLStateImpl {
+struct GLStateImpl {
     cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
@@ -557,7 +528,6 @@ impl GLStateImpl {
     #[inline]
     fn set_bind_group(
         &mut self,
-        gl: &glow::Context,
         index: u32,
         bind_group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
@@ -573,7 +543,6 @@ impl GLStateImpl {
     #[inline]
     fn set_vertex_buffer(
         &mut self,
-        gl: &glow::Context,
         index: usize,
         buffer: &super::Buffer,
         offset: i32,
@@ -812,7 +781,7 @@ impl GLStateImpl {
             }
         }
 
-        let mut geometry = super::GeometryState {
+        let geometry = super::GeometryState {
             attributes: rp.attributes.clone(),
             vbs,
         };
@@ -854,7 +823,7 @@ impl GLStateImpl {
                         assert!(binding.ty == PiBindingType::Buffer);
                         let imp = raw.0.as_ref();
 
-                        let mut offset = if *dynamic_offset >= 0 {
+                        let offset = if *dynamic_offset >= 0 {
                             *offset + bg.dynamic_offsets[*dynamic_offset as usize] as i32
                         } else {
                             *offset

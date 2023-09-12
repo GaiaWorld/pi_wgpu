@@ -63,6 +63,7 @@ pub(crate) struct ShaderModuleImpl {
     pub(crate) state: GLState,
     pub(crate) adapter: AdapterContext,
 
+    pub(crate) id: ShaderID,
     pub(crate) input: Option<ShaderInput>,
     pub(crate) inner: Option<ShaderInner>,
 }
@@ -86,9 +87,12 @@ impl ShaderModuleImpl {
         adapter: &AdapterContext,
         desc: &ShaderModuleDescriptor,
     ) -> Result<Self, super::ShaderError> {
+        let id = state.next_shader_id();
+
         Ok(Self {
             state,
             adapter: adapter.clone(),
+            id,
             input: Some(ShaderInput::from(desc)),
             inner: None,
         })
@@ -180,7 +184,6 @@ impl ShaderModuleImpl {
         )?;
 
         self.inner = Some(ShaderInner {
-            id: self.state.next_shader_id(),
             raw,
             shader_type,
             bg_set_info,
@@ -308,19 +311,19 @@ fn compile_gl_shader(
     } else {
         let info = unsafe { gl.get_shader_info_log(raw) };
 
-        log::error!(
+        log::warn!(
             "shader compile error, type = {:?}, info = {:?}, source = {:?}",
             shader_type,
             info,
             source
         );
 
-        unsafe { gl.delete_shader(raw) };
-
-        Err(super::ShaderError::Compilation(format!(
-            "shader compile error, info = {:?}",
-            info
-        )))
+        Ok(raw)
+        // unsafe { gl.delete_shader(raw) };
+        // Err(super::ShaderError::Compilation(format!(
+        //     "shader compile error, info = {:?}",
+        //     info
+        // )))
     }
 }
 
@@ -329,8 +332,9 @@ fn consume_naga_reflection(
     ep_info: &naga::valid::FunctionInfo,
     reflection_info: naga::back::glsl::ReflectionInfo,
     shader_binding_map: &mut ShaderBindingMap,
-) -> Result<[Box<[PiBindEntry]>; super::MAX_BIND_GROUPS], super::ShaderError> {
+) -> Result<Box<[Box<[PiBindEntry]>]>, super::ShaderError> {
     let mut r = [vec![], vec![], vec![], vec![]];
+    let mut max_set = 0;
 
     // UBO
     for (handle, name) in reflection_info.uniforms {
@@ -339,6 +343,9 @@ fn consume_naga_reflection(
 
         let glow_binding = shader_binding_map.get_or_insert_ubo(br.clone());
 
+        if br.group > max_set {
+            max_set = br.group;
+        }
         let set = &mut r[br.group as usize];
         set.push(PiBindEntry {
             binding: br.binding as usize,
@@ -358,7 +365,9 @@ fn consume_naga_reflection(
         let sampler_br = sampler_var.binding.as_ref().unwrap();
 
         let glow_binding = shader_binding_map.get_or_insert_ubo(sampler_br.clone());
-
+        if sampler_br.group > max_set {
+            max_set = sampler_br.group;
+        }
         let set = &mut r[sampler_br.group as usize];
         set.push(PiBindEntry {
             binding: sampler_br.binding as usize,
@@ -370,6 +379,9 @@ fn consume_naga_reflection(
 
         let tex_var = &module.global_variables[mapping.texture];
         let tex_br = tex_var.binding.as_ref().unwrap();
+        if tex_br.group > max_set {
+            max_set = tex_br.group;
+        }
         let set = &mut r[tex_br.group as usize];
         set.push(PiBindEntry {
             binding: tex_br.binding as usize,
@@ -380,11 +392,13 @@ fn consume_naga_reflection(
         });
     }
 
-    let mut us: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS] = Default::default();
-    for (boxed_slice, vec) in us.iter_mut().zip(r.iter_mut()) {
-        *boxed_slice = vec.drain(..).collect::<Vec<_>>().into_boxed_slice();
+    let max_set = max_set as usize + 1;
+    let mut us = Vec::with_capacity(max_set);
+    for i in 0..max_set {
+        let v: Vec<_> = r[i].drain(..).collect();
+        us.push(v.into_boxed_slice());
     }
-    Ok(us)
+    Ok(us.into_boxed_slice())
 }
 
 #[derive(Debug)]
@@ -423,10 +437,9 @@ impl From<&ShaderModuleDescriptor<'_>> for ShaderInput {
 
 #[derive(Debug)]
 pub(crate) struct ShaderInner {
-    pub(crate) id: ShaderID,
     pub(crate) raw: glow::Shader,
     pub(crate) shader_type: u32, // glow::VERTEX_SHADER,
-    pub(crate) bg_set_info: [Box<[PiBindEntry]>; super::MAX_BIND_GROUPS],
+    pub(crate) bg_set_info: Box<[Box<[PiBindEntry]>]>,
 }
 
 //

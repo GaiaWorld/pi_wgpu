@@ -20,6 +20,9 @@ use super::super::wgt;
 use super::{AdapterContext, AdapterContextLock, GLState};
 
 #[derive(Debug, Clone)]
+pub(crate) struct CommandBuffer;
+
+#[derive(Debug, Clone)]
 pub(crate) struct CommandEncoder {
     state: GLState,
     adapter: AdapterContext,
@@ -55,12 +58,11 @@ impl CommandEncoder {
     #[inline]
     pub(crate) fn set_bind_group(
         &self,
-        gl: &glow::Context,
         index: u32,
         group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
-        self.state.set_bind_group(gl, index, group, dynamic_offsets);
+        self.state.set_bind_group(index, group, dynamic_offsets);
     }
 
     #[inline]
@@ -71,12 +73,10 @@ impl CommandEncoder {
     #[inline]
     pub(crate) fn set_vertex_buffer<'a>(
         &self,
-        gl: &glow::Context,
         index: u32,
         binding: super::super::BufferBinding<'a>,
     ) {
         self.state.set_vertex_buffer(
-            gl,
             index as usize,
             &binding.buffer.inner,
             binding.offset as i32,
