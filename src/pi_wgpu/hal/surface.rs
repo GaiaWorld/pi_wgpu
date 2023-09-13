@@ -27,14 +27,14 @@ impl Surface {
 
     #[inline]
     pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
-        log::info!(
+        log::trace!(
             "========== Surface::swap_buffers lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.as_ref().lock().adapter.swap_buffers() };
 
-        log::info!(
+        log::trace!(
             "========== Surface::swap_buffers unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -44,7 +44,7 @@ impl Surface {
 
     #[inline]
     pub(crate) fn update_swapchain(&self) {
-        log::info!(
+        log::trace!(
             "========== Surface::update_swapchain lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -53,7 +53,7 @@ impl Surface {
             self.imp.as_ref().lock().update_swapchain();
         }
 
-        log::info!(
+        log::trace!(
             "========== Surface::update_swapchain unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -65,14 +65,14 @@ impl Surface {
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        log::info!(
+        log::trace!(
             "========== Surface::configure lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.as_ref().lock().configure(device, config) };
 
-        log::info!(
+        log::trace!(
             "========== Surface::configure unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -82,14 +82,14 @@ impl Surface {
 
     #[inline]
     pub(crate) fn acquire_texture(&self) -> Option<super::Texture> {
-        log::info!(
+        log::trace!(
             "========== Surface::acquire_texture lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.as_ref().lock().acquire_texture() };
 
-        log::info!(
+        log::trace!(
             "========== Surface::acquire_texture unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -99,14 +99,14 @@ impl Surface {
 
     #[inline]
     pub(crate) fn supports_srgb(&self) -> bool {
-        log::info!(
+        log::trace!(
             "========== Surface::supports_srgb lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.as_ref().lock().supports_srgb() };
 
-        log::info!(
+        log::trace!(
             "========== Surface::supports_srgb unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -186,7 +186,7 @@ impl SurfaceImpl {
         }
         attributes.push(egl::ATTRIB_NONE as i32);
 
-        println!(
+        log::trace!(
             "============== create_window_surface attributes = {:?}, srgb = {:?}",
             attributes,
             adapter.egl_srgb_support()
@@ -241,7 +241,7 @@ impl SurfaceImpl {
         size.width = config.width;
         size.height = config.height;
 
-        log::info!(
+        log::trace!(
             "======== hal::Surface configure, w = {}, h = {}",
             config.width,
             config.height
@@ -254,7 +254,7 @@ impl SurfaceImpl {
     fn acquire_texture(&mut self) -> Option<super::Texture> {
         let r = self.swapchain.take();
 
-        log::info!("======== hal::Surface acquire_texture = {:#?}", r);
+        log::trace!("======== hal::Surface acquire_texture = {:#?}", r);
 
         r
     }

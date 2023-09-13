@@ -36,7 +36,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn next_shader_id(&self) -> ShaderID {
-        log::info!(
+        log::trace!(
             "========== GLState::next_shader_id lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -47,7 +47,7 @@ impl GLState {
             s.global_shader_id
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::next_shader_id unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -57,14 +57,14 @@ impl GLState {
 
     #[inline]
     pub(crate) fn max_attribute_slots(&self) -> usize {
-        log::info!(
+        log::trace!(
             "========== GLState::max_attribute_slots lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.lock().max_attribute_slots };
 
-        log::info!(
+        log::trace!(
             "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -74,14 +74,14 @@ impl GLState {
 
     #[inline]
     pub(crate) fn max_textures_slots(&self) -> usize {
-        log::info!(
+        log::trace!(
             "========== GLState::max_textures_slots lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.lock().max_textures_slots };
 
-        log::info!(
+        log::trace!(
             "========== GLState::max_textures_slots unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -91,14 +91,14 @@ impl GLState {
 
     #[inline]
     pub(crate) fn max_color_attachments(&self) -> usize {
-        log::info!(
+        log::trace!(
             "========== GLState::max_color_attachments lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.lock().max_color_attachments };
 
-        log::info!(
+        log::trace!(
             "========== GLState::max_color_attachments unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -108,14 +108,14 @@ impl GLState {
 
     #[inline]
     pub(crate) fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
-        log::info!(
+        log::trace!(
             "========== GLState::get_program lock, thread_id = {:?}",
             thread::current().id()
         );
 
         let r = { self.imp.lock().cache.get_program(id) };
 
-        log::info!(
+        log::trace!(
             "========== GLState::get_program unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -125,7 +125,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn insert_program(&self, id: super::ProgramID, program: super::Program) {
-        log::info!(
+        log::trace!(
             "========== GLState::insert_program lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -134,7 +134,7 @@ impl GLState {
             self.imp.lock().cache.insert_program(id, program);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::insert_program unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -142,7 +142,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_rs lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -152,7 +152,7 @@ impl GLState {
             s.cache.get_or_insert_rs(rs)
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_rs unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -162,7 +162,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_ds lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -172,7 +172,7 @@ impl GLState {
             s.cache.get_or_insert_ds(ds)
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_ds unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -185,7 +185,7 @@ impl GLState {
         &self,
         rs: super::StencilStateImpl,
     ) -> Share<super::StencilState> {
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_ss lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -195,7 +195,7 @@ impl GLState {
             s.cache.get_or_insert_ss(rs)
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_ss unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -205,7 +205,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_bs lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -215,7 +215,7 @@ impl GLState {
             s.cache.get_or_insert_bs(bs)
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::get_or_insert_bs unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -230,7 +230,7 @@ impl GLState {
         vs_id: ShaderID,
         fs_id: ShaderID,
     ) -> Result<(glow::Program, Box<[Box<[super::PiBindEntry]>]>), super::ShaderError> {
-        log::info!(
+        log::trace!(
             "========== GLState::create_program lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -240,7 +240,7 @@ impl GLState {
             s.create_program(gl, vs_id, fs_id)
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::create_program unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -261,7 +261,7 @@ impl GLState {
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
     ) -> Result<(), super::ShaderError> {
-        log::info!(
+        log::trace!(
             "========== GLState::compile_shader lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -281,7 +281,7 @@ impl GLState {
             )
         };
 
-        log::info!(
+        log::trace!(
             "========== GLState::compile_shader unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -291,7 +291,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn remove_shader(&self, id: ShaderID) {
-        log::info!(
+        log::trace!(
             "========== GLState::remove_shader lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -301,7 +301,7 @@ impl GLState {
             s.cache.remove_shader(id);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_shader unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -309,7 +309,7 @@ impl GLState {
 
     #[inline]
     pub(crate) fn clear_cache(&self) {
-        log::info!(
+        log::trace!(
             "========== GLState::clear_cache lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -319,7 +319,7 @@ impl GLState {
             s.cache.clear_weak_refs();
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::clear_cache unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -329,7 +329,7 @@ impl GLState {
     pub(crate) fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLState::remove_render_buffer");
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_render_buffer lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -339,7 +339,7 @@ impl GLState {
             cache.remove_render_buffer(gl, rb);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_render_buffer unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -353,7 +353,7 @@ impl GLState {
         }
 
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
-            log::info!(
+            log::trace!(
                 "========== GLState::remove_buffer lock, thread_id = {:?}",
                 thread::current().id()
             );
@@ -367,7 +367,7 @@ impl GLState {
                 }
             }
 
-            log::info!(
+            log::trace!(
                 "========== GLState::remove_buffer unlock, thread_id = {:?}",
                 thread::current().id()
             );
@@ -375,7 +375,7 @@ impl GLState {
             return;
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_buffer 2 lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -383,7 +383,7 @@ impl GLState {
         let cache = &mut self.imp.lock().cache;
         cache.remove_buffer(gl, bind_target, buffer);
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_buffer 2 unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -393,7 +393,7 @@ impl GLState {
     pub(crate) fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLState::remove_texture");
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_texture lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -403,7 +403,7 @@ impl GLState {
             cache.remove_texture(gl, texture);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::remove_texture unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -425,7 +425,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_size");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_buffer_size lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -436,7 +436,7 @@ impl GLState {
             imp.set_buffer_size(gl, buffer, size);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_buffer_size unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -452,7 +452,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_sub_data");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_buffer_sub_data lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -461,7 +461,7 @@ impl GLState {
             let imp = &mut self.imp.lock();
             imp.set_buffer_sub_data(gl, buffer, offset, data)
         }
-        log::info!(
+        log::trace!(
             "========== GLState::set_buffer_sub_data unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -471,7 +471,7 @@ impl GLState {
     pub(crate) fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         profiling::scope!("hal::GLState::set_render_pipeline");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_render_pipeline lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -481,7 +481,7 @@ impl GLState {
             imp.set_render_pipeline(gl, pipeline);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_render_pipeline unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -495,7 +495,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_render_target");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_render_target lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -506,7 +506,7 @@ impl GLState {
             imp.set_render_target(gl, desc);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_render_target unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -521,7 +521,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_bind_group lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -532,7 +532,7 @@ impl GLState {
             imp.set_bind_group(index, bind_group, dynamic_offsets);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_bind_group unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -548,7 +548,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_vertex_buffer");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_vertex_buffer lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -559,7 +559,7 @@ impl GLState {
             imp.set_vertex_buffer(index, buffer, offset, size)
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_vertex_buffer unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -576,7 +576,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_index_buffer");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_index_buffer lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -587,7 +587,7 @@ impl GLState {
             imp.set_index_buffer(gl, buffer, format, offset, size)
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_index_buffer unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -603,7 +603,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw");
 
-        log::info!(
+        log::trace!(
             "========== GLState::draw lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -614,7 +614,7 @@ impl GLState {
             imp.draw(gl, start_vertex, vertex_count, instance_count);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::draw unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -630,7 +630,7 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw_indexed");
 
-        log::info!(
+        log::trace!(
             "========== GLState::draw_indexed lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -641,7 +641,7 @@ impl GLState {
             imp.draw_indexed(gl, start_index, index_count, instance_count);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::draw_indexed unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -651,7 +651,7 @@ impl GLState {
     pub(crate) fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_viewport lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -662,7 +662,7 @@ impl GLState {
             imp.set_viewport(gl, x, y, w, h);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_viewport unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -672,7 +672,7 @@ impl GLState {
     pub(crate) fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_scissor lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -683,7 +683,7 @@ impl GLState {
             imp.set_scissor(gl, x, y, w, h)
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_scissor unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -693,7 +693,7 @@ impl GLState {
     pub(crate) fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_depth_range lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -704,7 +704,7 @@ impl GLState {
             imp.set_depth_range(gl, min_depth, max_depth);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_depth_range unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -714,7 +714,7 @@ impl GLState {
     pub(crate) fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_blend_color lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -725,7 +725,7 @@ impl GLState {
             imp.set_blend_color(gl, color);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_blend_color unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -735,7 +735,7 @@ impl GLState {
     pub(crate) fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_stencil_reference lock, thread_id = {:?}",
             thread::current().id()
         );
@@ -745,7 +745,7 @@ impl GLState {
             imp.set_stencil_reference(gl, reference);
         }
 
-        log::info!(
+        log::trace!(
             "========== GLState::set_stencil_reference unlock, thread_id = {:?}",
             thread::current().id()
         );
@@ -1726,6 +1726,8 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_blend(gl: &glow::Context, new: &super::BlendStateImpl) {
+        log::info!("============ hal::GLState apply_blend = {:#?}", new);
+        
         Self::apply_blend_enable(gl, new);
         Self::apply_blend_equation(gl, new);
         Self::apply_blend_factor(gl, new);

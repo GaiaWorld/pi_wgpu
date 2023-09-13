@@ -116,7 +116,7 @@ impl SurfaceTexture {
 
         self.surface.update_swapchain();
         
-        log::info!("==================== SurfaceTexture present");
+        log::trace!("==================== SurfaceTexture present");
     }
 }
 

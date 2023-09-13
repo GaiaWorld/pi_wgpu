@@ -118,7 +118,7 @@ impl RenderPipelineImpl {
             state
                 .compile_shader(
                     &gl,
-                    &vs.module.inner,
+                    &fs.module.inner,
                     naga::ShaderStage::Fragment,
                     &version,
                     device_features,
