@@ -768,6 +768,8 @@ struct GLStateImpl {
     // VAO = render_pipeline.attributes + vertex_buffers
     render_pipeline: Option<super::RenderPipeline>,
     vertex_buffers: Box<[Option<VBState>]>, // 长度 不会 超过 max_attribute_slots
+
+    need_update_ib: bool,
     index_buffer: Option<IBState>,
 
     bind_group_set: [Option<BindGroupState>; super::MAX_BIND_GROUPS],
@@ -824,7 +826,9 @@ impl GLStateImpl {
 
             render_pipeline: None,
             vertex_buffers: vec![None; max_attribute_slots].into_boxed_slice(),
+
             index_buffer: None,
+            need_update_ib: false,
 
             bind_group_set: [None, None, None, None],
 
@@ -1043,24 +1047,20 @@ impl GLStateImpl {
             Some(size) => u64::from(size) as i32,
         };
 
-        let need_update = match self.index_buffer.as_ref() {
+        self.need_update_ib = match self.index_buffer.as_ref() {
             None => true,
             Some(ib) => {
                 ib.raw != raw || ib.size != size || ib.offset != offset || ib.ib_type != ib_type
             }
         };
 
-        if need_update {
-            Self::apply_ib(gl, Some(raw));
-
-            self.index_buffer = Some(IBState {
-                raw,
-                ib_type,
-                ib_count,
-                size,
-                offset,
-            });
-        }
+        self.index_buffer = Some(IBState {
+            raw,
+            ib_type,
+            ib_count,
+            size,
+            offset,
+        });
     }
 
     fn draw(
@@ -1102,6 +1102,11 @@ impl GLStateImpl {
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
         let ib = self.index_buffer.as_ref().unwrap();
+
+        if self.need_update_ib {
+            Self::apply_ib(gl, Some(ib.raw));
+            self.need_update_ib = false;
+        }
 
         let offset = ib.offset + start_index * ib.ib_count;
 
@@ -1335,7 +1340,7 @@ impl GLStateImpl {
             .bg_set_info
             .iter()
             .enumerate()
-            .chain(vs_inner.bg_set_info.iter().enumerate())
+            .chain(fs_inner.bg_set_info.iter().enumerate())
             .for_each(|(index, bg)| {
                 if max_set < index {
                     max_set = index;
@@ -1363,7 +1368,10 @@ impl GLStateImpl {
                         return;
                     }
 
-                    us.push(entry.clone());
+                    if us.iter().all(|v| v.binding != entry.binding) {
+                        us.push(entry.clone());
+                    }
+
                     match entry.ty {
                         crate::pi_wgpu::hal::PiBindingType::Buffer => unsafe {
                             let loc = gl

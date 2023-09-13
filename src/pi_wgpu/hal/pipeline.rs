@@ -20,18 +20,10 @@ pub(crate) struct BindGroupLayoutInfo {
 
 impl PipelineLayout {
     pub fn new(
-        device_features: &wgt::Features,
+        _device_features: &wgt::Features,
         adapter: &AdapterContext,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
-        let group_infos = desc
-            .bind_group_layouts
-            .iter()
-            .map(|layout| BindGroupLayoutInfo {
-                entries: layout.inner.entries.clone(),
-            })
-            .collect();
-
         let mut writer_flags = glsl::WriterFlags::ADJUST_COORDINATE_SPACE;
         writer_flags.set(
             glsl::WriterFlags::TEXTURE_SHADOW_LOD,
@@ -43,12 +35,60 @@ impl PipelineLayout {
         // https://github.com/gfx-rs/wgpu/pull/3440/files#r1095726950
         writer_flags.set(glsl::WriterFlags::FORCE_POINT_SIZE, true);
 
+        let mut num_samplers = 0u8;
+        let mut num_textures = 0u8;
+        let mut num_uniform_buffers = 0u8;
+
+        let mut binding_map = glsl::BindingMap::default();
+
+        for (group_index, bg_layout) in desc.bind_group_layouts.iter().enumerate() {
+            let bg_layout = &bg_layout.inner;
+
+            // create a vector with the size enough to hold all the bindings, filled with `!0`
+            let mut binding_to_slot = vec![
+                !0;
+                bg_layout
+                    .entries
+                    .last()
+                    .map_or(0, |b| b.binding as usize + 1)
+            ]
+            .into_boxed_slice();
+
+            for entry in bg_layout.entries.iter() {
+                let counter = match entry.ty {
+                    wgt::BindingType::Sampler { .. } => &mut num_samplers,
+                    wgt::BindingType::Texture { .. } => &mut num_textures,
+                    wgt::BindingType::Buffer {
+                        ty: wgt::BufferBindingType::Uniform,
+                        ..
+                    } => &mut num_uniform_buffers,
+                    _ => unreachable!(),
+                };
+
+                binding_to_slot[entry.binding as usize] = *counter;
+                let br = naga::ResourceBinding {
+                    group: group_index as u32,
+                    binding: entry.binding,
+                };
+                binding_map.insert(br, *counter);
+                *counter += entry.count.map_or(1, |c| c.get() as u8);
+            }
+        }
+
         let naga_options = glsl::Options {
             version: adapter.shading_language_version(),
             writer_flags,
-            binding_map: Default::default(), // 自己分配槽位
+            binding_map,
             zero_initialize_workgroup_memory: true,
         };
+
+        let group_infos = desc
+            .bind_group_layouts
+            .iter()
+            .map(|layout| BindGroupLayoutInfo {
+                entries: layout.inner.entries.clone(),
+            })
+            .collect();
 
         Ok(Self {
             group_infos,
@@ -85,7 +125,6 @@ impl RenderPipelineImpl {
         device_features: &wgt::Features,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<Self, super::PipelineError> {
-        
         let topology = conv::map_primitive_topology(desc.primitive.topology);
         let alpha_to_coverage_enabled = desc.multisample.alpha_to_coverage_enabled;
 
@@ -521,7 +560,7 @@ impl Program {
 
         let mut r = vec![];
 
-        log::debug!("program reorder: layout = {:#?}, imp = {:#?}", layout, imp);
+        // log::info!("program reorder: layout = {:#?}, imp = {:#?}", layout, imp);
 
         for (i, info) in imp.iter().enumerate() {
             let mut v = vec![];

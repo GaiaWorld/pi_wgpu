@@ -66,12 +66,10 @@ features = ["clone", "glsl-in", "glsl-out"]
 # DEV dependenciesw
 
 [dev-dependencies]
+log = "0.4"
 winit = "0.28"
 pollster = "0.3"
-log = "0.4"
 env_logger = "0.10"
-serde = { version = "1", features = ["serde_derive"] }
-serde_json = "1.0.85"
 
 [dev-dependencies.naga]
 version = "0.12"

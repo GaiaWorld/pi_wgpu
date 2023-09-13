@@ -124,10 +124,7 @@ impl Instance {
                     context,
                 })
             }
-            None => {
-                println!("============== err 2");
-                Err(InstanceError)
-            }
+            None => Err(InstanceError),
         }
     }
 

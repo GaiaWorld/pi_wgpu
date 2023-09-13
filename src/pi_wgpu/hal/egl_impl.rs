@@ -1082,6 +1082,10 @@ pub(super) fn choose_config(
         egl::WINDOW_BIT,
         egl::RENDERABLE_TYPE,
         egl::OPENGL_ES2_BIT,
+        egl::DEPTH_SIZE,
+        24,
+        egl::STENCIL_SIZE,
+        8,
     ]);
 
     // TODO 待定，看不到为什么 srgb就一定要有alpha通道
@@ -1104,6 +1108,3 @@ pub(super) fn choose_config(
         }
     }
 }
-
-const GL_UNMASKED_VENDOR_WEBGL: u32 = 0x9245;
-const GL_UNMASKED_RENDERER_WEBGL: u32 = 0x9246;
