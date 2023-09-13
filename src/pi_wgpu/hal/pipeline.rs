@@ -85,6 +85,7 @@ impl RenderPipelineImpl {
         device_features: &wgt::Features,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<Self, super::PipelineError> {
+        
         let topology = conv::map_primitive_topology(desc.primitive.topology);
         let alpha_to_coverage_enabled = desc.multisample.alpha_to_coverage_enabled;
 

@@ -120,6 +120,7 @@ impl GLCache {
         bs: super::BlendStateImpl,
     ) -> Share<super::BlendState> {
         profiling::scope!("hal::GLCache::get_or_insert_bs");
+
         // 尝试获取一个存在的Weak引用并升级
         if let Some(weak) = self.bs_map.get(&bs) {
             if let Some(strong) = weak.upgrade() {

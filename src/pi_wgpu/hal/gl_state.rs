@@ -932,6 +932,8 @@ impl GLStateImpl {
 
             if !Share::ptr_eq(&new.bs, &old.bs) {
                 Self::set_blend(gl, &new.bs.imp, &old.bs.imp);
+            } else {
+                log::info!("set bs same: new = {:#?}, old = {:#?}", new.bs, old.bs);
             }
         }
 
@@ -1726,8 +1728,6 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_blend(gl: &glow::Context, new: &super::BlendStateImpl) {
-        log::info!("============ hal::GLState apply_blend = {:#?}", new);
-        
         Self::apply_blend_enable(gl, new);
         Self::apply_blend_equation(gl, new);
         Self::apply_blend_factor(gl, new);

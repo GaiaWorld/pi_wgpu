@@ -30,15 +30,6 @@ impl Device {
     }
 
     #[inline]
-    pub(crate) fn create_texture_view(
-        &self,
-        texture: &super::Texture,
-        desc: &super::super::TextureViewDescriptor,
-    ) -> Result<super::TextureView, super::super::DeviceError> {
-        super::TextureView::new(texture, desc)
-    }
-
-    #[inline]
     pub(crate) fn create_sampler(
         &self,
         desc: &super::super::SamplerDescriptor,
@@ -75,6 +66,7 @@ impl Device {
         &self,
         desc: &super::super::BindGroupDescriptor,
     ) -> Result<super::BindGroup, super::super::DeviceError> {
+        log::info!("=========== + device.create_bind_group");
         super::BindGroup::new(desc)
     }
 
@@ -83,6 +75,7 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
+        log::info!("=========== + device.create_shader_module");
         super::ShaderModule::new(self.state.clone(), &self.adapter, desc)
     }
 
@@ -91,6 +84,7 @@ impl Device {
         &self,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
+        log::info!("=========== + device.create_pipeline");
         let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, &self.features, desc)?;
         Ok(super::RenderPipeline(Share::new(imp)))
     }
