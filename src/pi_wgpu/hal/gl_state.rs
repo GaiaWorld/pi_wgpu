@@ -936,8 +936,6 @@ impl GLStateImpl {
 
             if !Share::ptr_eq(&new.bs, &old.bs) {
                 Self::set_blend(gl, &new.bs.imp, &old.bs.imp);
-            } else {
-                log::info!("set bs same: new = {:#?}, old = {:#?}", new.bs, old.bs);
             }
         }
 
@@ -1349,43 +1347,24 @@ impl GLStateImpl {
                 let us = &mut us[index];
 
                 bg.iter().for_each(|entry| {
-                    let pos = us.iter().position(|u| u.glsl_name == entry.glsl_name);
-
-                    if let Some(pos) = pos {
-                        let u = &us[pos];
-                        assert!(u.glow_binding == entry.glow_binding);
-                        if u.ty == crate::pi_wgpu::hal::PiBindingType::Buffer {
-                            assert!(entry.ty == crate::pi_wgpu::hal::PiBindingType::Buffer);
-
-                            assert!(u.binding == entry.binding);
-                        } else {
-                            // 必然是 一个 Texture 和 一个 Sampler
-                            assert!(entry.ty != crate::pi_wgpu::hal::PiBindingType::Buffer);
-
-                            assert!(u.ty != entry.ty);
-                            assert!(u.binding != entry.binding);
-                        }
-                        return;
-                    }
-
                     if us.iter().all(|v| v.binding != entry.binding) {
                         us.push(entry.clone());
                     }
 
                     match entry.ty {
-                        crate::pi_wgpu::hal::PiBindingType::Buffer => unsafe {
+                        super::PiBindingType::Buffer => unsafe {
                             let loc = gl
                                 .get_uniform_block_index(raw, entry.glsl_name.as_ref())
                                 .unwrap();
 
                             gl.uniform_block_binding(raw, loc, entry.glow_binding as u32);
                         },
-                        crate::pi_wgpu::hal::PiBindingType::Sampler => unsafe {
+                        super::PiBindingType::Sampler => unsafe {
                             let loc = gl.get_uniform_location(raw, entry.glsl_name.as_ref());
 
                             gl.uniform_1_i32(loc.as_ref(), entry.glow_binding as i32);
                         },
-                        crate::pi_wgpu::hal::PiBindingType::Texture => {}
+                        super::PiBindingType::Texture => {}
                     }
                 });
             });
@@ -1595,9 +1574,7 @@ impl GLStateImpl {
                         assert!(binding.ty == PiBindingType::Texture);
                         let imp = view.inner.as_ref();
                         match &imp.inner {
-                            hal::TextureInner::Texture {
-                                state, raw, target, ..
-                            } => {
+                            hal::TextureInner::Texture { raw, target, .. } => {
                                 // TODO 加 比较
                                 gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
                                 gl.bind_texture(*target, Some(*raw));

@@ -66,7 +66,7 @@ impl Device {
         &self,
         desc: &super::super::BindGroupDescriptor,
     ) -> Result<super::BindGroup, super::super::DeviceError> {
-        log::info!("=========== + device.create_bind_group");
+        log::trace!("=========== + device.create_bind_group");
         super::BindGroup::new(desc)
     }
 
