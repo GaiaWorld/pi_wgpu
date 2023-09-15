@@ -228,20 +228,14 @@ impl Adapter {
     /// `None` means presentation is not supported for it.
     pub(crate) fn surface_capabilities(
         &self,
-        surface: &super::Surface,
+        _surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
         let mut formats = vec![
             wgt::TextureFormat::Rgba8Unorm,
             #[cfg(not(target_arch = "wasm32"))]
             wgt::TextureFormat::Bgra8Unorm,
         ];
-        if surface.supports_srgb() {
-            formats.extend([
-                wgt::TextureFormat::Rgba8UnormSrgb,
-                #[cfg(not(target_arch = "wasm32"))]
-                wgt::TextureFormat::Bgra8UnormSrgb,
-            ])
-        }
+
         if self
             .context
             .private_caps()
@@ -252,8 +246,8 @@ impl Adapter {
 
         Some(super::SurfaceCapabilities {
             formats,
-            present_modes: vec![wgt::PresentMode::Fifo], //TODO
-            composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
+            present_modes: vec![wgt::PresentMode::Fifo],
+            composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque],
             swap_chain_sizes: 2..=2,
             current_extent: None,
             extents: wgt::Extent3d {

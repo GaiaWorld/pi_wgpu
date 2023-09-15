@@ -1,12 +1,13 @@
 use std::thread;
 
+use glow::HasContext;
 use parking_lot::Mutex;
 use pi_share::Share;
 use thiserror::Error;
 
 use super::{
     super::{wgt, DeviceError, MissingDownlevelFlags},
-    gl_conv as conv, AdapterContext, SrgbFrameBufferKind,
+    AdapterContext, GLState, SrgbFrameBufferKind,
 };
 
 #[derive(Debug, Clone)]
@@ -26,37 +27,28 @@ impl Surface {
     }
 
     #[inline]
-    pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
+    pub(crate) fn present(&self) -> Result<(), egl::Error> {
         log::trace!(
-            "========== Surface::swap_buffers lock, thread_id = {:?}",
-            thread::current().id()
-        );
-
-        let r = { self.imp.as_ref().lock().adapter.swap_buffers() };
-
-        log::trace!(
-            "========== Surface::swap_buffers unlock, thread_id = {:?}",
-            thread::current().id()
-        );
-
-        r
-    }
-
-    #[inline]
-    pub(crate) fn update_swapchain(&self) {
-        log::trace!(
-            "========== Surface::update_swapchain lock, thread_id = {:?}",
+            "========== Surface::present lock, thread_id = {:?}",
             thread::current().id()
         );
 
         {
-            self.imp.as_ref().lock().update_swapchain();
+            let mut imp = self.imp.as_ref().lock();
+
+            let is_ready = unsafe { imp.flip_surface() };
+            if is_ready {
+                let r = imp.adapter.swap_buffers();
+                imp.update_current_texture();
+            }
         }
 
         log::trace!(
-            "========== Surface::update_swapchain unlock, thread_id = {:?}",
+            "========== Surface::present unlock, thread_id = {:?}",
             thread::current().id()
         );
+
+        Ok(())
     }
 
     #[inline]
@@ -69,6 +61,16 @@ impl Surface {
             "========== Surface::configure lock, thread_id = {:?}",
             thread::current().id()
         );
+
+        if config.width == 0 || config.height == 0 {
+            log::warn!(
+                "hal::Surface::configure() has 0 dimensions, size = ({}, {})",
+                config.width,
+                config.height
+            );
+
+            return Ok(());
+        }
 
         let r = { self.imp.as_ref().lock().configure(device, config) };
 
@@ -96,35 +98,25 @@ impl Surface {
 
         r
     }
-
-    #[inline]
-    pub(crate) fn supports_srgb(&self) -> bool {
-        log::trace!(
-            "========== Surface::supports_srgb lock, thread_id = {:?}",
-            thread::current().id()
-        );
-
-        let r = { self.imp.as_ref().lock().supports_srgb() };
-
-        log::trace!(
-            "========== Surface::supports_srgb unlock, thread_id = {:?}",
-            thread::current().id()
-        );
-
-        r
-    }
 }
 
 #[derive(Debug)]
 struct SurfaceImpl {
     raw: egl::Surface,
+    gl_fbo: glow::Framebuffer,
+
+    state: Option<GLState>,
     adapter: AdapterContext,
 
-    // 永远握住这个
-    swapchain_impl: super::TextureImpl,
+    // 用于 Screen Coordinate: Flip-Y
+    // configure 时候会 创建 / 销毁
+    texture_size: (i32, i32),
+    texture: Option<super::Texture>,
 
-    // 当 present 之后，这里就会有新的值，供acquire_texture取
-    swapchain: Option<super::Texture>,
+    // 初始化 有值
+    // 每次 acquire_texture 就为 None
+    // present 后 会重新 有值
+    current_texture: Option<super::Texture>,
 }
 
 impl Drop for SurfaceImpl {
@@ -214,16 +206,39 @@ impl SurfaceImpl {
             }
         };
 
-        let mut r = Self {
-            raw,
-            adapter,
-            swapchain_impl: Self::default_swapchain(),
-            swapchain: None,
+        let gl_fbo = unsafe {
+            let gl = adapter.lock();
+            gl.create_framebuffer().unwrap()
         };
 
-        r.update_swapchain();
+        Ok(Self {
+            raw,
+            state: None,
+            adapter,
 
-        Ok(r)
+            gl_fbo,
+
+            texture_size: (0, 0),
+            texture: None,
+
+            current_texture: None,
+        })
+    }
+
+    unsafe fn flip_surface(&self) -> bool {
+        if self.state.is_none() {
+            return false;
+        }
+
+        let gl = self.adapter.lock();
+        self.state.as_ref().unwrap().flip_surface(
+            &gl,
+            self.gl_fbo,
+            self.texture_size.0,
+            self.texture_size.1,
+        );
+
+        true
     }
 
     fn configure(
@@ -231,70 +246,111 @@ impl SurfaceImpl {
         device: &super::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
+        // TODO 处理 wgt::TextureFormat::Bgra8UnormSrgb
+        let format = match config.format {
+            wgt::TextureFormat::Rgba8Unorm => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8Unorm => wgt::TextureFormat::Bgra8Unorm,
+            wgt::TextureFormat::Rgba8UnormSrgb => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8UnormSrgb => wgt::TextureFormat::Bgra8Unorm,
+            _ => unreachable!(),
+        };
+
+        self.state = Some(device.state.clone());
         device.adapter.set_surface(Some(self.raw));
 
-        let sc = &mut self.swapchain_impl;
-        sc.format = config.format;
-        sc.format_desc = conv::describe_texture_format(config.format);
+        let need_update_texture = match self.texture.as_ref() {
+            None => true,
+            Some(sc) => {
+                let size = sc.0.as_ref().copy_size;
 
-        let size = &mut sc.copy_size;
-        size.width = config.width;
-        size.height = config.height;
+                size.width != config.width || size.height != config.height
+            }
+        };
 
-        log::trace!(
-            "======== hal::Surface configure, w = {}, h = {}",
-            config.width,
-            config.height
-        );
+        if need_update_texture {
+            log::info!("============ hal::Surface::configure() create_surface_texture, w = {}, h={}, format = {:?}", config.width, config.height, format);
+
+            self.acquire_texture();
+
+            let texture =
+                Self::create_surface_texture(device, config.width, config.height, format)?;
+
+            let rb_raw = match &texture.0.as_ref().inner {
+                super::TextureInner::Renderbuffer { raw, .. } => *raw,
+                _ => {
+                    log::error!(
+                        "texture inner is not RenderBuffer, inner = {:#?}",
+                        &texture.0.as_ref().inner
+                    );
+                    unreachable!()
+                }
+            };
+
+            self.texture = Some(texture);
+            self.texture_size = (config.width as i32, config.height as i32);
+
+            // 绑定 fbo 和 texture
+            unsafe {
+                let gl = device.adapter.lock();
+
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(self.gl_fbo));
+
+                gl.framebuffer_renderbuffer(
+                    glow::DRAW_FRAMEBUFFER,
+                    glow::COLOR_ATTACHMENT0,
+                    glow::RENDERBUFFER,
+                    Some(rb_raw),
+                );
+
+                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            }
+
+            self.update_current_texture();
+        }
 
         Ok(())
     }
 
     #[inline]
+    fn update_current_texture(&mut self) {
+        assert!(self.current_texture.is_none());
+
+        self.current_texture = Some(self.texture.as_ref().unwrap().clone());
+    }
+
+    #[inline]
     fn acquire_texture(&mut self) -> Option<super::Texture> {
-        let r = self.swapchain.take();
+        let r = self.current_texture.take();
 
         log::trace!("======== hal::Surface acquire_texture = {:#?}", r);
 
         r
     }
-}
 
-impl SurfaceImpl {
-    #[inline]
-    fn update_swapchain(&mut self) {
-        if self.swapchain.is_none() {
-            let imp = self.swapchain_impl.clone();
-            self.swapchain = Some(super::Texture(Share::new(imp)));
-        }
-    }
-
-    #[inline]
-    fn default_swapchain() -> super::TextureImpl {
-        let format = wgt::TextureFormat::Rgba8Unorm;
-        let format_desc = conv::describe_texture_format(format);
-
-        super::TextureImpl {
-            inner: super::TextureInner::DefaultRenderbuffer,
-            array_layer_count: 1,
-            mip_level_count: 1,
-            format,
-            format_desc,
-            copy_size: super::CopyExtent {
-                width: 1,
-                height: 1,
-                depth: 1,
+    fn create_surface_texture(
+        device: &super::Device,
+        width: u32,
+        height: u32,
+        format: wgt::TextureFormat,
+    ) -> Result<super::Texture, super::SurfaceError> {
+        let desc = super::super::TextureDescriptor {
+            label: None,
+            size: super::super::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
             },
-            is_cubemap: false,
-        }
-    }
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgt::TextureDimension::D2,
+            format,
+            usage: wgt::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        };
 
-    #[inline]
-    fn supports_srgb(&self) -> bool {
-        match self.adapter.egl_srgb_support() {
-            SrgbFrameBufferKind::None => false,
-            _ => true,
-        }
+        device
+            .create_texture(&desc)
+            .map_err(|e| super::SurfaceError::Other("create_texture error!"))
     }
 }
 

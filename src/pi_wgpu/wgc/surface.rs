@@ -1,5 +1,3 @@
-use crate::pi_wgpu::hal::AdapterContext;
-
 use super::super::{hal, wgt, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
 
 /// Handle to a presentable surface.
@@ -33,28 +31,6 @@ impl Surface {
         }
     }
 
-    /// Return a default `SurfaceConfiguration` from width and height to use for the [`Surface`] with this adapter.
-    ///
-    /// Returns None if the surface isn't supported by this adapter
-    pub fn get_default_config(
-        &self,
-        adapter: &Adapter,
-        width: u32,
-        height: u32,
-    ) -> Option<SurfaceConfiguration> {
-        let caps = self.get_capabilities(adapter);
-
-        Some(SurfaceConfiguration {
-            usage: wgt::TextureUsages::RENDER_ATTACHMENT,
-            format: *caps.formats.get(0)?,
-            width,
-            height,
-            present_mode: *caps.present_modes.get(0)?,
-            alpha_mode: wgt::CompositeAlphaMode::Auto,
-            view_formats: vec![],
-        })
-    }
-
     /// Initializes [`Surface`] for presentation.
     ///
     /// # Panics
@@ -63,6 +39,10 @@ impl Surface {
     /// - Texture format requested is unsupported on the surface.
     #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
+        // assert!(config.present_mode == wgt::PresentMode::Fifo);
+
+        // assert!(config.alpha_mode == wgt::CompositeAlphaMode::Opaque);
+
         self.inner.configure(&device.inner, config).unwrap();
     }
 
@@ -112,10 +92,8 @@ impl SurfaceTexture {
     ///
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
-        self.surface.swap_buffers().unwrap();
+        self.surface.present().unwrap();
 
-        self.surface.update_swapchain();
-        
         log::trace!("==================== SurfaceTexture present");
     }
 }

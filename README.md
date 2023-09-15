@@ -155,12 +155,12 @@ pass.set_vertex_buffer(vb2)
 
 ## 2.4. `Surface`
 
-| 函数                  | 支持 | 说明 |
-| --------------------- | ---- | ---- |
-| `get_capabilities`    | ✔    |      |
-| `get_default_config`  | ✔    |      |
-| `configure`           | ✔    |      |
-| `get_current_texture` | ✔    |      |
+| 函数                  | 支持 | 说明                                                        |
+| --------------------- | ---- | ----------------------------------------------------------- |
+| `configure`           | ✔    | `present_mode`: 必须是`Fifo`; `alpha_mode`: 必须是 `Opaque` |
+| `get_current_texture` | ✔    |                                                             |
+| get_default_config    | ×    |                                                             |
+| get_capabilities      | ×    |                                                             |
 
 ## 2.5. `SurfaceTexture`
 

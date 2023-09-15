@@ -1,10 +1,8 @@
 use super::super::wgt;
 
-pub(crate) const MAX_TEXTURE_SLOTS: usize = 16;
 pub(crate) const MAX_SAMPLERS: usize = 16;
+pub(crate) const MAX_TEXTURE_SLOTS: usize = 16;
 pub(crate) const MAX_VERTEX_ATTRIBUTES: usize = 16;
-pub(crate) const ZERO_BUFFER_SIZE: usize = 256 << 10;
-pub(crate) const MAX_PUSH_CONSTANTS: usize = 64;
 
 pub(crate) type BindTarget = u32;
 

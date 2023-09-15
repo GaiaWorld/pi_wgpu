@@ -8,7 +8,7 @@ use super::{AdapterContext, GLState, TextureFormatDesc};
 
 pub(crate) type TextureID = u64;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Texture(pub(crate) Share<TextureImpl>);
 
 impl Texture {
@@ -412,8 +412,6 @@ pub(crate) struct TextureImpl {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TextureInner {
-    DefaultRenderbuffer,
-
     Renderbuffer {
         state: GLState,
         adapter: AdapterContext,
@@ -457,7 +455,6 @@ impl Drop for TextureInner {
                 }
                 state.remove_texture(&gl, *raw);
             }
-            &TextureInner::DefaultRenderbuffer => {}
         }
     }
 }

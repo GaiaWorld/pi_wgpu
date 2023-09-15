@@ -205,7 +205,7 @@ impl GLCache {
 
                 gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fbo));
 
-                match render_target.colors.as_ref().unwrap() {
+                match &render_target.colors {
                     hal::GLTextureInfo::Renderbuffer(raw) => {
                         gl.framebuffer_renderbuffer(
                             glow::DRAW_FRAMEBUFFER,
@@ -324,7 +324,7 @@ impl GLCache {
         let set = self
             .fbo_map
             .drain_filter(|k, _fbo| {
-                if let Some(super::GLTextureInfo::Renderbuffer(b)) = k.colors.as_ref() {
+                if let super::GLTextureInfo::Renderbuffer(b) = &k.colors {
                     if *b == rb {
                         return true;
                     }
@@ -354,7 +354,7 @@ impl GLCache {
         let set = self
             .fbo_map
             .drain_filter(|k, _| {
-                if let Some(super::GLTextureInfo::Texture(t)) = k.colors.as_ref() {
+                if let super::GLTextureInfo::Texture(t) = &k.colors {
                     if *t == texture {
                         return true;
                     }

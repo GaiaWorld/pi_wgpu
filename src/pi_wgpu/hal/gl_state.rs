@@ -13,15 +13,23 @@ use naga::{
 use parking_lot::Mutex;
 use pi_share::Share;
 
+use crate::ColorWrites;
+
 use super::{
     super::{hal, wgt, BufferSize},
     gl_cache::GLCache,
     gl_conv as conv, PiBindingType, RawBinding, ShaderID, VertexAttribKind,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct GLState {
     imp: Share<Mutex<GLStateImpl>>,
+}
+
+impl std::fmt::Debug for GLState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GLState").finish()
+    }
 }
 
 impl GLState {
@@ -566,6 +574,33 @@ impl GLState {
     }
 
     #[inline]
+    pub(crate) fn flip_surface(
+        &self,
+        gl: &glow::Context,
+        fbo: glow::Framebuffer,
+        width: i32,
+        height: i32,
+    ) {
+        profiling::scope!("hal::GLState::flip_surface");
+
+        log::trace!(
+            "========== GLState::flip_surface lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.flip_surface(gl, fbo, width, height);
+        }
+
+        log::trace!(
+            "========== GLState::flip_surface unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+    }
+
+    #[inline]
     pub(crate) fn set_index_buffer(
         &self,
         gl: &glow::Context,
@@ -952,8 +987,6 @@ impl GLStateImpl {
         // TODO 不支持 多重采样
         assert!(color.resolve_target.is_none());
 
-        let colors = GLTextureInfo::try_from(color.view).ok();
-
         let (depth_stencil, depth_ops, stencil_ops) = match &desc.depth_stencil_attachment {
             None => (None, None, None),
             Some(ds) => (
@@ -963,17 +996,14 @@ impl GLStateImpl {
             ),
         };
 
-        if colors.is_none() {
-            unsafe {
-                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-            }
-        } else {
-            let render_target = super::RenderTarget {
-                depth_stencil,
-                colors,
-            };
-            self.cache.bind_fbo(gl, &render_target);
-        }
+        let colors: GLTextureInfo = color.view.into();
+
+        let render_target = super::RenderTarget {
+            depth_stencil,
+            colors,
+        };
+
+        self.cache.bind_fbo(gl, &render_target);
 
         // 视口 & 裁剪
         let size = color.view.get_size();
@@ -1161,14 +1191,14 @@ impl GLStateImpl {
     }
 
     #[inline]
-    fn set_depth_range(&mut self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
+    fn set_depth_range(&mut self, gl: &glow::Context, n: f32, f: f32) {
         let vp = &mut self.viewport;
 
-        if min_depth != vp.min_depth || max_depth != vp.max_depth {
-            unsafe { gl.depth_range_f32(min_depth, max_depth) };
+        if n != vp.min_depth || f != vp.max_depth {
+            unsafe { gl.depth_range_f32(n, f) };
 
-            vp.min_depth = min_depth;
-            vp.max_depth = max_depth;
+            vp.min_depth = n;
+            vp.max_depth = f;
         }
     }
 
@@ -1650,6 +1680,56 @@ impl GLStateImpl {
         }
     }
 
+    fn flip_surface(
+        &mut self,
+        gl: &glow::Context,
+        fbo: glow::Framebuffer,
+        width: i32,
+        height: i32,
+    ) {
+        unsafe {
+            let temp_cw = ColorWrites::ALL;
+            Self::apply_color_mask(gl, &temp_cw);
+
+            gl.disable(glow::SCISSOR_TEST);
+
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(fbo));
+
+            // Note the Y-flipping here. GL's presentation is not flipped,
+            // but main rendering is. Therefore, we Y-flip the output positions
+            // in the shader, and also this blit.
+            gl.blit_framebuffer(
+                0,
+                height,
+                width,
+                0,
+                0,
+                0,
+                width,
+                height,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            );
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+
+            // 恢复 原状
+            if self.scissor.is_enable {
+                gl.enable(glow::SCISSOR_TEST);
+            }
+
+            match self.render_pipeline.as_ref() {
+                Some(rp) => {
+                    let cw = &rp.0.as_ref().color_writes;
+                    if *cw != temp_cw {
+                        Self::apply_color_mask(gl, cw);
+                    }
+                }
+                None => {}
+            };
+        }
+    }
+
     #[inline]
     fn apply_ib(gl: &glow::Context, ib: Option<glow::Buffer>) {
         unsafe {
@@ -2071,10 +2151,10 @@ pub(crate) struct AttributeInfo {
     pub(crate) attrib_kind: VertexAttribKind,
 }
 
-#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct RenderTarget {
     pub(crate) depth_stencil: Option<GLTextureInfo>,
-    pub(crate) colors: Option<GLTextureInfo>,
+    pub(crate) colors: GLTextureInfo,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -2084,14 +2164,12 @@ pub(crate) enum GLTextureInfo {
     Texture(glow::Texture),
 }
 
-impl TryFrom<&super::super::TextureView> for GLTextureInfo {
-    type Error = ();
-
-    fn try_from(value: &super::super::TextureView) -> Result<Self, Self::Error> {
+impl From<&super::super::TextureView> for GLTextureInfo {
+    fn from(value: &super::super::TextureView) -> Self {
         match &value.inner.inner.inner {
-            super::TextureInner::DefaultRenderbuffer => Err(()),
-            super::TextureInner::Renderbuffer { raw, .. } => Ok(GLTextureInfo::Renderbuffer(*raw)),
-            super::TextureInner::Texture { raw, .. } => Ok(GLTextureInfo::Texture(*raw)),
+            super::TextureInner::Renderbuffer { raw, .. } => GLTextureInfo::Renderbuffer(*raw),
+
+            super::TextureInner::Texture { raw, .. } => GLTextureInfo::Texture(*raw),
         }
     }
 }

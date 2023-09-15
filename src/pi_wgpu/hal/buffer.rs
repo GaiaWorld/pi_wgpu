@@ -1,9 +1,7 @@
 use glow::HasContext;
 use pi_share::Share;
 
-use super::super::BufferUsages;
-
-use super::{AdapterContext, BindTarget, GLState};
+use super::{super::BufferUsages, AdapterContext, BindTarget, GLState};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Buffer(pub(crate) Share<BufferImpl>);

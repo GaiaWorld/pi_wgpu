@@ -311,10 +311,16 @@ struct AdapterContextImpl {
 unsafe impl Sync for AdapterContextImpl {}
 unsafe impl Send for AdapterContextImpl {}
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct AdapterContext {
     imp: Share<AdapterContextImpl>,
     surface: Share<ShareCell<Option<egl::Surface>>>,
+}
+
+impl std::fmt::Debug for AdapterContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdapterContext").finish()
+    }
 }
 
 unsafe impl Sync for AdapterContext {}
@@ -741,20 +747,14 @@ impl AdapterContext {
     #[inline]
     pub(crate) fn surface_capabilities(
         &self,
-        surface: &super::Surface,
+        _surface: &super::Surface,
     ) -> Option<super::SurfaceCapabilities> {
         let mut formats = vec![
             wgt::TextureFormat::Rgba8Unorm,
             #[cfg(not(target_arch = "wasm32"))]
             wgt::TextureFormat::Bgra8Unorm,
         ];
-        if surface.supports_srgb() {
-            formats.extend([
-                wgt::TextureFormat::Rgba8UnormSrgb,
-                #[cfg(not(target_arch = "wasm32"))]
-                wgt::TextureFormat::Bgra8UnormSrgb,
-            ])
-        }
+
         if self
             .imp
             .private_caps

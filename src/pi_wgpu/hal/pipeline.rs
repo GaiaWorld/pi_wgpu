@@ -24,6 +24,9 @@ impl PipelineLayout {
         adapter: &AdapterContext,
         desc: &super::super::PipelineLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
+        // ADJUST_COORDINATE_SPACE 在 GLSL 的搞法
+        // VS 反转 y-值, gl_Position.y = -gl_Position.y;
+        // VS 将 z-值 从 [0, 1] 变成 [-1, 1], gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
         let mut writer_flags = glsl::WriterFlags::ADJUST_COORDINATE_SPACE;
         writer_flags.set(
             glsl::WriterFlags::TEXTURE_SHADOW_LOD,
@@ -273,9 +276,12 @@ impl RenderPipelineImpl {
             None => (false, glow::BACK),
         };
 
+        // Note: we are flipping the front face, so that
+        // the Y-flip in the generated GLSL keeps the same visibility.
+        // See `naga::back::glsl::WriterFlags::ADJUST_COORDINATE_SPACE`.
         let front_face = match desc.front_face {
-            super::super::FrontFace::Ccw => glow::CCW,
-            super::super::FrontFace::Cw => glow::CW,
+            super::super::FrontFace::Ccw => glow::CW,
+            super::super::FrontFace::Cw => glow::CCW,
         };
 
         state.get_or_insert_rs(super::RasterStateImpl {
