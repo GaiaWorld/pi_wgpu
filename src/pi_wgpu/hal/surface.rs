@@ -36,9 +36,9 @@ impl Surface {
         {
             let mut imp = self.imp.as_ref().lock();
 
-            let is_ready = unsafe { imp.flip_surface() };
-            if is_ready {
-                let r = imp.adapter.swap_buffers();
+            if unsafe { imp.flip_surface() } {
+                imp.adapter.swap_buffers().unwrap();
+
                 imp.update_current_texture();
             }
         }
