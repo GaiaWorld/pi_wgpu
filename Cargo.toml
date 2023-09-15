@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in gl3.3 / gles3.0 / webgl2"
