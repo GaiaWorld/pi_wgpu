@@ -10,7 +10,7 @@ use glow::HasContext;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use pi_share::{Share, ShareCell};
 
-use super::{db, InstanceError, PrivateCapabilities, SrgbFrameBufferKind};
+use super::{db, InstanceError, PrivateCapabilities};
 use crate::{pi_wgpu::wgt, AdapterInfo};
 
 /// The amount of time to wait while trying to obtain a lock to the adapter context
@@ -94,8 +94,6 @@ pub(crate) struct EglContext {
     pub(crate) raw: egl::Context, // gl-上下文，用来 运行 gl-函数
     pub(crate) config: egl::Config,
     pub(crate) display: egl::Display,
-    pub(crate) version: (i32, i32), // EGL 版本, (1, 5) 或者 (1, 4)
-    pub(crate) srgb_kind: SrgbFrameBufferKind,
 }
 
 unsafe impl Send for EglContext {}
@@ -136,20 +134,7 @@ impl EglContext {
             display_extensions.split_whitespace().collect::<Vec<_>>()
         );
 
-        // ========== 4. 查询 表面的 Srgb 支持情况
-
-        let srgb_kind = if version >= (1, 5) {
-            log::info!("\tEGL surface: support srgb core");
-            SrgbFrameBufferKind::Core
-        } else if display_extensions.contains("EGL_KHR_gl_colorspace") {
-            log::info!("\tEGL surface: support srgb khr extension");
-            SrgbFrameBufferKind::Khr
-        } else {
-            log::warn!("\tEGL surface: no srgb support !!!");
-            SrgbFrameBufferKind::None
-        };
-
-        // ========== 5. 如果 log 过滤等级是 Debug 或者 Trace，就会打印
+        // ========== 4. 如果 log 过滤等级是 Debug 或者 Trace，就会打印
 
         if log::max_level() >= log::LevelFilter::Debug {
             log::debug!("EGL All Configurations:");
@@ -188,7 +173,7 @@ impl EglContext {
 
         // ========== 6. 根据平台，选择 config
 
-        let config = choose_config(&egl, display, srgb_kind)?;
+        let config = choose_config(&egl, display)?;
 
         egl.bind_api(egl::OPENGL_ES_API).unwrap();
 
@@ -238,8 +223,6 @@ impl EglContext {
             instance: egl,
             display,
             raw,
-            version,
-            srgb_kind,
         })
     }
 
@@ -695,17 +678,6 @@ impl AdapterContext {
         &self.egl_ref().display
     }
 
-    // EGL 版本, (1, 5) 或者 (1, 4)
-    #[inline]
-    pub(crate) fn egl_version(&self) -> (i32, i32) {
-        self.egl_ref().version
-    }
-
-    #[inline]
-    pub(crate) fn egl_srgb_support(&self) -> SrgbFrameBufferKind {
-        self.egl_ref().srgb_kind
-    }
-
     #[inline]
     pub(crate) fn private_caps(&self) -> PrivateCapabilities {
         self.imp.private_caps
@@ -800,6 +772,7 @@ impl AdapterContext {
             let surface = self.surface.as_ref().borrow().as_ref().map(|s| *s);
             self.imp.egl.make_current(surface);
         }
+
         self.imp.reentrant_count.fetch_add(1, Ordering::SeqCst);
 
         let egl = EglContextLock {
@@ -1073,7 +1046,6 @@ pub(crate) unsafe extern "system" fn egl_debug_proc(
 pub(super) fn choose_config(
     egl: &EglInstance,
     display: egl::Display,
-    #[allow(unused)] srgb_kind: SrgbFrameBufferKind,
 ) -> Result<egl::Config, InstanceError> {
     let mut attributes = Vec::with_capacity(20);
 
@@ -1082,17 +1054,13 @@ pub(super) fn choose_config(
         egl::WINDOW_BIT,
         egl::RENDERABLE_TYPE,
         egl::OPENGL_ES2_BIT,
+        egl::ALPHA_SIZE,
+        8,
         egl::DEPTH_SIZE,
         24,
         egl::STENCIL_SIZE,
         8,
     ]);
-
-    // TODO 待定，看不到为什么 srgb就一定要有alpha通道
-    if srgb_kind != SrgbFrameBufferKind::None {
-        attributes.push(egl::ALPHA_SIZE);
-        attributes.push(8);
-    }
 
     attributes.push(egl::NONE);
 

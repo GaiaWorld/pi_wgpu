@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use super::{
     super::{wgt, DeviceError, MissingDownlevelFlags},
-    AdapterContext, GLState, SrgbFrameBufferKind,
+    AdapterContext, GLState,
 };
 
 #[derive(Debug, Clone)]
@@ -165,23 +165,11 @@ impl SurfaceImpl {
             },
         ];
 
-        match adapter.egl_srgb_support() {
-            SrgbFrameBufferKind::None => {}
-            SrgbFrameBufferKind::Core => {
-                attributes.push(egl::GL_COLORSPACE);
-                attributes.push(egl::GL_COLORSPACE_SRGB);
-            }
-            SrgbFrameBufferKind::Khr => {
-                attributes.push(super::EGL_GL_COLORSPACE_KHR as i32);
-                attributes.push(super::EGL_GL_COLORSPACE_SRGB_KHR as i32);
-            }
-        }
         attributes.push(egl::ATTRIB_NONE as i32);
 
         log::trace!(
-            "============== create_window_surface attributes = {:?}, srgb = {:?}",
-            attributes,
-            adapter.egl_srgb_support()
+            "============== create_window_surface attributes = {:?}",
+            attributes
         );
 
         let raw = {
@@ -268,7 +256,7 @@ impl SurfaceImpl {
         };
 
         if need_update_texture {
-            log::info!("============ hal::Surface::configure() create_surface_texture, w = {}, h={}, format = {:?}", config.width, config.height, format);
+            log::info!("============ hal::Surface::configure() create_surface_texture, w = {}, h={}, format = {:?}, config.format = {:?}", config.width, config.height, format, config.format);
 
             self.acquire_texture();
 
@@ -301,6 +289,11 @@ impl SurfaceImpl {
                     glow::RENDERBUFFER,
                     Some(rb_raw),
                 );
+
+                let status = gl.check_framebuffer_status(glow::DRAW_FRAMEBUFFER);
+                if status != glow::FRAMEBUFFER_COMPLETE {
+                    panic!("surface bind_fbo error, reason = {}", status);
+                }
 
                 gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
             }

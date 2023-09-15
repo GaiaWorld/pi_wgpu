@@ -198,16 +198,6 @@ pub struct OpenDevice<A: Api> {
     pub queue: A::Queue,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SrgbFrameBufferKind {
-    /// No support for SRGB surface
-    None,
-    /// Using EGL 1.5's support for colorspaces
-    Core,
-    /// Using EGL_KHR_gl_colorspace
-    Khr,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub(crate) enum SurfaceError {
     #[error("surface is lost")]
