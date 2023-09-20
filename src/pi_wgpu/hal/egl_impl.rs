@@ -1056,10 +1056,10 @@ pub(super) fn choose_config(
         egl::OPENGL_ES2_BIT,
         egl::ALPHA_SIZE,
         8,
-        egl::DEPTH_SIZE,
-        24,
-        egl::STENCIL_SIZE,
-        8,
+        // egl::DEPTH_SIZE,
+        // 24,
+        // egl::STENCIL_SIZE,
+        // 8,
     ]);
 
     attributes.push(egl::NONE);

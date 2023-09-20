@@ -10,7 +10,10 @@ keywords = ["pi", "webgpu"]
 
 [features]
 default = ["gl"]
+# default = ["gl", "use_wgpu"]
+
 gl = ["naga/glsl-out"]
+use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
 pi_share = "0.4"
@@ -68,8 +71,10 @@ features = ["clone", "glsl-in", "glsl-out"]
 [dev-dependencies]
 log = "0.4"
 winit = "0.28"
+bytemuck = "1.14"
 pollster = "0.3"
 env_logger = "0.10"
+nalgebra = "0.32"
 
 [dev-dependencies.naga]
 version = "0.12"

@@ -1,4 +1,10 @@
+use pi_wgpu::{
+    Color, CommandEncoderDescriptor, DeviceDescriptor, Features, Instance, Limits, LoadOp,
+    Operations, PowerPreference, PresentMode, RenderPassColorAttachment, RenderPassDescriptor,
+    RequestAdapterOptions, SurfaceConfiguration, TextureUsages, TextureViewDescriptor,
+};
 use winit::{
+    dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
@@ -34,15 +40,20 @@ fn main() {
 }
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
+    window.set_inner_size(PhysicalSize {
+        width: 450,
+        height: 720,
+    });
+
     let size = window.inner_size();
 
-    let instance = pi_wgpu::Instance::default();
+    let instance = Instance::default();
 
     let surface = unsafe { instance.create_surface(&window) }.unwrap();
 
     let adapter = instance
-        .request_adapter(&pi_wgpu::RequestAdapterOptions {
-            power_preference: pi_wgpu::PowerPreference::default(),
+        .request_adapter(&RequestAdapterOptions {
+            power_preference: PowerPreference::default(),
             force_fallback_adapter: false,
             // Request an adapter which can render to our surface
             compatible_surface: None,
@@ -53,12 +64,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     // Create the logical device and command queue
     let (device, queue) = adapter
         .request_device(
-            &pi_wgpu::DeviceDescriptor {
+            &DeviceDescriptor {
                 label: None,
-                features: pi_wgpu::Features::empty(),
+                features: Features::empty(),
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                limits: pi_wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
             },
             None,
         )
@@ -68,17 +78,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
 
-    let mut config = pi_wgpu::SurfaceConfiguration {
-        usage: pi_wgpu::TextureUsages::RENDER_ATTACHMENT,
+    let mut config = SurfaceConfiguration {
+        usage: TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
         width: size.width,
         height: size.height,
-        present_mode: pi_wgpu::PresentMode::Fifo,
+        present_mode: PresentMode::Fifo,
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
     };
 
     surface.configure(&device, &config);
+
+    let mut color = 0.0;
+
+    let mut can_draw = false;
 
     event_loop.run(move |event, _, control_flow| {
         // Have the closure take ownership of the resources.
@@ -86,42 +100,59 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         // the resources are properly cleaned up.
         let _ = (&instance, &adapter);
 
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
+
         match event {
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
                 ..
             } => {
-                // Reconfigure the surface with the new size
-                config.width = size.width;
-                config.height = size.height;
-                surface.configure(&device, &config);
+                can_draw = size.width > 0 && size.height > 0;
 
-                // On macos the window needs to be redrawn manually after resizing
-                window.request_redraw();
+                if can_draw {
+                    // Reconfigure the surface with the new size
+                    config.width = size.width;
+                    config.height = size.height;
+                    surface.configure(&device, &config);
+
+                    // On macos the window needs to be redrawn manually after resizing
+                    window.request_redraw();
+                }
             }
             Event::MainEventsCleared => {
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
+                if !can_draw {
+                    return;
+                }
+
                 let frame = surface
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
 
-                let view = frame
-                    .texture
-                    .create_view(&pi_wgpu::TextureViewDescriptor::default());
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-                let mut encoder = device
-                    .create_command_encoder(&pi_wgpu::CommandEncoderDescriptor { label: None });
+                color += 0.01;
+                if color > 1.0 {
+                    color = 0.0;
+                }
+
+                let mut encoder =
+                    device.create_command_encoder(&CommandEncoderDescriptor { label: None });
                 {
-                    let _rpass = encoder.begin_render_pass(&pi_wgpu::RenderPassDescriptor {
+                    let _rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                         label: None,
-                        color_attachments: &[Some(pi_wgpu::RenderPassColorAttachment {
+                        color_attachments: &[Some(RenderPassColorAttachment {
                             view: &view,
                             resolve_target: None,
-                            ops: pi_wgpu::Operations {
-                                load: pi_wgpu::LoadOp::Clear(pi_wgpu::Color::GREEN),
+                            ops: Operations {
+                                load: LoadOp::Clear(Color {
+                                    r: color,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }),
                                 store: true,
                             },
                         })],

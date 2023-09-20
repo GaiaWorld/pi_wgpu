@@ -153,19 +153,22 @@ impl SurfaceImpl {
             }
         };
 
-        let mut attributes = vec![
+        let attributes = vec![
             egl::RENDER_BUFFER,
             // We don't want any of the buffering done by the driver, because we
             // manage a swapchain on our side.
             // Some drivers just fail on surface creation seeing `EGL_SINGLE_BUFFER`.
-            if cfg!(target_os = "android") || cfg!(windows) {
-                egl::BACK_BUFFER
-            } else {
-                egl::SINGLE_BUFFER
-            },
-        ];
+            // if cfg!(target_os = "android") || cfg!(windows) {
+                egl::BACK_BUFFER,
+            // } else {
+            //     egl::SINGLE_BUFFER
+            // },
+            // TODO 
+            egl::GL_COLORSPACE,
+            egl::GL_COLORSPACE_SRGB,
 
-        attributes.push(egl::ATTRIB_NONE as i32);
+            egl::ATTRIB_NONE as i32,
+        ];
 
         log::trace!(
             "============== create_window_surface attributes = {:?}",
@@ -281,21 +284,21 @@ impl SurfaceImpl {
             unsafe {
                 let gl = device.adapter.lock();
 
-                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(self.gl_fbo));
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.gl_fbo));
 
                 gl.framebuffer_renderbuffer(
-                    glow::DRAW_FRAMEBUFFER,
+                    glow::FRAMEBUFFER,
                     glow::COLOR_ATTACHMENT0,
                     glow::RENDERBUFFER,
                     Some(rb_raw),
                 );
 
-                let status = gl.check_framebuffer_status(glow::DRAW_FRAMEBUFFER);
+                let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                 if status != glow::FRAMEBUFFER_COMPLETE {
                     panic!("surface bind_fbo error, reason = {}", status);
                 }
 
-                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             }
 
             self.update_current_texture();

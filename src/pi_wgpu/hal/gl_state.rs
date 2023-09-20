@@ -1362,7 +1362,7 @@ impl GLStateImpl {
 
         let mut us: [Vec<super::PiBindEntry>; super::MAX_BIND_GROUPS] =
             [vec![], vec![], vec![], vec![]];
-        let mut max_set = 0;
+        let mut max_set: i32 = -1;
 
         vs_inner
             .bg_set_info
@@ -1370,8 +1370,8 @@ impl GLStateImpl {
             .enumerate()
             .chain(fs_inner.bg_set_info.iter().enumerate())
             .for_each(|(index, bg)| {
-                if max_set < index {
-                    max_set = index;
+                if max_set < index as i32 {
+                    max_set = index as i32;
                 }
 
                 let us = &mut us[index];
@@ -1400,6 +1400,9 @@ impl GLStateImpl {
             });
 
         max_set += 1;
+        let max_set = max_set as usize;
+        log::info!("================= max_set = {}", max_set);
+
         let mut uniforms: Vec<Box<[super::PiBindEntry]>> = Vec::with_capacity(max_set);
 
         for i in 0..max_set {
@@ -1417,7 +1420,7 @@ impl GLStateImpl {
         reflection_info: naga::back::glsl::ReflectionInfo,
     ) -> Result<Box<[Box<[super::PiBindEntry]>]>, super::ShaderError> {
         let mut r = [vec![], vec![], vec![], vec![]];
-        let mut max_set = 0;
+        let mut max_set: i32 = -1;
 
         // UBO
         for (handle, name) in reflection_info.uniforms {
@@ -1431,8 +1434,8 @@ impl GLStateImpl {
 
             let glow_binding = self.cache.update_ubo(pi_br);
 
-            if br.group > max_set {
-                max_set = br.group;
+            if br.group as i32 > max_set {
+                max_set = br.group as i32;
             }
             let set = &mut r[br.group as usize];
             set.push(super::PiBindEntry {
@@ -1458,8 +1461,8 @@ impl GLStateImpl {
             };
             let glow_binding = self.cache.update_sampler(pi_br);
 
-            if sampler_br.group > max_set {
-                max_set = sampler_br.group;
+            if sampler_br.group as i32 > max_set {
+                max_set = sampler_br.group as i32;
             }
             let set = &mut r[sampler_br.group as usize];
             set.push(super::PiBindEntry {
@@ -1472,8 +1475,8 @@ impl GLStateImpl {
 
             let tex_var = &module.global_variables[mapping.texture];
             let tex_br = tex_var.binding.as_ref().unwrap();
-            if tex_br.group > max_set {
-                max_set = tex_br.group;
+            if tex_br.group as i32 > max_set {
+                max_set = tex_br.group as i32;
             }
             let set = &mut r[tex_br.group as usize];
             set.push(super::PiBindEntry {
@@ -1485,7 +1488,8 @@ impl GLStateImpl {
             });
         }
 
-        let max_set = max_set as usize + 1;
+        let max_set = max_set + 1;
+        let max_set = max_set as usize;
         let mut us = Vec::with_capacity(max_set);
         for i in 0..max_set {
             let v: Vec<_> = r[i].drain(..).collect();
@@ -1680,20 +1684,118 @@ impl GLStateImpl {
         }
     }
 
-    fn flip_surface(
-        &mut self,
+    #[inline]
+    pub(crate) fn draw_with_flip(
+        &self,
         gl: &glow::Context,
-        fbo: glow::Framebuffer,
+        program: Option<glow::Program>,
+        vao: Option<glow::VertexArray>,
         width: i32,
         height: i32,
+        texture: Option<glow::Texture>,
+        sampler: Option<glow::Sampler>,
     ) {
         unsafe {
-            let temp_cw = ColorWrites::ALL;
-            Self::apply_color_mask(gl, &temp_cw);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
 
-            gl.disable(glow::SCISSOR_TEST);
+            if self.scissor.is_enable {
+                gl.disable(glow::SCISSOR_TEST);
+            }
 
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
+
+            let is_cull_enable = rp.rs.imp.is_cull_enable;
+            if is_cull_enable {
+                gl.disable(glow::CULL_FACE);
+            }
+
+            let is_blend_enable = rp.bs.imp.is_enable;
+            if is_blend_enable {
+                gl.disable(glow::BLEND);
+            }
+
+            gl.use_program(program);
+
+            let vp = &self.viewport;
+            let need_vp_dirty = vp.x != 0 || vp.y != 0 || vp.w != width || vp.h != height;
+
+            if need_vp_dirty {
+                gl.viewport(0, 0, width, height);
+            }
+
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, texture);
+
+            gl.bind_sampler(0, sampler);
+
+            gl.bind_vertex_array(vao);
+            gl.draw_arrays(glow::TRIANGLES, 0, 6);
+
+            gl.bind_vertex_array(None);
+
+            // TODO 还原 Texture / Sampler
+
+            if need_vp_dirty {
+                gl.viewport(vp.x, vp.y, vp.w, vp.h);
+            }
+
+            // TODO 还原 Program
+            gl.use_program(Some(rp.program.0.as_ref().raw));
+
+            if is_blend_enable {
+                gl.enable(glow::BLEND);
+            }
+
+            if is_cull_enable {
+                gl.enable(glow::CULL_FACE);
+            }
+
+            if self.scissor.is_enable {
+                gl.enable(glow::SCISSOR_TEST);
+            }
+        }
+    }
+
+    fn flip_surface(&self, gl: &glow::Context, fbo: glow::Framebuffer, width: i32, height: i32) {
+        unsafe {
+            if self.scissor.is_enable {
+                gl.disable(glow::SCISSOR_TEST);
+            }
+
+            let rp = self.render_pipeline.as_ref();
+
+            let is_cull_enable = rp.is_some() && rp.unwrap().0.rs.imp.is_cull_enable;
+            if is_cull_enable {
+                gl.disable(glow::CULL_FACE);
+            }
+
+            let is_blend_enable = rp.is_some() && rp.unwrap().0.bs.imp.is_enable;
+            if is_blend_enable {
+                gl.disable(glow::BLEND);
+            }
+
+            let is_bias_enable = if rp.is_some() {
+                let bias = &rp.unwrap().0.ds.imp.depth_bias;
+
+                bias.slope_scale != 0.0 || bias.constant != 0
+            } else {
+                false
+            };
+            if is_bias_enable {
+                gl.disable(glow::POLYGON_OFFSET_FILL);
+            }
+
+            let is_alpha_to_coverae = rp.is_some() && rp.unwrap().0.alpha_to_coverage_enabled;
+            if is_alpha_to_coverae {
+                gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
+            }
+
+            let is_cw_all = rp.is_none() || rp.unwrap().0.color_writes == ColorWrites::ALL;
+            if !is_cw_all {
+                Self::apply_color_mask(gl, &ColorWrites::ALL);
+            }
+
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(fbo));
 
             // Note the Y-flipping here. GL's presentation is not flipped,
@@ -1711,22 +1813,32 @@ impl GLStateImpl {
                 glow::COLOR_BUFFER_BIT,
                 glow::NEAREST,
             );
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
 
-            // 恢复 原状
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+
+            if is_cull_enable {
+                gl.enable(glow::CULL_FACE);
+            }
+
+            if is_blend_enable {
+                gl.enable(glow::BLEND);
+            }
+
+            if is_bias_enable {
+                gl.enable(glow::POLYGON_OFFSET_FILL);
+            }
+
+            if is_alpha_to_coverae {
+                gl.enable(glow::SAMPLE_ALPHA_TO_COVERAGE);
+            }
+
+            if !is_cw_all {
+                Self::apply_color_mask(gl, &rp.unwrap().0.color_writes);
+            }
+
             if self.scissor.is_enable {
                 gl.enable(glow::SCISSOR_TEST);
             }
-
-            match self.render_pipeline.as_ref() {
-                Some(rp) => {
-                    let cw = &rp.0.as_ref().color_writes;
-                    if *cw != temp_cw {
-                        Self::apply_color_mask(gl, cw);
-                    }
-                }
-                None => {}
-            };
         }
     }
 

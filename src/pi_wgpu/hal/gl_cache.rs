@@ -198,17 +198,17 @@ impl GLCache {
 
         match self.fbo_map.get(render_target) {
             Some(fbo) => unsafe {
-                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(*fbo));
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(*fbo));
             },
             None => unsafe {
                 let fbo = gl.create_framebuffer().unwrap();
 
-                gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(fbo));
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
 
                 match &render_target.colors {
                     hal::GLTextureInfo::Renderbuffer(raw) => {
                         gl.framebuffer_renderbuffer(
-                            glow::DRAW_FRAMEBUFFER,
+                            glow::FRAMEBUFFER,
                             glow::COLOR_ATTACHMENT0,
                             glow::RENDERBUFFER,
                             Some(*raw),
@@ -216,7 +216,7 @@ impl GLCache {
                     }
                     hal::GLTextureInfo::Texture(raw) => {
                         gl.framebuffer_texture_2d(
-                            glow::DRAW_FRAMEBUFFER,
+                            glow::FRAMEBUFFER,
                             glow::COLOR_ATTACHMENT0,
                             glow::TEXTURE_2D,
                             Some(*raw),
@@ -229,7 +229,7 @@ impl GLCache {
                     match depth_stencil {
                         hal::GLTextureInfo::Renderbuffer(raw) => {
                             gl.framebuffer_renderbuffer(
-                                glow::DRAW_FRAMEBUFFER,
+                                glow::FRAMEBUFFER,
                                 glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
                                 glow::RENDERBUFFER,
                                 Some(*raw),
@@ -237,7 +237,7 @@ impl GLCache {
                         }
                         hal::GLTextureInfo::Texture(raw) => {
                             gl.framebuffer_texture_2d(
-                                glow::DRAW_FRAMEBUFFER,
+                                glow::FRAMEBUFFER,
                                 glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
                                 glow::TEXTURE_2D,
                                 Some(*raw),
@@ -247,7 +247,7 @@ impl GLCache {
                     }
                 }
 
-                let status = gl.check_framebuffer_status(glow::DRAW_FRAMEBUFFER);
+                let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                 if status != glow::FRAMEBUFFER_COMPLETE {
                     panic!("bind_fbo error, reason = {}", status);
                 }
