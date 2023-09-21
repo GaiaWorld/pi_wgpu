@@ -574,6 +574,36 @@ impl GLState {
     }
 
     #[inline]
+    pub(crate) fn draw_with_flip(
+        &self,
+        gl: &glow::Context,
+        program: Option<glow::Program>,
+        vao: Option<glow::VertexArray>,
+        width: i32,
+        height: i32,
+        texture: Option<glow::Texture>,
+        sampler: Option<glow::Sampler>,
+    ) {
+        profiling::scope!("hal::GLState::draw_with_flip");
+
+        log::trace!(
+            "========== GLState::draw_with_flip lock, thread_id = {:?}",
+            thread::current().id()
+        );
+
+        {
+            let imp = &mut self.imp.lock();
+
+            imp.draw_with_flip(gl, program, vao, width, height, texture, sampler);
+        }
+
+        log::trace!(
+            "========== GLState::draw_with_flip unlock, thread_id = {:?}",
+            thread::current().id()
+        );
+    }
+
+    #[inline]
     pub(crate) fn flip_surface(
         &self,
         gl: &glow::Context,
@@ -1685,7 +1715,7 @@ impl GLStateImpl {
     }
 
     #[inline]
-    pub(crate) fn draw_with_flip(
+    fn draw_with_flip(
         &self,
         gl: &glow::Context,
         program: Option<glow::Program>,
@@ -1702,14 +1732,30 @@ impl GLStateImpl {
                 gl.disable(glow::SCISSOR_TEST);
             }
 
-            let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
-
-            let is_cull_enable = rp.rs.imp.is_cull_enable;
+            let is_cull_enable = self.render_pipeline.is_some()
+                && self
+                    .render_pipeline
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .as_ref()
+                    .rs
+                    .imp
+                    .is_cull_enable;
             if is_cull_enable {
                 gl.disable(glow::CULL_FACE);
             }
 
-            let is_blend_enable = rp.bs.imp.is_enable;
+            let is_blend_enable = self.render_pipeline.is_some()
+                && self
+                    .render_pipeline
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .as_ref()
+                    .bs
+                    .imp
+                    .is_enable;
             if is_blend_enable {
                 gl.disable(glow::BLEND);
             }
@@ -1740,7 +1786,19 @@ impl GLStateImpl {
             }
 
             // TODO 还原 Program
-            gl.use_program(Some(rp.program.0.as_ref().raw));
+            if self.render_pipeline.is_some() {
+                gl.use_program(Some(
+                    self.render_pipeline
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .as_ref()
+                        .program
+                        .0
+                        .as_ref()
+                        .raw,
+                ));
+            }
 
             if is_blend_enable {
                 gl.enable(glow::BLEND);
@@ -1796,6 +1854,7 @@ impl GLStateImpl {
             }
 
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(fbo));
 
             // Note the Y-flipping here. GL's presentation is not flipped,
@@ -1815,6 +1874,8 @@ impl GLStateImpl {
             );
 
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
 
             if is_cull_enable {
                 gl.enable(glow::CULL_FACE);

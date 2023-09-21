@@ -1,13 +1,12 @@
 use std::thread;
 
-use glow::HasContext;
 use parking_lot::Mutex;
 use pi_share::Share;
 use thiserror::Error;
 
 use super::{
-    super::{wgt, DeviceError, MissingDownlevelFlags},
-    AdapterContext, GLState,
+    super::{util::DeviceExt, wgt, DeviceError, MissingDownlevelFlags},
+    AdapterContext,
 };
 
 #[derive(Debug, Clone)]
@@ -36,11 +35,7 @@ impl Surface {
         {
             let mut imp = self.imp.as_ref().lock();
 
-            if unsafe { imp.flip_surface() } {
-                imp.adapter.swap_buffers().unwrap();
-
-                imp.update_current_texture();
-            }
+            imp.present();
         }
 
         log::trace!(
@@ -54,7 +49,7 @@ impl Surface {
     #[inline]
     pub(crate) fn configure(
         &self,
-        device: &super::Device,
+        device: &crate::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
         log::trace!(
@@ -103,20 +98,9 @@ impl Surface {
 #[derive(Debug)]
 struct SurfaceImpl {
     raw: egl::Surface,
-    gl_fbo: glow::Framebuffer,
-
-    state: Option<GLState>,
     adapter: AdapterContext,
 
-    // 用于 Screen Coordinate: Flip-Y
-    // configure 时候会 创建 / 销毁
-    texture_size: (i32, i32),
-    texture: Option<super::Texture>,
-
-    // 初始化 有值
-    // 每次 acquire_texture 就为 None
-    // present 后 会重新 有值
-    current_texture: Option<super::Texture>,
+    sc: Option<SwapChain>,
 }
 
 impl Drop for SurfaceImpl {
@@ -124,7 +108,7 @@ impl Drop for SurfaceImpl {
         self.adapter.remove_surface(self.raw);
 
         let egl = self.adapter.egl_ref();
-        egl.instance.destroy_surface(egl.display, self.raw);
+        egl.instance.destroy_surface(egl.display, self.raw).unwrap();
     }
 }
 
@@ -159,14 +143,13 @@ impl SurfaceImpl {
             // manage a swapchain on our side.
             // Some drivers just fail on surface creation seeing `EGL_SINGLE_BUFFER`.
             // if cfg!(target_os = "android") || cfg!(windows) {
-                egl::BACK_BUFFER,
+            egl::BACK_BUFFER,
             // } else {
             //     egl::SINGLE_BUFFER
             // },
-            // TODO 
+            // TODO
             egl::GL_COLORSPACE,
             egl::GL_COLORSPACE_SRGB,
-
             egl::ATTRIB_NONE as i32,
         ];
 
@@ -197,156 +180,25 @@ impl SurfaceImpl {
             }
         };
 
-        let gl_fbo = unsafe {
-            let gl = adapter.lock();
-            gl.create_framebuffer().unwrap()
-        };
-
         Ok(Self {
             raw,
-            state: None,
             adapter,
-
-            gl_fbo,
-
-            texture_size: (0, 0),
-            texture: None,
-
-            current_texture: None,
+            sc: None,
         })
-    }
-
-    unsafe fn flip_surface(&self) -> bool {
-        if self.state.is_none() {
-            return false;
-        }
-
-        let gl = self.adapter.lock();
-        self.state.as_ref().unwrap().flip_surface(
-            &gl,
-            self.gl_fbo,
-            self.texture_size.0,
-            self.texture_size.1,
-        );
-
-        true
     }
 
     fn configure(
         &mut self,
-        device: &super::Device,
+        device: &crate::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        // TODO 处理 wgt::TextureFormat::Bgra8UnormSrgb
-        let format = match config.format {
-            wgt::TextureFormat::Rgba8Unorm => wgt::TextureFormat::Rgba8Unorm,
-            wgt::TextureFormat::Bgra8Unorm => wgt::TextureFormat::Bgra8Unorm,
-            wgt::TextureFormat::Rgba8UnormSrgb => wgt::TextureFormat::Rgba8Unorm,
-            wgt::TextureFormat::Bgra8UnormSrgb => wgt::TextureFormat::Bgra8Unorm,
-            _ => unreachable!(),
-        };
-
-        self.state = Some(device.state.clone());
-        device.adapter.set_surface(Some(self.raw));
-
-        let need_update_texture = match self.texture.as_ref() {
-            None => true,
-            Some(sc) => {
-                let size = sc.0.as_ref().copy_size;
-
-                size.width != config.width || size.height != config.height
-            }
-        };
-
-        if need_update_texture {
-            log::info!("============ hal::Surface::configure() create_surface_texture, w = {}, h={}, format = {:?}, config.format = {:?}", config.width, config.height, format, config.format);
-
-            self.acquire_texture();
-
-            let texture =
-                Self::create_surface_texture(device, config.width, config.height, format)?;
-
-            let rb_raw = match &texture.0.as_ref().inner {
-                super::TextureInner::Renderbuffer { raw, .. } => *raw,
-                _ => {
-                    log::error!(
-                        "texture inner is not RenderBuffer, inner = {:#?}",
-                        &texture.0.as_ref().inner
-                    );
-                    unreachable!()
-                }
-            };
-
-            self.texture = Some(texture);
-            self.texture_size = (config.width as i32, config.height as i32);
-
-            // 绑定 fbo 和 texture
-            unsafe {
-                let gl = device.adapter.lock();
-
-                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.gl_fbo));
-
-                gl.framebuffer_renderbuffer(
-                    glow::FRAMEBUFFER,
-                    glow::COLOR_ATTACHMENT0,
-                    glow::RENDERBUFFER,
-                    Some(rb_raw),
-                );
-
-                let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
-                if status != glow::FRAMEBUFFER_COMPLETE {
-                    panic!("surface bind_fbo error, reason = {}", status);
-                }
-
-                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-            }
-
-            self.update_current_texture();
+        if self.sc.is_none() {
+            self.sc = Some(SwapChain::new(device, config));
         }
 
+        self.sc.as_ref().unwrap().configure(device, config);
+
         Ok(())
-    }
-
-    #[inline]
-    fn update_current_texture(&mut self) {
-        assert!(self.current_texture.is_none());
-
-        self.current_texture = Some(self.texture.as_ref().unwrap().clone());
-    }
-
-    #[inline]
-    fn acquire_texture(&mut self) -> Option<super::Texture> {
-        let r = self.current_texture.take();
-
-        log::trace!("======== hal::Surface acquire_texture = {:#?}", r);
-
-        r
-    }
-
-    fn create_surface_texture(
-        device: &super::Device,
-        width: u32,
-        height: u32,
-        format: wgt::TextureFormat,
-    ) -> Result<super::Texture, super::SurfaceError> {
-        let desc = super::super::TextureDescriptor {
-            label: None,
-            size: super::super::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgt::TextureDimension::D2,
-            format,
-            usage: wgt::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        };
-
-        device
-            .create_texture(&desc)
-            .map_err(|e| super::SurfaceError::Other("create_texture error!"))
     }
 }
 
@@ -383,4 +235,271 @@ pub(crate) enum ConfigureSurfaceError {
     },
     #[error("requested usage is not supported")]
     UnsupportedUsage,
+}
+
+#[repr(C)]
+struct BlitVertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+}
+
+#[derive(Debug)]
+struct SwapChain {
+    encoder: crate::CommandEncoder,
+
+    rp: crate::RenderPipeline,
+    vb: crate::Buffer,
+    sampler: crate::Sampler,
+
+    texture_size: (u32, u32),
+    texture: crate::Texture,
+    bg: crate::BindGroup,
+
+    // 初始化 有值
+    // 每次 acquire_texture 就为 None
+    // present 后 会重新 有值
+    current_texture: Option<super::Texture>,
+}
+
+impl SwapChain {
+    fn new(device: &crate::Device, config: &crate::SurfaceConfiguration) -> Self {
+        let encoder = device.create_command_encoder(&super::super::CommandEncoderDescriptor {
+            label: Some("Flip-Y Command Encoder"),
+        });
+
+        let vertices = [
+            BlitVertex {
+                pos: [0.0, 0.0],
+                uv: [0.0, 0.0],
+            },
+            BlitVertex {
+                pos: [1.0, 0.0],
+                uv: [1.0, 0.0],
+            },
+            BlitVertex {
+                pos: [1.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            BlitVertex {
+                pos: [0.0, 0.0],
+                uv: [0.0, 0.0],
+            },
+            BlitVertex {
+                pos: [1.0, 1.0],
+                uv: [1.0, 1.0],
+            },
+            BlitVertex {
+                pos: [0.0, 1.0],
+                uv: [0.0, 1.0],
+            },
+        ];
+
+        let slice = vertices.as_slice();
+        let contents = unsafe {
+            std::slice::from_raw_parts(
+                slice.as_ptr() as *const u8,
+                slice.len() * std::mem::size_of::<BlitVertex>(),
+            )
+        };
+
+        let vb = device.create_buffer_init(&super::super::util::BufferInitDescriptor {
+            label: Some("Flip-Y VB"),
+            contents,
+            usage: super::super::BufferUsages::VERTEX,
+        });
+
+        let bg_layout = device.create_bind_group_layout(&super::super::BindGroupLayoutDescriptor {
+            label: Some("Flip-Y BG Layout"),
+            entries: &[
+                super::super::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: super::super::ShaderStages::FRAGMENT,
+                    ty: super::super::BindingType::Sampler(
+                        super::super::SamplerBindingType::Filtering,
+                    ),
+                    count: None,
+                },
+                super::super::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: super::super::ShaderStages::FRAGMENT,
+                    ty: super::super::BindingType::Texture {
+                        sample_type: super::super::TextureSampleType::Float { filterable: true },
+                        view_dimension: super::super::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let pipeline_layout =
+            device.create_pipeline_layout(&super::super::PipelineLayoutDescriptor {
+                label: Some("Flip-Y Pipeline Layout"),
+                bind_group_layouts: &[&bg_layout],
+                push_constant_ranges: &[],
+            });
+
+        let rp = device.create_render_pipeline(&super::super::RenderPipelineDescriptor {
+            label: Some("Flip-Y Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: super::super::VertexState {
+                module: &vs,
+                entry_point: "main",
+                buffers: &[super::super::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<BlitVertex>() as super::super::BufferAddress,
+                    step_mode: super::super::VertexStepMode::Vertex,
+                    attributes: &[
+                        super::super::VertexAttribute {
+                            format: super::super::VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        super::super::VertexAttribute {
+                            format: super::super::VertexFormat::Float32x2,
+                            offset: std::mem::size_of::<[f32; 2]>() as super::super::BufferAddress,
+                            shader_location: 1,
+                        },
+                    ],
+                }],
+            },
+            primitive: super::super::PrimitiveState {
+                topology: super::super::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: super::super::FrontFace::Cw,
+                cull_mode: Some(super::super::Face::Back),
+                unclipped_depth: false,
+                polygon_mode: super::super::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: super::super::MultisampleState::default(),
+            fragment: Some(super::super::FragmentState {
+                module: &fs,
+                entry_point: "main",
+                targets: &targets,
+            }),
+            multiview: None,
+        });
+
+        let sampler = device.create_sampler(&super::super::SamplerDescriptor {
+            label: Some("Flip-Y Sampler"),
+            address_mode_u: todo!(),
+            address_mode_v: todo!(),
+            address_mode_w: todo!(),
+            mag_filter: todo!(),
+            min_filter: todo!(),
+            mipmap_filter: todo!(),
+            lod_min_clamp: todo!(),
+            lod_max_clamp: todo!(),
+            compare: todo!(),
+            anisotropy_clamp: todo!(),
+            border_color: todo!(),
+        });
+
+        let texture =
+            Self::create_surface_texture(device, config.width, config.height, config.format);
+
+        let texture_view = texture.create_view(&Default::default());
+
+        let bg = device.create_bind_group(&super::super::BindGroupDescriptor {
+            label: Some("Flip-Y BindGroup"),
+            layout: &bg_layout,
+            entries: &[
+                super::super::BindGroupEntry {
+                    binding: 0,
+                    resource: super::super::BindingResource::Sampler(&sampler),
+                },
+                super::super::BindGroupEntry {
+                    binding: 1,
+                    resource: super::super::BindingResource::TextureView(&texture_view),
+                },
+            ],
+        });
+
+        let current_texture = Some(texture.inner.clone());
+
+        Self {
+            encoder,
+
+            rp,
+            vb,
+            bg,
+            sampler,
+
+            texture_size: (config.width, config.height),
+            texture,
+            current_texture,
+        }
+    }
+
+    fn configure(&mut self, device: &crate::Device, config: &crate::SurfaceConfiguration) {
+        let size = self.texture.inner.0.as_ref().copy_size;
+        let need_update_texture = size.width != config.width || size.height != config.height;
+
+        if need_update_texture {
+            self.texture =
+                Self::create_surface_texture(device, config.width, config.height, config.format);
+
+            self.bg = device.create_bind_group(&super::super::BindGroupDescriptor {
+                label: todo!(),
+                layout: todo!(),
+                entries: todo!(),
+            });
+
+            self.update_current_texture();
+        }
+    }
+
+    fn present(&self) {
+        todo!() // Y-Flip
+    }
+
+    #[inline]
+    fn update_current_texture(&mut self) {
+        assert!(self.current_texture.is_none());
+
+        self.current_texture = Some(self.texture.inner.clone());
+    }
+
+    #[inline]
+    fn acquire_texture(&mut self) -> Option<super::Texture> {
+        let r = self.current_texture.take();
+
+        log::trace!("======== hal::Surface acquire_texture = {:#?}", r);
+
+        r
+    }
+
+    fn create_surface_texture(
+        device: &crate::Device,
+        width: u32,
+        height: u32,
+        format: wgt::TextureFormat,
+    ) -> crate::Texture {
+        // TODO 处理 wgt::TextureFormat::Bgra8UnormSrgb
+        let format = match format {
+            wgt::TextureFormat::Rgba8Unorm => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8Unorm => wgt::TextureFormat::Bgra8Unorm,
+            wgt::TextureFormat::Rgba8UnormSrgb => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8UnormSrgb => wgt::TextureFormat::Bgra8Unorm,
+            _ => unreachable!(),
+        };
+
+        let desc = super::super::TextureDescriptor {
+            label: None,
+            size: super::super::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgt::TextureDimension::D2,
+            format,
+            usage: wgt::TextureUsages::RENDER_ATTACHMENT | wgt::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+
+        device.create_texture(&desc)
+    }
 }
