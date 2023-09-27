@@ -1446,8 +1446,6 @@ impl GLStateImpl {
 
         max_set += 1;
         let max_set = max_set as usize;
-        log::info!("================= max_set = {}", max_set);
-
         let mut uniforms: Vec<Box<[super::PiBindEntry]>> = Vec::with_capacity(max_set);
 
         for i in 0..max_set {

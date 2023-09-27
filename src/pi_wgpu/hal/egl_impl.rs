@@ -251,10 +251,6 @@ impl EglContext {
 
         gl
     }
-
-    pub(crate) fn swap_buffers(&self, surface: egl::Surface) {
-        self.instance.swap_buffers(self.display, surface).unwrap();
-    }
 }
 
 impl EglContext {
@@ -280,8 +276,8 @@ type EglInstance = egl::Instance<egl::Static>;
 /// A wrapper around a [`glow::Context`] and the required EGL context that uses locking to guarantee
 /// exclusive access when shared with multiple threads.
 #[derive(Debug)]
-struct AdapterContextImpl {
-    reentrant_count: Share<AtomicUsize>,
+pub(crate) struct AdapterContextImpl {
+    pub(crate) reentrant_count: Share<AtomicUsize>,
     glow: ReentrantMutex<glow::Context>, // 可重入锁，为了性能
 
     egl: EglContext,
@@ -300,7 +296,7 @@ unsafe impl Send for AdapterContextImpl {}
 
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
-    imp: Share<AdapterContextImpl>,
+    pub(crate) imp: Share<AdapterContextImpl>,
     surface: Share<ShareCell<Option<egl::Surface>>>,
 }
 
@@ -640,46 +636,20 @@ impl AdapterContext {
         }
     }
 
-    #[inline]
-    pub(crate) fn swap_buffers(&self) -> Result<(), egl::Error> {
-        if let Some(surface) = self.surface.as_ref().borrow().as_ref() {
-            self.egl_ref().make_current(Some(*surface));
+    pub(crate) fn present(&self) {
+        let _gl = self.lock();
+        let egl = &self.imp.egl;
 
-            let display = self.egl_display();
+        let surface = self.surface.as_ref().borrow_mut();
 
-            let r = self.egl_instance().swap_buffers(*display, *surface);
-
-            self.egl_ref().make_current(None);
-
-            r
-        } else {
-            Ok(())
-        }
+        egl.instance
+            .swap_buffers(egl.display, surface.unwrap())
+            .unwrap();
     }
 
     #[inline]
     pub(crate) fn egl_ref(&self) -> &EglContext {
         &self.imp.egl
-    }
-
-    #[inline]
-    pub(crate) fn egl_instance(&self) -> &EglInstance {
-        &self.egl_ref().instance
-    }
-
-    #[inline]
-    pub(crate) fn egl_context(&self) -> &egl::Context {
-        &self.egl_ref().raw
-    }
-
-    #[inline]
-    pub(crate) fn egl_config(&self) -> &egl::Config {
-        &self.egl_ref().config
-    }
-
-    #[inline]
-    pub(crate) fn egl_display(&self) -> &egl::Display {
-        &self.egl_ref().display
     }
 
     #[inline]

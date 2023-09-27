@@ -1,4 +1,4 @@
-use std::{thread, time::Duration};
+use std::{sync::atomic::Ordering, thread, time::Duration};
 
 use parking_lot::{Mutex, MutexGuard};
 use pi_share::Share;
@@ -224,22 +224,10 @@ impl SurfaceImpl {
     #[inline]
     fn present(&mut self) {
         self.sc.as_mut().map(|sc| {
-            sc.present();
+            sc.draw_y_flip();
         });
 
-        {
-            let egl = self.adapter.egl_ref();
-
-            egl.instance
-                .make_current(egl.display, Some(self.raw), Some(self.raw), Some(egl.raw))
-                .unwrap();
-
-            egl.instance.swap_buffers(egl.display, self.raw).unwrap();
-
-            egl.instance
-                .make_current(egl.display, None, None, None)
-                .unwrap();
-        }
+        self.adapter.present();
 
         self.sc.as_mut().map(|sc| {
             sc.update_current_texture();
@@ -541,7 +529,7 @@ impl SwapChain {
         }
     }
 
-    fn present(&mut self) {
+    fn draw_y_flip(&mut self) {
         let view = self.native_texture.create_view(&Default::default());
         let mut rp = self
             .encoder
