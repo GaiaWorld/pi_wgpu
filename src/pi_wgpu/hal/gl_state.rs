@@ -2,7 +2,7 @@
 //! 全局 缓冲表，见 GLCache
 //!
 
-use std::thread;
+use std::{thread, time::Duration};
 
 use glow::HasContext;
 use naga::{
@@ -10,8 +10,8 @@ use naga::{
     proc::BoundsCheckPolicy,
     valid::{Capabilities as Caps, ModuleInfo},
 };
-use parking_lot::Mutex;
-use pi_share::Share;
+use parking_lot::{Mutex, MutexGuard};
+use pi_share::{Share, ShareWeak};
 
 use crate::ColorWrites;
 
@@ -34,6 +34,14 @@ impl std::fmt::Debug for GLState {
 
 impl GLState {
     #[inline]
+    pub(crate) fn lock(&self) -> MutexGuard<GLStateImpl> {
+        self.imp
+            .as_ref()
+            .try_lock_for(Duration::from_secs(1))
+            .expect("GlState: Could not lock GLStateImpl. This is most-likely a deadlcok.")
+    }
+
+    #[inline]
     pub(crate) fn new(gl: &glow::Context) -> Self {
         let imp = GLStateImpl::new(&gl);
 
@@ -50,7 +58,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.global_shader_id += 1;
             s.global_shader_id
         };
@@ -70,7 +78,7 @@ impl GLState {
             thread::current().id()
         );
 
-        let r = { self.imp.lock().max_attribute_slots };
+        let r = { self.lock().max_attribute_slots };
 
         log::trace!(
             "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
@@ -87,7 +95,7 @@ impl GLState {
             thread::current().id()
         );
 
-        let r = { self.imp.lock().max_textures_slots };
+        let r = { self.lock().max_textures_slots };
 
         log::trace!(
             "========== GLState::max_textures_slots unlock, thread_id = {:?}",
@@ -104,7 +112,7 @@ impl GLState {
             thread::current().id()
         );
 
-        let r = { self.imp.lock().max_color_attachments };
+        let r = { self.lock().max_color_attachments };
 
         log::trace!(
             "========== GLState::max_color_attachments unlock, thread_id = {:?}",
@@ -121,7 +129,7 @@ impl GLState {
             thread::current().id()
         );
 
-        let r = { self.imp.lock().cache.get_program(id) };
+        let r = { self.lock().cache.get_program(id) };
 
         log::trace!(
             "========== GLState::get_program unlock, thread_id = {:?}",
@@ -139,7 +147,7 @@ impl GLState {
         );
 
         {
-            self.imp.lock().cache.insert_program(id, program);
+            self.lock().cache.insert_program(id, program);
         }
 
         log::trace!(
@@ -156,7 +164,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.cache.get_or_insert_rs(rs)
         };
 
@@ -176,7 +184,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.cache.get_or_insert_ds(ds)
         };
 
@@ -199,7 +207,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.cache.get_or_insert_ss(rs)
         };
 
@@ -219,7 +227,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.cache.get_or_insert_bs(bs)
         };
 
@@ -244,7 +252,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.create_program(gl, vs_id, fs_id)
         };
 
@@ -275,7 +283,7 @@ impl GLState {
         );
 
         let r = {
-            let mut s = self.imp.as_ref().lock();
+            let mut s = self.lock();
             s.compile_shader(
                 gl,
                 shader,
@@ -305,7 +313,7 @@ impl GLState {
         );
 
         {
-            let mut s = self.imp.as_ref().lock();
+            let mut s = self.lock();
             s.cache.remove_shader(id);
         }
 
@@ -323,7 +331,7 @@ impl GLState {
         );
 
         {
-            let mut s = self.imp.lock();
+            let mut s = self.lock();
             s.cache.clear_weak_refs();
         }
 
@@ -343,7 +351,7 @@ impl GLState {
         );
 
         {
-            let cache = &mut self.imp.lock().cache;
+            let cache = &mut self.lock().cache;
             cache.remove_render_buffer(gl, rb);
         }
 
@@ -367,7 +375,7 @@ impl GLState {
             );
 
             {
-                let imp = &mut self.imp.lock();
+                let imp = &mut self.lock();
                 if let Some(ib) = imp.index_buffer.as_ref() {
                     if ib.raw == buffer {
                         imp.index_buffer = None;
@@ -388,7 +396,7 @@ impl GLState {
             thread::current().id()
         );
 
-        let cache = &mut self.imp.lock().cache;
+        let cache = &mut self.lock().cache;
         cache.remove_buffer(gl, bind_target, buffer);
 
         log::trace!(
@@ -407,7 +415,7 @@ impl GLState {
         );
 
         {
-            let cache = &mut self.imp.lock().cache;
+            let cache = &mut self.lock().cache;
             cache.remove_texture(gl, texture);
         }
 
@@ -439,7 +447,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_buffer_size(gl, buffer, size);
         }
@@ -466,7 +474,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
             imp.set_buffer_sub_data(gl, buffer, offset, data)
         }
         log::trace!(
@@ -485,7 +493,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
             imp.set_render_pipeline(gl, pipeline);
         }
 
@@ -509,7 +517,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_render_target(gl, desc);
         }
@@ -535,7 +543,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_bind_group(index, bind_group, dynamic_offsets);
         }
@@ -562,7 +570,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_vertex_buffer(index, buffer, offset, size)
         }
@@ -592,7 +600,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.draw_with_flip(gl, program, vao, width, height, texture, sampler);
         }
@@ -619,7 +627,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.flip_surface(gl, fbo, width, height);
         }
@@ -647,7 +655,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_index_buffer(gl, buffer, format, offset, size)
         }
@@ -674,7 +682,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.draw(gl, start_vertex, vertex_count, instance_count);
         }
@@ -701,7 +709,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.draw_indexed(gl, start_index, index_count, instance_count);
         }
@@ -722,7 +730,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_viewport(gl, x, y, w, h);
         }
@@ -743,7 +751,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_scissor(gl, x, y, w, h)
         }
@@ -764,7 +772,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_depth_range(gl, min_depth, max_depth);
         }
@@ -785,7 +793,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
 
             imp.set_blend_color(gl, color);
         }
@@ -806,7 +814,7 @@ impl GLState {
         );
 
         {
-            let imp = &mut self.imp.lock();
+            let imp = &mut self.lock();
             imp.set_stencil_reference(gl, reference);
         }
 
@@ -818,7 +826,7 @@ impl GLState {
 }
 
 #[derive(Debug)]
-struct GLStateImpl {
+pub(crate) struct GLStateImpl {
     cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
@@ -1058,10 +1066,17 @@ impl GLStateImpl {
     ) {
         assert!(index < super::MAX_BIND_GROUPS as u32);
 
-        self.bind_group_set[index as usize] = Some(BindGroupState {
-            bind_group: bind_group.contents.clone(),
+        let mut contents = Vec::with_capacity(bind_group.contents.len());
+        for b in bind_group.contents.iter() {
+            contents.push(b.into());
+        }
+
+        let bg = BindGroupState {
+            bgs: contents.into_boxed_slice(),
             dynamic_offsets: dynamic_offsets.to_vec().into_boxed_slice(),
-        });
+        };
+
+        self.bind_group_set[index as usize] = Some(bg);
     }
 
     #[inline]
@@ -1601,15 +1616,16 @@ impl GLStateImpl {
             for (j, binding) in bindings.iter().enumerate() {
                 let index = reorder[j];
 
-                match &bg.bind_group[index] {
-                    RawBinding::Buffer {
+                match &bg.bgs[index] {
+                    RawBindingState::Buffer {
                         raw,
                         dynamic_offset,
                         offset,
                         size,
                     } => unsafe {
                         assert!(binding.ty == PiBindingType::Buffer);
-                        let imp = raw.0.as_ref();
+                        let inner = raw.upgrade().unwrap();
+                        let imp = inner.as_ref();
 
                         let offset = if *dynamic_offset >= 0 {
                             *offset + bg.dynamic_offsets[*dynamic_offset as usize] as i32
@@ -1634,9 +1650,10 @@ impl GLStateImpl {
                             );
                         }
                     },
-                    RawBinding::Texture(view) => unsafe {
+                    RawBindingState::Texture { raw } => unsafe {
                         assert!(binding.ty == PiBindingType::Texture);
-                        let imp = view.inner.as_ref();
+                        let inner = raw.upgrade().unwrap();
+                        let imp = inner.as_ref();
                         match &imp.inner {
                             hal::TextureInner::Texture { raw, target, .. } => {
                                 // TODO 加 比较
@@ -1646,10 +1663,13 @@ impl GLStateImpl {
                             _ => panic!("mis match texture size"),
                         }
                     },
-                    RawBinding::Sampler(sampler) => unsafe {
+                    RawBindingState::Sampler { raw } => unsafe {
                         // TODO 加 比较
                         assert!(binding.ty == PiBindingType::Sampler);
-                        let imp = sampler.0.as_ref();
+
+                        let sampler = raw.upgrade().unwrap();
+
+                        let imp = sampler.as_ref();
                         gl.bind_sampler(binding.glow_binding, Some(imp.raw));
                     },
                 }
@@ -2332,6 +2352,8 @@ pub(crate) struct RenderTarget {
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) enum GLTextureInfo {
+    NativeRenderBuffer,
+
     Renderbuffer(glow::Renderbuffer),
 
     Texture(glow::Texture),
@@ -2340,16 +2362,58 @@ pub(crate) enum GLTextureInfo {
 impl From<&super::super::TextureView> for GLTextureInfo {
     fn from(value: &super::super::TextureView) -> Self {
         match &value.inner.inner.inner {
-            super::TextureInner::Renderbuffer { raw, .. } => GLTextureInfo::Renderbuffer(*raw),
+            super::TextureInner::NativeRenderBuffer => Self::NativeRenderBuffer,
 
-            super::TextureInner::Texture { raw, .. } => GLTextureInfo::Texture(*raw),
+            super::TextureInner::Renderbuffer { raw, .. } => Self::Renderbuffer(*raw),
+
+            super::TextureInner::Texture { raw, .. } => Self::Texture(*raw),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RawBindingState {
+    Buffer {
+        raw: ShareWeak<super::BufferImpl>,
+        dynamic_offset: i32, // 如果没有，等于 -1
+        offset: i32,
+        size: i32,
+    },
+    Texture {
+        raw: ShareWeak<super::TextureImpl>,
+    },
+    Sampler {
+        raw: ShareWeak<super::SamplerImpl>,
+    },
+}
+
+impl From<&super::RawBinding> for RawBindingState {
+    fn from(value: &super::RawBinding) -> Self {
+        match value {
+            super::RawBinding::Buffer {
+                raw,
+                dynamic_offset,
+                offset,
+                size,
+            } => Self::Buffer {
+                raw: Share::downgrade(&raw.0),
+                dynamic_offset: *dynamic_offset,
+                offset: *offset,
+                size: *size,
+            },
+            super::RawBinding::Texture(view) => Self::Texture {
+                raw: Share::downgrade(&view.inner),
+            },
+            super::RawBinding::Sampler(sampler) => Self::Sampler {
+                raw: Share::downgrade(&sampler.0),
+            },
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindGroupState {
-    bind_group: Box<[super::RawBinding]>,
+    bgs: Box<[RawBindingState]>,
 
     dynamic_offsets: Box<[wgt::DynamicOffset]>,
 }

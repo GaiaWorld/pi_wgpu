@@ -3,10 +3,10 @@ use std::ops::Range;
 use glow::HasContext;
 use pi_share::Share;
 
+use crate::TextureFormat;
+
 use super::super::{hal::gl_conv as conv, wgt};
 use super::{AdapterContext, GLState, TextureFormatDesc};
-
-pub(crate) type TextureID = u64;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Texture(pub(crate) Share<TextureImpl>);
@@ -151,13 +151,34 @@ impl Texture {
 
         Ok(Self(Share::new(imp)))
     }
+
+    // 从窗口表面创建
+    pub(crate) fn with_window_surface(width: u32, height: u32, format: TextureFormat) -> Self {
+        let format_desc = conv::map_texture_format(format);
+
+        let imp = TextureImpl {
+            inner: TextureInner::NativeRenderBuffer,
+            mip_level_count: 1,
+            array_layer_count: 1,
+            format,
+            copy_size: super::CopyExtent {
+                width,
+                height,
+                depth: 1,
+            },
+            format_desc,
+            is_cubemap: false,
+        };
+
+        Self(Share::new(imp))
+    }
 }
 
 impl Texture {
     pub fn write_data(
         copy: super::super::ImageCopyTexture,
         data: &[u8],
-        data_layout: super::super::ImageDataLayout,
+        _data_layout: super::super::ImageDataLayout,
         size: super::super::Extent3d,
     ) {
         profiling::scope!("hal::Texture::write_data");
@@ -412,6 +433,8 @@ pub(crate) struct TextureImpl {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TextureInner {
+    NativeRenderBuffer,
+
     Renderbuffer {
         state: GLState,
         adapter: AdapterContext,
@@ -432,6 +455,7 @@ impl Drop for TextureInner {
         profiling::scope!("hal::TextureInner::drop");
 
         match &self {
+            &TextureInner::NativeRenderBuffer => {}
             &TextureInner::Renderbuffer {
                 ref adapter,
                 ref state,

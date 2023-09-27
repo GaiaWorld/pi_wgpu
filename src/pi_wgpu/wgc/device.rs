@@ -141,6 +141,36 @@ impl Device {
         Texture::from_hal(r, desc)
     }
 
+    // 从窗口表面创建
+    #[inline]
+    pub(crate) fn create_texture_from_surface(
+        &self,
+        width: u32,
+        height: u32,
+        format: crate::TextureFormat,
+    ) -> super::Texture {
+        let desc = super::super::TextureDescriptor {
+            label: None,
+            size: crate::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: crate::TextureDimension::D2,
+            format,
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[format],
+        };
+
+        let r = self
+            .inner
+            .create_texture_from_surface(width, height, format);
+
+        Texture::from_hal(r, &desc)
+    }
+
     /// Creates a new [`Sampler`].
     ///
     /// `desc` specifies the behavior of the sampler.

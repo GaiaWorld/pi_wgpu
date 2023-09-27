@@ -7,7 +7,9 @@ pub struct BindGroupLayout {
     pub(crate) entries: Share<[wgt::BindGroupLayoutEntry]>,
 }
 impl BindGroupLayout {
-    pub fn new(desc: &super::super::BindGroupLayoutDescriptor) -> Result<Self, super::super::DeviceError> {
+    pub fn new(
+        desc: &super::super::BindGroupLayoutDescriptor,
+    ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::BindGroupLayout::new");
         let entries = desc.entries.to_vec().into();
         Ok(Self { entries })
@@ -21,7 +23,9 @@ pub(crate) struct BindGroup {
 }
 
 impl BindGroup {
-    pub fn new(desc: &super::super::BindGroupDescriptor) -> Result<Self, super::super::DeviceError> {
+    pub fn new(
+        desc: &super::super::BindGroupDescriptor,
+    ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::BindGroup::new");
 
         let layout = desc.layout.inner.entries.as_ref();

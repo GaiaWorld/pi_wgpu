@@ -566,7 +566,7 @@ impl Program {
 
         let mut r = vec![];
 
-        log::info!("program reorder: layout = {:#?}, imp = {:#?}", layout, imp);
+        log::trace!("program reorder: layout = {:#?}, imp = {:#?}", layout, imp);
 
         for (i, info) in imp.iter().enumerate() {
             let mut v = vec![];

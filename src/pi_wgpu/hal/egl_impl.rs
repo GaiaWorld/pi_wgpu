@@ -251,6 +251,10 @@ impl EglContext {
 
         gl
     }
+
+    pub(crate) fn swap_buffers(&self, surface: egl::Surface) {
+        self.instance.swap_buffers(self.display, surface).unwrap();
+    }
 }
 
 impl EglContext {

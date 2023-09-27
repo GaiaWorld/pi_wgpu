@@ -43,7 +43,7 @@ impl Surface {
 
         // assert!(config.alpha_mode == wgt::CompositeAlphaMode::Opaque);
 
-        self.inner.configure(&device.inner, config).unwrap();
+        self.inner.configure(&device, config).unwrap();
     }
 
     /// Returns the next texture to be presented by the swapchain for drawing.

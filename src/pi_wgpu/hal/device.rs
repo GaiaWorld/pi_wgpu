@@ -1,5 +1,7 @@
 use pi_share::Share;
 
+use crate::TextureFormat;
+
 use super::{super::wgt, AdapterContext};
 
 #[derive(Debug)]
@@ -27,6 +29,17 @@ impl Device {
         desc: &super::super::TextureDescriptor,
     ) -> Result<super::Texture, super::super::DeviceError> {
         super::Texture::new(self.state.clone(), &self.adapter, desc)
+    }
+
+    // 从窗口表面创建
+    #[inline]
+    pub(crate) fn create_texture_from_surface(
+        &self, 
+        width: u32,
+        height: u32,
+        format: TextureFormat,
+    ) -> super::Texture {
+        super::Texture::with_window_surface(width, height, format)
     }
 
     #[inline]

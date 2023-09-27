@@ -1,6 +1,6 @@
-use std::thread;
+use std::{thread, time::Duration};
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use pi_share::Share;
 use thiserror::Error;
 
@@ -26,6 +26,14 @@ impl Surface {
     }
 
     #[inline]
+    pub(crate) fn lock(&self) -> MutexGuard<SurfaceImpl> {
+        self.imp
+            .as_ref()
+            .try_lock_for(Duration::from_secs(1))
+            .expect("hal::Surface: Could not lock SurfaceImpl. This is most-likely a deadlcok.")
+    }
+
+    #[inline]
     pub(crate) fn present(&self) -> Result<(), egl::Error> {
         log::trace!(
             "========== Surface::present lock, thread_id = {:?}",
@@ -33,7 +41,7 @@ impl Surface {
         );
 
         {
-            let mut imp = self.imp.as_ref().lock();
+            let mut imp = self.lock();
 
             imp.present();
         }
@@ -67,7 +75,7 @@ impl Surface {
             return Ok(());
         }
 
-        let r = { self.imp.as_ref().lock().configure(device, config) };
+        let r = { self.lock().configure(device, config) };
 
         log::trace!(
             "========== Surface::configure unlock, thread_id = {:?}",
@@ -84,7 +92,7 @@ impl Surface {
             thread::current().id()
         );
 
-        let r = { self.imp.as_ref().lock().acquire_texture() };
+        let r = { self.lock().acquire_texture() };
 
         log::trace!(
             "========== Surface::acquire_texture unlock, thread_id = {:?}",
@@ -96,7 +104,7 @@ impl Surface {
 }
 
 #[derive(Debug)]
-struct SurfaceImpl {
+pub(crate) struct SurfaceImpl {
     raw: egl::Surface,
     adapter: AdapterContext,
 
@@ -148,8 +156,8 @@ impl SurfaceImpl {
             //     egl::SINGLE_BUFFER
             // },
             // TODO
-            egl::GL_COLORSPACE,
-            egl::GL_COLORSPACE_SRGB,
+            // egl::GL_COLORSPACE,
+            // egl::GL_COLORSPACE_SRGB,
             egl::ATTRIB_NONE as i32,
         ];
 
@@ -192,13 +200,50 @@ impl SurfaceImpl {
         device: &crate::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
+        log::info!(
+            "hal::Surface::config, width = {}, height = {}",
+            config.width,
+            config.height
+        );
+
         if self.sc.is_none() {
             self.sc = Some(SwapChain::new(device, config));
         }
 
-        self.sc.as_ref().unwrap().configure(device, config);
+        self.adapter.set_surface(Some(self.raw));
+        self.sc.as_mut().unwrap().configure(device, config);
 
         Ok(())
+    }
+
+    #[inline]
+    fn acquire_texture(&mut self) -> Option<super::Texture> {
+        self.sc.as_mut().and_then(|sc| sc.current_texture.take())
+    }
+
+    #[inline]
+    fn present(&mut self) {
+        self.sc.as_mut().map(|sc| {
+            sc.present();
+        });
+
+        {
+            let egl = self.adapter.egl_ref();
+
+            egl.instance
+                .make_current(egl.display, Some(self.raw), Some(self.raw), Some(egl.raw))
+                .unwrap();
+
+            egl.instance.swap_buffers(egl.display, self.raw).unwrap();
+
+            egl.instance
+                .make_current(egl.display, None, None, None)
+                .unwrap();
+        }
+
+        self.sc.as_mut().map(|sc| {
+            sc.update_current_texture();
+        });
     }
 }
 
@@ -250,11 +295,13 @@ struct SwapChain {
     rp: crate::RenderPipeline,
     vb: crate::Buffer,
     sampler: crate::Sampler,
+    bg_layout: crate::BindGroupLayout,
 
     texture_size: (u32, u32),
     texture: crate::Texture,
     bg: crate::BindGroup,
 
+    native_texture: crate::Texture,
     // 初始化 有值
     // 每次 acquire_texture 就为 None
     // present 后 会重新 有值
@@ -269,11 +316,11 @@ impl SwapChain {
 
         let vertices = [
             BlitVertex {
-                pos: [0.0, 0.0],
+                pos: [-1.0, -1.0],
                 uv: [0.0, 0.0],
             },
             BlitVertex {
-                pos: [1.0, 0.0],
+                pos: [1.0, -1.0],
                 uv: [1.0, 0.0],
             },
             BlitVertex {
@@ -281,7 +328,7 @@ impl SwapChain {
                 uv: [1.0, 1.0],
             },
             BlitVertex {
-                pos: [0.0, 0.0],
+                pos: [-1.0, -1.0],
                 uv: [0.0, 0.0],
             },
             BlitVertex {
@@ -289,7 +336,7 @@ impl SwapChain {
                 uv: [1.0, 1.0],
             },
             BlitVertex {
-                pos: [0.0, 1.0],
+                pos: [-1.0, 1.0],
                 uv: [0.0, 1.0],
             },
         ];
@@ -339,6 +386,33 @@ impl SwapChain {
                 push_constant_ranges: &[],
             });
 
+        let vs = device.create_shader_module(super::super::ShaderModuleDescriptor {
+            label: Some("Flip-Y VS"),
+            source: super::super::ShaderSource::Glsl {
+                shader: include_str!("shaders/blit.vert").into(),
+                stage: naga::ShaderStage::Vertex,
+                defines: Default::default(),
+            },
+        });
+
+        let fs = device.create_shader_module(super::super::ShaderModuleDescriptor {
+            label: Some("Flip-Y FS"),
+            source: super::super::ShaderSource::Glsl {
+                shader: include_str!("shaders/blit.frag").into(),
+                stage: naga::ShaderStage::Fragment,
+                defines: Default::default(),
+            },
+        });
+
+        // TODO 处理 wgt::TextureFormat::Bgra8UnormSrgb
+        let format = match config.format {
+            wgt::TextureFormat::Rgba8Unorm => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8Unorm => wgt::TextureFormat::Bgra8Unorm,
+            wgt::TextureFormat::Rgba8UnormSrgb => wgt::TextureFormat::Rgba8Unorm,
+            wgt::TextureFormat::Bgra8UnormSrgb => wgt::TextureFormat::Bgra8Unorm,
+            _ => unreachable!(),
+        };
+
         let rp = device.create_render_pipeline(&super::super::RenderPipelineDescriptor {
             label: Some("Flip-Y Render Pipeline"),
             layout: Some(&pipeline_layout),
@@ -366,7 +440,7 @@ impl SwapChain {
                 topology: super::super::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: super::super::FrontFace::Cw,
-                cull_mode: Some(super::super::Face::Back),
+                cull_mode: None,
                 unclipped_depth: false,
                 polygon_mode: super::super::PolygonMode::Fill,
                 conservative: false,
@@ -376,28 +450,31 @@ impl SwapChain {
             fragment: Some(super::super::FragmentState {
                 module: &fs,
                 entry_point: "main",
-                targets: &targets,
+                targets: &[Some(super::super::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: super::super::ColorWrites::ALL,
+                })],
             }),
             multiview: None,
         });
 
         let sampler = device.create_sampler(&super::super::SamplerDescriptor {
             label: Some("Flip-Y Sampler"),
-            address_mode_u: todo!(),
-            address_mode_v: todo!(),
-            address_mode_w: todo!(),
-            mag_filter: todo!(),
-            min_filter: todo!(),
-            mipmap_filter: todo!(),
-            lod_min_clamp: todo!(),
-            lod_max_clamp: todo!(),
-            compare: todo!(),
-            anisotropy_clamp: todo!(),
-            border_color: todo!(),
+            address_mode_u: wgt::AddressMode::ClampToEdge,
+            address_mode_v: wgt::AddressMode::ClampToEdge,
+            address_mode_w: wgt::AddressMode::ClampToEdge,
+            mag_filter: wgt::FilterMode::Nearest,
+            min_filter: wgt::FilterMode::Nearest,
+            mipmap_filter: wgt::FilterMode::Nearest,
+            ..Default::default()
         });
 
         let texture =
             Self::create_surface_texture(device, config.width, config.height, config.format);
+
+        let native_texture =
+            device.create_texture_from_surface(config.width, config.height, config.format);
 
         let texture_view = texture.create_view(&Default::default());
 
@@ -425,10 +502,13 @@ impl SwapChain {
             vb,
             bg,
             sampler,
+            bg_layout,
 
             texture_size: (config.width, config.height),
             texture,
             current_texture,
+
+            native_texture,
         }
     }
 
@@ -439,19 +519,48 @@ impl SwapChain {
         if need_update_texture {
             self.texture =
                 Self::create_surface_texture(device, config.width, config.height, config.format);
-
+            self.native_texture =
+                device.create_texture_from_surface(config.width, config.height, config.format);
+            let texture_view = self.texture.create_view(&Default::default());
             self.bg = device.create_bind_group(&super::super::BindGroupDescriptor {
-                label: todo!(),
-                layout: todo!(),
-                entries: todo!(),
+                label: Some("Flip-Y BindGroup"),
+                layout: &self.bg_layout,
+                entries: &[
+                    super::super::BindGroupEntry {
+                        binding: 0,
+                        resource: super::super::BindingResource::Sampler(&self.sampler),
+                    },
+                    super::super::BindGroupEntry {
+                        binding: 1,
+                        resource: super::super::BindingResource::TextureView(&texture_view),
+                    },
+                ],
             });
-
+            self.current_texture = None;
             self.update_current_texture();
         }
     }
 
-    fn present(&self) {
-        todo!() // Y-Flip
+    fn present(&mut self) {
+        let view = self.native_texture.create_view(&Default::default());
+        let mut rp = self
+            .encoder
+            .begin_render_pass(&super::super::RenderPassDescriptor {
+                label: Some("Flip-Y RenderPass"),
+                color_attachments: &[Some(super::super::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: super::super::Operations {
+                        load: super::super::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+        rp.set_pipeline(&self.rp);
+        rp.set_bind_group(0, &self.bg, &[]);
+        rp.set_vertex_buffer(0, self.vb.slice(..));
+        rp.draw(0..6, 0..1);
     }
 
     #[inline]
@@ -459,15 +568,6 @@ impl SwapChain {
         assert!(self.current_texture.is_none());
 
         self.current_texture = Some(self.texture.inner.clone());
-    }
-
-    #[inline]
-    fn acquire_texture(&mut self) -> Option<super::Texture> {
-        let r = self.current_texture.take();
-
-        log::trace!("======== hal::Surface acquire_texture = {:#?}", r);
-
-        r
     }
 
     fn create_surface_texture(
