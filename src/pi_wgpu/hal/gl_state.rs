@@ -18,7 +18,7 @@ use crate::ColorWrites;
 use super::{
     super::{hal, wgt, BufferSize},
     gl_cache::GLCache,
-    gl_conv as conv, PiBindingType, RawBinding, ShaderID, VertexAttribKind,
+    gl_conv as conv, PiBindingType, ShaderID, VertexAttribKind,
 };
 
 #[derive(Clone)]
@@ -52,10 +52,10 @@ impl GLState {
 
     #[inline]
     pub(crate) fn next_shader_id(&self) -> ShaderID {
-        log::trace!(
-            "========== GLState::next_shader_id lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::next_shader_id lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
@@ -63,135 +63,135 @@ impl GLState {
             s.global_shader_id
         };
 
-        log::trace!(
-            "========== GLState::next_shader_id unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::next_shader_id unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn max_attribute_slots(&self) -> usize {
-        log::trace!(
-            "========== GLState::max_attribute_slots lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_attribute_slots lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = { self.lock().max_attribute_slots };
 
-        log::trace!(
-            "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn max_textures_slots(&self) -> usize {
-        log::trace!(
-            "========== GLState::max_textures_slots lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_textures_slots lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = { self.lock().max_textures_slots };
 
-        log::trace!(
-            "========== GLState::max_textures_slots unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_textures_slots unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn max_color_attachments(&self) -> usize {
-        log::trace!(
-            "========== GLState::max_color_attachments lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_color_attachments lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = { self.lock().max_color_attachments };
 
-        log::trace!(
-            "========== GLState::max_color_attachments unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::max_color_attachments unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn get_program(&self, id: &super::ProgramID) -> Option<super::Program> {
-        log::trace!(
-            "========== GLState::get_program lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_program lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = { self.lock().cache.get_program(id) };
 
-        log::trace!(
-            "========== GLState::get_program unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_program unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn insert_program(&self, id: super::ProgramID, program: super::Program) {
-        log::trace!(
-            "========== GLState::insert_program lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::insert_program lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             self.lock().cache.insert_program(id, program);
         }
 
-        log::trace!(
-            "========== GLState::insert_program unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::insert_program unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn get_or_insert_rs(&self, rs: super::RasterStateImpl) -> Share<super::RasterState> {
-        log::trace!(
-            "========== GLState::get_or_insert_rs lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_rs lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
             s.cache.get_or_insert_rs(rs)
         };
 
-        log::trace!(
-            "========== GLState::get_or_insert_rs unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_rs unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn get_or_insert_ds(&self, ds: super::DepthStateImpl) -> Share<super::DepthState> {
-        log::trace!(
-            "========== GLState::get_or_insert_ds lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_ds lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
             s.cache.get_or_insert_ds(ds)
         };
 
-        log::trace!(
-            "========== GLState::get_or_insert_ds unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_ds unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
@@ -201,40 +201,40 @@ impl GLState {
         &self,
         rs: super::StencilStateImpl,
     ) -> Share<super::StencilState> {
-        log::trace!(
-            "========== GLState::get_or_insert_ss lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_ss lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
             s.cache.get_or_insert_ss(rs)
         };
 
-        log::trace!(
-            "========== GLState::get_or_insert_ss unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_ss unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn get_or_insert_bs(&self, bs: super::BlendStateImpl) -> Share<super::BlendState> {
-        log::trace!(
-            "========== GLState::get_or_insert_bs lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_bs lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
             s.cache.get_or_insert_bs(bs)
         };
 
-        log::trace!(
-            "========== GLState::get_or_insert_bs unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::get_or_insert_bs unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
@@ -246,20 +246,20 @@ impl GLState {
         vs_id: ShaderID,
         fs_id: ShaderID,
     ) -> Result<(glow::Program, Box<[Box<[super::PiBindEntry]>]>), super::ShaderError> {
-        log::trace!(
-            "========== GLState::create_program lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::create_program lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
             s.create_program(gl, vs_id, fs_id)
         };
 
-        log::trace!(
-            "========== GLState::create_program unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::create_program unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
@@ -277,10 +277,10 @@ impl GLState {
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
     ) -> Result<(), super::ShaderError> {
-        log::trace!(
-            "========== GLState::compile_shader lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::compile_shader lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = {
             let mut s = self.lock();
@@ -297,68 +297,68 @@ impl GLState {
             )
         };
 
-        log::trace!(
-            "========== GLState::compile_shader unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::compile_shader unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn remove_shader(&self, id: ShaderID) {
-        log::trace!(
-            "========== GLState::remove_shader lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_shader lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let mut s = self.lock();
             s.cache.remove_shader(id);
         }
 
-        log::trace!(
-            "========== GLState::remove_shader unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_shader unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn clear_cache(&self) {
-        log::trace!(
-            "========== GLState::clear_cache lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::clear_cache lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let mut s = self.lock();
             s.cache.clear_weak_refs();
         }
 
-        log::trace!(
-            "========== GLState::clear_cache unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::clear_cache unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn remove_render_buffer(&self, gl: &glow::Context, rb: glow::Renderbuffer) {
         profiling::scope!("hal::GLState::remove_render_buffer");
 
-        log::trace!(
-            "========== GLState::remove_render_buffer lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_render_buffer lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let cache = &mut self.lock().cache;
             cache.remove_render_buffer(gl, rb);
         }
 
-        log::trace!(
-            "========== GLState::remove_render_buffer unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_render_buffer unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     pub(crate) fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
@@ -369,10 +369,10 @@ impl GLState {
         }
 
         if bind_target == glow::ELEMENT_ARRAY_BUFFER {
-            log::trace!(
-                "========== GLState::remove_buffer lock, thread_id = {:?}",
-                thread::current().id()
-            );
+            // log::trace!(
+            //     "========== GLState::remove_buffer lock, thread_id = {:?}",
+            //     thread::current().id()
+            // );
 
             {
                 let imp = &mut self.lock();
@@ -383,46 +383,46 @@ impl GLState {
                 }
             }
 
-            log::trace!(
-                "========== GLState::remove_buffer unlock, thread_id = {:?}",
-                thread::current().id()
-            );
+            // log::trace!(
+            //     "========== GLState::remove_buffer unlock, thread_id = {:?}",
+            //     thread::current().id()
+            // );
 
             return;
         }
 
-        log::trace!(
-            "========== GLState::remove_buffer 2 lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_buffer 2 lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let cache = &mut self.lock().cache;
         cache.remove_buffer(gl, bind_target, buffer);
 
-        log::trace!(
-            "========== GLState::remove_buffer 2 unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_buffer 2 unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn remove_texture(&self, gl: &glow::Context, texture: glow::Texture) {
         profiling::scope!("hal::GLState::remove_texture");
 
-        log::trace!(
-            "========== GLState::remove_texture lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_texture lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let cache = &mut self.lock().cache;
             cache.remove_texture(gl, texture);
         }
 
-        log::trace!(
-            "========== GLState::remove_texture unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::remove_texture unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
         // TODO 到 TextureCache 移除 对应的 槽位
     }
 
@@ -441,10 +441,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_size");
 
-        log::trace!(
-            "========== GLState::set_buffer_size lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_buffer_size lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -452,10 +452,10 @@ impl GLState {
             imp.set_buffer_size(gl, buffer, size);
         }
 
-        log::trace!(
-            "========== GLState::set_buffer_size unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_buffer_size unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -468,39 +468,40 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_buffer_sub_data");
 
-        log::trace!(
-            "========== GLState::set_buffer_sub_data lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_buffer_sub_data lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
             imp.set_buffer_sub_data(gl, buffer, offset, data)
         }
-        log::trace!(
-            "========== GLState::set_buffer_sub_data unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+
+        // log::trace!(
+        //     "========== GLState::set_buffer_sub_data unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_render_pipeline(&self, gl: &glow::Context, pipeline: &super::RenderPipeline) {
         profiling::scope!("hal::GLState::set_render_pipeline");
 
-        log::trace!(
-            "========== GLState::set_render_pipeline lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_render_pipeline lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
             imp.set_render_pipeline(gl, pipeline);
         }
 
-        log::trace!(
-            "========== GLState::set_render_pipeline unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_render_pipeline unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -511,10 +512,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_render_target");
 
-        log::trace!(
-            "========== GLState::set_render_target lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_render_target lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -522,10 +523,10 @@ impl GLState {
             imp.set_render_target(gl, desc);
         }
 
-        log::trace!(
-            "========== GLState::set_render_target unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_render_target unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -537,10 +538,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_bind_group");
 
-        log::trace!(
-            "========== GLState::set_bind_group lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_bind_group lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -548,10 +549,10 @@ impl GLState {
             imp.set_bind_group(index, bind_group, dynamic_offsets);
         }
 
-        log::trace!(
-            "========== GLState::set_bind_group unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_bind_group unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -564,10 +565,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_vertex_buffer");
 
-        log::trace!(
-            "========== GLState::set_vertex_buffer lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_vertex_buffer lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -575,10 +576,10 @@ impl GLState {
             imp.set_vertex_buffer(index, buffer, offset, size)
         }
 
-        log::trace!(
-            "========== GLState::set_vertex_buffer unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_vertex_buffer unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -594,10 +595,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw_with_flip");
 
-        log::trace!(
-            "========== GLState::draw_with_flip lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw_with_flip lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -605,10 +606,10 @@ impl GLState {
             imp.draw_with_flip(gl, program, vao, width, height, texture, sampler);
         }
 
-        log::trace!(
-            "========== GLState::draw_with_flip unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw_with_flip unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -621,10 +622,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::flip_surface");
 
-        log::trace!(
-            "========== GLState::flip_surface lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::flip_surface lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -632,10 +633,10 @@ impl GLState {
             imp.flip_surface(gl, fbo, width, height);
         }
 
-        log::trace!(
-            "========== GLState::flip_surface unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::flip_surface unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -649,10 +650,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::set_index_buffer");
 
-        log::trace!(
-            "========== GLState::set_index_buffer lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_index_buffer lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -660,10 +661,10 @@ impl GLState {
             imp.set_index_buffer(gl, buffer, format, offset, size)
         }
 
-        log::trace!(
-            "========== GLState::set_index_buffer unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_index_buffer unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -676,10 +677,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw");
 
-        log::trace!(
-            "========== GLState::draw lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -687,10 +688,10 @@ impl GLState {
             imp.draw(gl, start_vertex, vertex_count, instance_count);
         }
 
-        log::trace!(
-            "========== GLState::draw unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
@@ -703,10 +704,10 @@ impl GLState {
     ) {
         profiling::scope!("hal::GLState::draw_indexed");
 
-        log::trace!(
-            "========== GLState::draw_indexed lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw_indexed lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -714,20 +715,20 @@ impl GLState {
             imp.draw_indexed(gl, start_index, index_count, instance_count);
         }
 
-        log::trace!(
-            "========== GLState::draw_indexed unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::draw_indexed unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_viewport(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_viewport");
 
-        log::trace!(
-            "========== GLState::set_viewport lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_viewport lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -735,20 +736,20 @@ impl GLState {
             imp.set_viewport(gl, x, y, w, h);
         }
 
-        log::trace!(
-            "========== GLState::set_viewport unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_viewport unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_scissor(&self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         profiling::scope!("hal::GLState::set_scissor");
 
-        log::trace!(
-            "========== GLState::set_scissor lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_scissor lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -756,20 +757,20 @@ impl GLState {
             imp.set_scissor(gl, x, y, w, h)
         }
 
-        log::trace!(
-            "========== GLState::set_scissor unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_scissor unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_depth_range(&self, gl: &glow::Context, min_depth: f32, max_depth: f32) {
         profiling::scope!("hal::GLState::set_depth_range");
 
-        log::trace!(
-            "========== GLState::set_depth_range lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_depth_range lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -777,20 +778,20 @@ impl GLState {
             imp.set_depth_range(gl, min_depth, max_depth);
         }
 
-        log::trace!(
-            "========== GLState::set_depth_range unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_depth_range unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_blend_color(&self, gl: &glow::Context, color: &[f32; 4]) {
         profiling::scope!("hal::GLState::set_blend_color");
 
-        log::trace!(
-            "========== GLState::set_blend_color lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_blend_color lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
@@ -798,30 +799,30 @@ impl GLState {
             imp.set_blend_color(gl, color);
         }
 
-        log::trace!(
-            "========== GLState::set_blend_color unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_blend_color unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 
     #[inline]
     pub(crate) fn set_stencil_reference(&self, gl: &glow::Context, reference: i32) {
         profiling::scope!("hal::GLState::set_stencil_reference");
 
-        log::trace!(
-            "========== GLState::set_stencil_reference lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_stencil_reference lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let imp = &mut self.lock();
             imp.set_stencil_reference(gl, reference);
         }
 
-        log::trace!(
-            "========== GLState::set_stencil_reference unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== GLState::set_stencil_reference unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
     }
 }
 

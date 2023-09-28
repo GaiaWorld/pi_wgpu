@@ -16,7 +16,7 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::Builder::new()
-            .filter(None, log::LevelFilter::Info)
+            .filter(None, log::LevelFilter::Trace)
             .init();
 
         pollster::block_on(run(event_loop, window));

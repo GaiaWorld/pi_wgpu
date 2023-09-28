@@ -39,6 +39,11 @@ pub trait DeviceExt {
 
 impl DeviceExt for super::super::Device {
     fn create_buffer_init(&self, descriptor: &BufferInitDescriptor<'_>) -> super::super::Buffer {
+        log::trace!(
+            "pi_wgpu::util::DeviceExt, create_buffer_init, descriptor = {:?}",
+            descriptor
+        );
+
         // Skip mapping if the buffer is zero sized
         if descriptor.contents.is_empty() {
             panic!("can't create buffer with zero conent!");
@@ -64,6 +69,12 @@ impl DeviceExt for super::super::Device {
         desc: &crate::TextureDescriptor,
         data: &[u8],
     ) -> crate::Texture {
+        log::trace!(
+            "pi_wgpu::util::DeviceExt, create_texture_with_data, desc = {:?}, data = {:?}",
+            desc,
+            data
+        );
+
         // Implicitly add the COPY_DST usage
         let mut desc = desc.to_owned();
         desc.usage |= crate::TextureUsages::COPY_DST;

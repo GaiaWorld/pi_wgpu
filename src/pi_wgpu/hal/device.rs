@@ -79,7 +79,6 @@ impl Device {
         &self,
         desc: &super::super::BindGroupDescriptor,
     ) -> Result<super::BindGroup, super::super::DeviceError> {
-        log::trace!("=========== + device.create_bind_group");
         super::BindGroup::new(desc)
     }
 
@@ -88,7 +87,6 @@ impl Device {
         &self,
         desc: &super::super::ShaderModuleDescriptor,
     ) -> Result<super::ShaderModule, super::ShaderError> {
-        log::info!("=========== + device.create_shader_module");
         super::ShaderModule::new(self.state.clone(), &self.adapter, desc)
     }
 

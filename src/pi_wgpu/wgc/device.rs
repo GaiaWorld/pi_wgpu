@@ -40,6 +40,7 @@ impl Device {
     /// Creates a shader module from either SPIR-V or WGSL source code.
     #[inline]
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor) -> ShaderModule {
+        log::trace!("pi_wgpu::Device, create_shader_module");
         let r = self.inner.create_shader_module(&desc);
         let r = r.unwrap();
         ShaderModule::from_hal(r)
@@ -51,6 +52,8 @@ impl Device {
         &self,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> CommandEncoder {
+        log::trace!("pi_wgpu::Device, create_command_encoder, desc = {:?}", desc);
+
         let r = self.inner.create_command_encoder(&desc);
         let r = r.unwrap();
         CommandEncoder::from_hal(r)
@@ -59,6 +62,7 @@ impl Device {
     /// Creates a [`BindGroupLayout`].
     #[inline]
     pub fn create_bind_group_layout(&self, desc: &BindGroupLayoutDescriptor) -> BindGroupLayout {
+        log::trace!("pi_wgpu::Device, create_bind_group_layout, desc = {:?}", desc);
         let r = self.inner.create_bind_group_layout(&desc);
         let r = r.unwrap();
         BindGroupLayout::from_hal(r)
@@ -67,6 +71,7 @@ impl Device {
     /// Creates a new [`BindGroup`].
     #[inline]
     pub fn create_bind_group(&self, desc: &super::super::BindGroupDescriptor) -> BindGroup {
+        log::trace!("pi_wgpu::Device, create_bind_group, desc = {:?}", desc);
         let r = self.inner.create_bind_group(&desc);
         let r = r.unwrap();
         BindGroup::from_hal(r)
@@ -75,6 +80,7 @@ impl Device {
     /// Creates a [`PipelineLayout`].
     #[inline]
     pub fn create_pipeline_layout(&self, desc: &PipelineLayoutDescriptor) -> PipelineLayout {
+        log::trace!("pi_wgpu::Device, create_pipeline_layout, desc = {:?}", desc);
         let r = self.inner.create_pipeline_layout(&desc);
         let r = r.unwrap();
         PipelineLayout::from_hal(r)
@@ -83,6 +89,7 @@ impl Device {
     /// Creates a [`RenderPipeline`].
     #[inline]
     pub fn create_render_pipeline(&self, desc: &RenderPipelineDescriptor) -> RenderPipeline {
+        log::trace!("pi_wgpu::Device, create_render_pipeline, desc = {:?}", desc);
         let r = self.inner.create_render_pipeline(&desc);
         let r = r.unwrap();
         RenderPipeline::from_hal(r)
@@ -91,6 +98,7 @@ impl Device {
     /// Creates a [`Buffer`].
     #[inline]
     pub fn create_buffer(&self, desc: &super::super::BufferDescriptor) -> Buffer {
+        log::trace!("pi_wgpu::Device, create_buffer, desc = {:?}", desc);
         #[cfg(debug_assertions)]
         {
             // 判断 Buffer 的 用途 只能有一个
@@ -131,6 +139,7 @@ impl Device {
     /// `desc` specifies the general format of the texture.
     #[inline]
     pub fn create_texture(&self, desc: &super::super::TextureDescriptor) -> Texture {
+        log::trace!("pi_wgpu::Device, create_texture, desc = {:?}", desc);
         #[cfg(debug_assertions)]
         {
             debug_assert!(!desc.usage.contains(TextureUsages::STORAGE_BINDING));
@@ -176,6 +185,7 @@ impl Device {
     /// `desc` specifies the behavior of the sampler.
     #[inline]
     pub fn create_sampler(&self, desc: &SamplerDescriptor) -> Sampler {
+        log::trace!("pi_wgpu::Device, create_sampler, desc = {:?}", desc);
         let r = self.inner.create_sampler(&desc);
         let r = r.unwrap();
         Sampler::from_hal(r)

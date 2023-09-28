@@ -22,6 +22,12 @@ impl Queue {
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
+        log::trace!(
+            "pi_wgpu::Queue::write_buffer, buffer = {:?}, offset = {:?}, data = {:?}",
+            buffer,
+            offset,
+            data
+        );
         let gl = self.inner.adapter.lock();
         buffer.inner.write_buffer(&gl, offset as i32, data);
     }
@@ -51,6 +57,8 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
+        log::trace!("pi_wgpu::Queue::write_texture, texture = {:?}, data = {:?}, data_layout = {:?}, size = {:?}", texture, data, data_layout,size);
+
         hal::Texture::write_data(texture, data, data_layout, size);
     }
 
@@ -60,8 +68,10 @@ impl Queue {
         &self,
         command_buffers: I,
     ) -> SubmissionIndex {
+        log::trace!("pi_wgpu::Queue::submit");
+
         let iter = command_buffers.into_iter().map(|v| v.inner);
-        
+
         self.inner.submit(iter);
         SubmissionIndex
     }

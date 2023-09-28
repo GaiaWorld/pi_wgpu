@@ -42,6 +42,8 @@ impl Instance {
     pub fn new(instance_desc: InstanceDescriptor) -> Self {
         profiling::scope!("Instance::new");
 
+        log::trace!("pi_wgpu::Instance::new");
+
         assert!(instance_desc.backends.contains(Backends::GL));
 
         let mut flags = hal::InstanceFlags::empty();
@@ -75,6 +77,8 @@ impl Instance {
         options: &super::super::RequestAdapterOptions,
     ) -> impl Future<Output = Option<super::super::Adapter>> + Send {
         profiling::scope!("Instance::request_adapter");
+
+        log::trace!("pi_wgpu::Instance::request_adapter, options = {:?}", options);
 
         // 不支持 软件 Adapter
         assert!(!options.force_fallback_adapter);
@@ -181,6 +185,8 @@ impl Instance {
     ) -> Result<Surface, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
 
+        log::trace!("pi_wgpu::Instance::create_surface");
+        
         let display_handle = HasRawDisplayHandle::raw_display_handle(window);
 
         let window_handle = HasRawWindowHandle::raw_window_handle(window);

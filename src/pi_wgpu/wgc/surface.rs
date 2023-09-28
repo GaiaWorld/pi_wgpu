@@ -18,8 +18,6 @@ impl Surface {
     ///
     /// Returns specified values (see [`SurfaceCapabilities`]) if surface is incompatible with the adapter.
     pub fn get_capabilities(&self, adapter: &Adapter) -> SurfaceCapabilities {
-        profiling::scope!("Surface::get_capabilities");
-
         let mut hal_caps = adapter.inner.surface_capabilities(&self.inner).unwrap();
 
         hal_caps.formats.sort_by_key(|f| !f.is_srgb());
@@ -39,10 +37,7 @@ impl Surface {
     /// - Texture format requested is unsupported on the surface.
     #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
-        // assert!(config.present_mode == wgt::PresentMode::Fifo);
-
-        // assert!(config.alpha_mode == wgt::CompositeAlphaMode::Opaque);
-
+        log::trace!("pi_wgpu::Surface::configure, config = {:?}", config);
         self.inner.configure(&device, config).unwrap();
     }
 
@@ -56,6 +51,7 @@ impl Surface {
     /// recreating the swapchain will panic.
     #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
+        log::trace!("pi_wgpu::Surface::get_current_texture");
         match self.inner.acquire_texture() {
             None => Err(SurfaceError::Lost),
             Some(inner) => {
@@ -93,8 +89,6 @@ impl SurfaceTexture {
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
         self.surface.present().unwrap();
-
-        log::trace!("==================== SurfaceTexture present");
     }
 }
 

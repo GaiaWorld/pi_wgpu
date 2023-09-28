@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use parking_lot::{Mutex, MutexGuard};
 use pi_share::Share;
@@ -35,10 +35,10 @@ impl Surface {
 
     #[inline]
     pub(crate) fn present(&self) -> Result<(), egl::Error> {
-        log::trace!(
-            "========== Surface::present lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::present lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         {
             let mut imp = self.lock();
@@ -46,10 +46,10 @@ impl Surface {
             imp.present();
         }
 
-        log::trace!(
-            "========== Surface::present unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::present unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         Ok(())
     }
@@ -60,10 +60,10 @@ impl Surface {
         device: &crate::Device,
         config: &crate::SurfaceConfiguration,
     ) -> Result<(), super::SurfaceError> {
-        log::trace!(
-            "========== Surface::configure lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::configure lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         if config.width == 0 || config.height == 0 {
             log::warn!(
@@ -77,27 +77,27 @@ impl Surface {
 
         let r = { self.lock().configure(device, config) };
 
-        log::trace!(
-            "========== Surface::configure unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::configure unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
 
     #[inline]
     pub(crate) fn acquire_texture(&self) -> Option<super::Texture> {
-        log::trace!(
-            "========== Surface::acquire_texture lock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::acquire_texture lock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         let r = { self.lock().acquire_texture() };
 
-        log::trace!(
-            "========== Surface::acquire_texture unlock, thread_id = {:?}",
-            thread::current().id()
-        );
+        // log::trace!(
+        //     "========== Surface::acquire_texture unlock, thread_id = {:?}",
+        //     thread::current().id()
+        // );
 
         r
     }
@@ -161,7 +161,7 @@ impl SurfaceImpl {
             egl::ATTRIB_NONE as i32,
         ];
 
-        log::trace!(
+        log::info!(
             "============== create_window_surface attributes = {:?}",
             attributes
         );
