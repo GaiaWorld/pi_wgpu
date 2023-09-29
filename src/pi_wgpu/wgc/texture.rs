@@ -64,9 +64,10 @@ impl Texture {
     /// Creates a view of this texture.
     #[inline]
     pub fn create_view(&self, desc: &TextureViewDescriptor) -> TextureView {
-        log::trace!("pi_wgpu::Texture::create_view, desc = {:?}", desc);
+        
 
         let inner = hal::TextureView::new(&self.inner, desc).unwrap();
+		log::trace!("let texture_view{} = texture{}.create_view(&{:?})", inner.id, self.inner.0.inner.debug_str(), desc);
         TextureView { inner }
     }
 

@@ -20,14 +20,19 @@ impl Queue {
     /// internally to happen at the start of the next `submit()` call.
     ///
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
-    #[inline]
+    // #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        log::trace!(
-            "pi_wgpu::Queue::write_buffer, buffer = {:?}, offset = {:?}, data = {:?}",
-            buffer,
+		log::trace!(
+            "queue.write_buffer(&buffer{}, {}, &{:?});",
+            buffer.inner.0.raw.0.get(),
             offset,
             data
         );
+        self.write_buffer_inner(buffer, offset, data);
+    }
+
+	#[inline]
+    pub(crate) fn write_buffer_inner(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
         let gl = self.inner.adapter.lock();
         buffer.inner.write_buffer(&gl, offset as i32, data);
     }
@@ -49,8 +54,24 @@ impl Queue {
     /// discard it any time after this call completes.
     ///
     /// This method fails if `size` overruns the size of `texture`, or if `data` is too short.
-    #[inline]
+	///  #[inline]
     pub fn write_texture(
+        &self,
+        texture: super::super::ImageCopyTexture,
+        data: &[u8],
+        data_layout: ImageDataLayout,
+        size: Extent3d,
+    ) {
+		//todo
+        log::trace!(
+            "queue.write_texture"
+        );
+
+        self.write_texture_inner(texture, data, data_layout, size);
+    }
+
+    #[inline]
+    pub(crate) fn write_texture_inner(
         &self,
         texture: super::super::ImageCopyTexture,
         data: &[u8],

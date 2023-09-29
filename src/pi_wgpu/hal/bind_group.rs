@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU32;
+
 use pi_share::Share;
 
 use super::super::wgt;
@@ -5,6 +7,7 @@ use super::super::wgt;
 #[derive(Debug)]
 pub struct BindGroupLayout {
     pub(crate) entries: Share<[wgt::BindGroupLayoutEntry]>,
+	pub(crate) id: u32,
 }
 impl BindGroupLayout {
     pub fn new(
@@ -12,7 +15,7 @@ impl BindGroupLayout {
     ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::BindGroupLayout::new");
         let entries = desc.entries.to_vec().into();
-        Ok(Self { entries })
+        Ok(Self { entries, id: GROUP_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed) })
     }
 }
 
@@ -20,6 +23,7 @@ impl BindGroupLayout {
 pub(crate) struct BindGroup {
     pub(crate) layout: Share<[wgt::BindGroupLayoutEntry]>,
     pub(crate) contents: Box<[RawBinding]>,
+	pub(crate) id: u32, // id用于跟踪调试
 }
 
 impl BindGroup {
@@ -94,8 +98,13 @@ impl BindGroup {
             .collect();
 
         let layout = desc.layout.inner.entries.clone();
-        Ok(Self { contents, layout })
+        Ok(Self { contents, layout, id: GROUP_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed), })
     }
+}
+
+lazy_static! {
+    static ref GROUP_AROM: AtomicU32 = AtomicU32::new(1);
+	static ref GROUP_LAYOUT_AROM: AtomicU32 = AtomicU32::new(1);
 }
 
 #[derive(Debug, Clone)]

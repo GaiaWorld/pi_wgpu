@@ -30,6 +30,7 @@ codespan-reporting = "0.11"
 raw-window-handle = "0.5"
 profiling = { version = "1", default-features = false }
 serde = { version = "1", features = ["serde_derive"], optional = true }
+lazy_static = "1.4"
 
 # backend: Gles
 glow = { version = "0.12" }

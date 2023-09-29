@@ -7,3 +7,6 @@ pub use wgpu::*;
 mod pi_wgpu;
 #[cfg(not(feature = "wgpu"))]
 pub use pi_wgpu::*;
+
+#[macro_use]
+extern crate lazy_static;

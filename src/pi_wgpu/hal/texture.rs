@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::atomic::AtomicU32;
 
 use glow::HasContext;
 use pi_share::Share;
@@ -376,6 +377,7 @@ pub(crate) struct TextureView {
     pub(crate) mip_levels: Range<u32>,
     pub(crate) array_layers: Range<u32>,
     pub(crate) format: wgt::TextureFormat,
+	pub(crate) id: u32,
 }
 
 impl TextureView {
@@ -412,8 +414,12 @@ impl TextureView {
 
             aspects: super::FormatAspects::from(imp.format)
                 & super::FormatAspects::from(desc.aspect),
+			id: TEXTURE_VIEW_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         })
     }
+}
+lazy_static! {
+    static ref TEXTURE_VIEW_AROM: AtomicU32 = AtomicU32::new(1);
 }
 
 #[derive(Debug, Clone)]
@@ -450,9 +456,20 @@ pub(crate) enum TextureInner {
     },
 }
 
+impl TextureInner {
+	pub(crate) fn debug_str(&self) -> String {
+		match self {
+			crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
+			crate::pi_wgpu::hal::TextureInner::Renderbuffer { state, adapter, raw } => "render".to_string() + raw.0.get().to_string().as_str(),
+			crate::pi_wgpu::hal::TextureInner::Texture { state, adapter, raw, target } => "".to_string() + raw.0.get().to_string().as_str(),
+		}
+	}
+}
+
 impl Drop for TextureInner {
     fn drop(&mut self) {
         profiling::scope!("hal::TextureInner::drop");
+		log::trace!("Dropping TextureInner {:?}", self);
 
         match &self {
             &TextureInner::NativeRenderBuffer => {}

@@ -42,7 +42,7 @@ impl Instance {
     pub fn new(instance_desc: InstanceDescriptor) -> Self {
         profiling::scope!("Instance::new");
 
-        log::trace!("pi_wgpu::Instance::new");
+        log::trace!("pi_wgpu::Instance::new, instance_desc{:?}", instance_desc);
 
         assert!(instance_desc.backends.contains(Backends::GL));
 
@@ -184,8 +184,6 @@ impl Instance {
         window: &W,
     ) -> Result<Surface, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
-
-        log::trace!("pi_wgpu::Instance::create_surface");
         
         let display_handle = HasRawDisplayHandle::raw_display_handle(window);
 
@@ -193,6 +191,7 @@ impl Instance {
 
         let raw = self.inner.create_surface(display_handle, window_handle);
 
+		log::trace!("pi_wgpu::Instance::create_surface, result = {:?}", raw);
         Ok(super::super::Surface {
             inner: raw.unwrap(),
         })

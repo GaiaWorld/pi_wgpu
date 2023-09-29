@@ -84,6 +84,7 @@ pub(crate) struct SamplerImpl {
 impl Drop for SamplerImpl {
     #[inline]
     fn drop(&mut self) {
+		log::trace!("Dropping SamplerImpl {:?}", self.raw);
         let gl = self.adapter.lock();
 
         unsafe {

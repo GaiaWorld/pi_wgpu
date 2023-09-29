@@ -95,7 +95,6 @@ impl Device {
         &self,
         desc: &super::super::RenderPipelineDescriptor,
     ) -> Result<super::RenderPipeline, super::PipelineError> {
-        log::info!("=========== + device.create_pipeline");
         let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, &self.features, desc)?;
         Ok(super::RenderPipeline(Share::new(imp)))
     }

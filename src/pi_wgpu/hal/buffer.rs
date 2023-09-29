@@ -71,6 +71,7 @@ impl Drop for BufferImpl {
     #[inline]
     fn drop(&mut self) {
         let gl = self.adapter.lock();
+		log::trace!("Dropping buffer {:?}", self.raw);
         unsafe {
             gl.delete_buffer(self.raw);
         }

@@ -56,10 +56,9 @@ impl CommandEncoder {
         &'pass mut self,
         desc: &RenderPassDescriptor<'pass, '_>,
     ) -> RenderPass<'pass> {
-        log::trace!(
-            "pi_wgpu::CommandEncoder::begin_render_pass, desc = {:?}",
-            desc
-        );
+		log::trace!(
+			"let render_pass = command_encoder.begin_render_pass(&{:?});",desc,
+		);
 
         let gl = self.inner.begin_render_pass(desc);
 
@@ -103,6 +102,7 @@ pub struct RenderPass<'a> {
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
+		log::trace!("Dropping RenderPass");
         self.encoder.end_render_pass()
     }
 }
@@ -120,7 +120,9 @@ impl<'a> RenderPass<'a> {
         bind_group: &'a BindGroup,
         offsets: &[DynamicOffset],
     ) {
-        log::trace!("pi_wgpu::RenderPass::set_bind_group, index = {:?}, bind_group = {:?}, offsets = {:?}", index, bind_group, offsets);
+		log::trace!(
+			"render_pass.set_bind_group({:?}, &bind_group{:?}, &{:?});",index, bind_group.inner.id, offsets
+		);
 
         self.encoder
             .set_bind_group(index, &bind_group.inner, offsets)
@@ -130,7 +132,9 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will exhibit the behavior defined by `pipeline`.
     pub fn set_pipeline(&mut self, pipeline: &'a RenderPipeline) {
-        log::trace!("pi_wgpu::RenderPass::set_pipeline, pipeline");
+		log::trace!(
+			"render_pass.set_pipeline(&render_pipeline{:?});", pipeline.inner.0.id
+		);
         self.encoder.set_render_pipeline(&self.gl, &pipeline.inner)
     }
 
@@ -138,10 +142,9 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent blending tests will test against this value.
     pub fn set_blend_constant(&mut self, color: Color) {
-        log::trace!(
-            "pi_wgpu::RenderPass::set_blend_constant, color = {:?}",
-            color
-        );
+		log::trace!(
+			"render_pass.set_blend_constant({:?});", color
+		);
         let arr = [
             color.r as f32,
             color.g as f32,
@@ -156,7 +159,15 @@ impl<'a> RenderPass<'a> {
     /// Subsequent calls to [`draw_indexed`](RenderPass::draw_indexed) on this [`RenderPass`] will
     /// use `buffer` as the source index buffer.
     pub fn set_index_buffer(&mut self, buffer_slice: BufferSlice<'a>, index_format: IndexFormat) {
-        log::trace!("pi_wgpu::RenderPass::set_index_buffer, buffer_slice = {:?}, index_format = {:?}", buffer_slice, index_format);
+		match buffer_slice.size {
+			Some(r)=> log::trace!(
+				"render_pass.set_index_buffer(buffer{}.slice({}..{}), IndexFormat::{:?});",buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, buffer_slice.offset + r.get(), index_format
+			),
+			None => log::trace!(
+				"render_pass.set_index_buffer(buffer{}.slice({}..), IndexFormat::{:?});",buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, index_format
+			)
+		};
+
         let binding = super::super::BufferBinding {
             buffer: buffer_slice.buffer,
             offset: buffer_slice.offset,
@@ -178,11 +189,15 @@ impl<'a> RenderPass<'a> {
     /// [`draw`]: RenderPass::draw
     /// [`draw_indexed`]: RenderPass::draw_indexed
     pub fn set_vertex_buffer(&mut self, slot: u32, buffer_slice: BufferSlice<'a>) {
-        log::trace!(
-            "pi_wgpu::RenderPass::set_vertex_buffer, slot = {}, buffer_slice = {:?}",
-            slot,
-            buffer_slice
-        );
+		match buffer_slice.size {
+			Some(r)=> log::trace!(
+				"render_pass.set_vertex_buffer({}, buffer{}.slice({}..{}));", slot, buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, buffer_slice.offset + r.get()
+			),
+			None => log::trace!(
+				"render_pass.set_vertex_buffer({}, buffer{}.slice({}..));", slot, buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset
+			)
+		};
+
         let binding = super::super::BufferBinding {
             buffer: buffer_slice.buffer,
             offset: buffer_slice.offset,
@@ -195,7 +210,7 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will discard any fragments that fall outside this region.
     pub fn set_scissor_rect(&mut self, x: u32, y: u32, width: u32, height: u32) {
-        log::trace!("pi_wgpu::RenderPass::set_scissor_rect, x = {}, y = {}, width = {}, height = {}", x, y, width, height);
+		log::trace!("render_pass.set_scissor_rect({x}, {y}, {width}, {height});");
         self.encoder
             .set_scissor_rect(&self.gl, x as i32, y as i32, width as i32, height as i32)
     }
@@ -204,8 +219,7 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will draw any fragments in this region.
     pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {
-        log::trace!("pi_wgpu::RenderPass::set_viewport, x = {}, y = {}, width = {}, height = {}, min_d = {}, max_d = {}", x, y, w, h, min_depth, max_depth);
-
+        log::trace!("render_pass.set_viewport({x}, {y}, {w}, {h}, {min_depth}, {max_depth});");
         self.encoder.set_viewport(
             &self.gl, x as i32, y as i32, w as i32, h as i32, min_depth, max_depth,
         )
@@ -215,10 +229,7 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent stencil tests will test against this value.
     pub fn set_stencil_reference(&mut self, reference: u32) {
-        log::trace!(
-            "pi_wgpu::RenderPass::set_stencil_reference, reference = {}",
-            reference
-        );
+        log::trace!("render_pass.set_stencil_reference({reference});");
         self.encoder.set_stencil_reference(&self.gl, reference)
     }
 
@@ -226,11 +237,7 @@ impl<'a> RenderPass<'a> {
     ///
     /// The active vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
-        log::trace!(
-            "pi_wgpu::RenderPass::draw, vertices = {:?}, instance = {:?}",
-            vertices,
-            instances
-        );
+		log::trace!("render_pass.draw({:?}, {:?});",vertices, instances);
         self.encoder.draw(
             &self.gl,
             vertices.start,
@@ -245,8 +252,7 @@ impl<'a> RenderPass<'a> {
     /// The active index buffer can be set with [`RenderPass::set_index_buffer`], while the active
     /// vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw_indexed(&mut self, indices: Range<u32>, base_vertex: i32, instances: Range<u32>) {
-        log::trace!("pi_wgpu::RenderPass::draw_indexed, indices = {:?}, base_vertex = {}, instances = {:?}", indices, base_vertex, instances);
-
+		log::trace!("render_pass.draw_indexed({indices:?}, {base_vertex:?}, {instances:?});");
         self.encoder.draw_indexed(
             &self.gl,
             indices.start,

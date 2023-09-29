@@ -113,6 +113,7 @@ pub(crate) struct SurfaceImpl {
 
 impl Drop for SurfaceImpl {
     fn drop(&mut self) {
+		log::trace!("Dropping SurfaceImpl {:?}", self.raw);
         self.adapter.remove_surface(self.raw);
 
         let egl = self.adapter.egl_ref();

@@ -39,11 +39,6 @@ pub trait DeviceExt {
 
 impl DeviceExt for super::super::Device {
     fn create_buffer_init(&self, descriptor: &BufferInitDescriptor<'_>) -> super::super::Buffer {
-        log::trace!(
-            "pi_wgpu::util::DeviceExt, create_buffer_init, descriptor = {:?}",
-            descriptor
-        );
-
         // Skip mapping if the buffer is zero sized
         if descriptor.contents.is_empty() {
             panic!("can't create buffer with zero conent!");
@@ -56,11 +51,18 @@ impl DeviceExt for super::super::Device {
                 mapped_at_creation: true,
             };
 
-            let buffer = self.create_buffer(&wgt_descriptor);
+            let buffer = self.create_buffer_inner(&wgt_descriptor);
             let gl = self.inner.adapter.lock();
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);
+			log::trace!(
+				"let buffer{:?} = device.create_buffer_init(&{:?});",
+				buffer.inner.0.raw.0,
+				descriptor,
+			);
+
             buffer
         }
+		
     }
 
     fn create_texture_with_data(
@@ -69,16 +71,11 @@ impl DeviceExt for super::super::Device {
         desc: &crate::TextureDescriptor,
         data: &[u8],
     ) -> crate::Texture {
-        log::trace!(
-            "pi_wgpu::util::DeviceExt, create_texture_with_data, desc = {:?}, data = {:?}",
-            desc,
-            data
-        );
 
         // Implicitly add the COPY_DST usage
         let mut desc = desc.to_owned();
         desc.usage |= crate::TextureUsages::COPY_DST;
-        let texture = self.create_texture(&desc);
+        let texture = self.create_texture_inner(&desc);
 
         // Will return None only if it's a combined depth-stencil format
         // If so, default to 4, validation will fail later anyway since the depth or stencil
@@ -111,7 +108,7 @@ impl DeviceExt for super::super::Device {
 
                 let end_offset = binary_offset + data_size as usize;
 
-                queue.write_texture(
+                queue.write_texture_inner(
                     crate::ImageCopyTexture {
                         texture: &texture,
                         mip_level: mip,
@@ -134,6 +131,13 @@ impl DeviceExt for super::super::Device {
                 binary_offset = end_offset;
             }
         }
+		{
+			log::trace!(
+				"let texture{:?} = device.create_texture_with_data(&{:?});",
+				texture.inner.0.inner.debug_str(),
+				desc,
+			);
+		}
 
         texture
     }

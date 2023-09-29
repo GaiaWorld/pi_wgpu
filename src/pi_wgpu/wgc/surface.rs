@@ -37,7 +37,7 @@ impl Surface {
     /// - Texture format requested is unsupported on the surface.
     #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
-        log::trace!("pi_wgpu::Surface::configure, config = {:?}", config);
+        log::trace!("surface.configure(device, &{:?});", config);
         self.inner.configure(&device, config).unwrap();
     }
 
@@ -51,11 +51,11 @@ impl Surface {
     /// recreating the swapchain will panic.
     #[inline]
     pub fn get_current_texture(&self) -> Result<SurfaceTexture, SurfaceError> {
-        log::trace!("pi_wgpu::Surface::get_current_texture");
         match self.inner.acquire_texture() {
             None => Err(SurfaceError::Lost),
             Some(inner) => {
                 let texture = crate::Texture::into_surface_texture(inner);
+				log::trace!("pi_wgpu::Surface::get_current_texture, result={:?}", texture);
                 Ok(SurfaceTexture {
                     texture,
                     suboptimal: true,

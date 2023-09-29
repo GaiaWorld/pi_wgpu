@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU32;
+
 use glow::HasContext;
 use naga::back::glsl;
 use ordered_float::OrderedFloat;
@@ -11,6 +13,7 @@ use super::{super::wgt, gl_conv as conv, AdapterContext, AttributeState, GLState
 pub(crate) struct PipelineLayout {
     pub(crate) group_infos: Box<[BindGroupLayoutInfo]>,
     pub(crate) naga_options: naga::back::glsl::Options,
+	pub(crate) id: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +99,7 @@ impl PipelineLayout {
         Ok(Self {
             group_infos,
             naga_options,
+			id: PIPELINE_LAYOUT_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         })
     }
 }
@@ -119,6 +123,12 @@ pub(crate) struct RenderPipelineImpl {
     pub(crate) ds: Share<super::DepthState>,
     pub(crate) bs: Share<super::BlendState>,
     pub(crate) ss: Share<super::StencilState>,
+	pub(crate) id: u32,
+}
+
+lazy_static! {
+    static ref POPELINE_AROM: AtomicU32 = AtomicU32::new(1);
+	static ref PIPELINE_LAYOUT_AROM: AtomicU32 = AtomicU32::new(1);
 }
 
 impl RenderPipelineImpl {
@@ -204,6 +214,7 @@ impl RenderPipelineImpl {
             ds,
             bs,
             ss,
+			id: POPELINE_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         })
     }
 }
@@ -602,6 +613,7 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
+		log::trace!("Dropping ProgramImpl {:?}", self.raw);
         let gl = self.adapter.lock();
 
         unsafe {
