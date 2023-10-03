@@ -19,18 +19,15 @@ use_wgpu = ["wgpu", "wgpu/glsl"]
 pi_share = "0.4"
 
 log = "0.4"
-futures = "0.3"
-arrayvec = "0.7"
 bitflags = "2.4"
 thiserror = "1.0"
 twox-hash = "1.6"
-ordered-float = "3.9"
-parking_lot = "0.12"
-codespan-reporting = "0.11"
-raw-window-handle = "0.5"
-profiling = { version = "1", default-features = false }
-serde = { version = "1", features = ["serde_derive"], optional = true }
 lazy_static = "1.4"
+parking_lot = "0.12"
+ordered-float = "3.9"
+raw-window-handle = "0.5"
+codespan-reporting = "0.11"
+profiling = { version = "1", default-features = false }
 
 # backend: Gles
 glow = { version = "0.12" }
@@ -67,7 +64,7 @@ android_system_properties = "0.1.1"
 version = "0.12"
 features = ["clone", "glsl-in", "glsl-out"]
 
-# DEV dependenciesw
+# DEV dependencies
 
 [dev-dependencies]
 log = "0.4"

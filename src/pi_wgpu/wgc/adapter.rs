@@ -1,6 +1,4 @@
-use std::future::Future;
-
-use futures::future::FutureExt;
+use std::future::{ready, Future};
 use thiserror::Error;
 
 use super::super::{
@@ -76,7 +74,7 @@ impl Adapter {
             Err(e) => Err(e),
         };
 
-        async { r }.boxed()
+        ready(r)
     }
 
     /// Returns whether this adapter may present to the passed surface.
