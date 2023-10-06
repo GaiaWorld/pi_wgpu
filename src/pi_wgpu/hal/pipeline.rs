@@ -13,7 +13,7 @@ use super::{super::wgt, gl_conv as conv, AdapterContext, AttributeState, GLState
 pub(crate) struct PipelineLayout {
     pub(crate) group_infos: Box<[BindGroupLayoutInfo]>,
     pub(crate) naga_options: naga::back::glsl::Options,
-	pub(crate) id: u32,
+    pub(crate) id: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ impl PipelineLayout {
         Ok(Self {
             group_infos,
             naga_options,
-			id: PIPELINE_LAYOUT_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            id: PIPELINE_LAYOUT_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         })
     }
 }
@@ -123,12 +123,12 @@ pub(crate) struct RenderPipelineImpl {
     pub(crate) ds: Share<super::DepthState>,
     pub(crate) bs: Share<super::BlendState>,
     pub(crate) ss: Share<super::StencilState>,
-	pub(crate) id: u32,
+    pub(crate) id: u32,
 }
 
 lazy_static! {
     static ref POPELINE_AROM: AtomicU32 = AtomicU32::new(1);
-	static ref PIPELINE_LAYOUT_AROM: AtomicU32 = AtomicU32::new(1);
+    static ref PIPELINE_LAYOUT_AROM: AtomicU32 = AtomicU32::new(1);
 }
 
 impl RenderPipelineImpl {
@@ -146,12 +146,14 @@ impl RenderPipelineImpl {
 
         let layout = desc.layout.as_ref().unwrap().inner.clone();
 
-        let version = { adapter.lock().version().clone() };
-
         let naga_options = &layout.naga_options;
 
         {
-            let gl = adapter.lock();
+            let lock = adapter.lock();
+            let gl = lock.get_glow();
+
+            let version = gl.version().clone();
+
             state
                 .compile_shader(
                     &gl,
@@ -214,7 +216,7 @@ impl RenderPipelineImpl {
             ds,
             bs,
             ss,
-			id: POPELINE_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id: POPELINE_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         })
     }
 }
@@ -613,9 +615,9 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-		log::trace!("Dropping ProgramImpl {:?}", self.raw);
-        let gl = self.adapter.lock();
-
+        log::trace!("Dropping ProgramImpl {:?}", self.raw);
+        let lock = self.adapter.lock();
+        let gl = lock.get_glow();
         unsafe {
             gl.delete_program(self.raw);
         }
@@ -629,7 +631,8 @@ impl ProgramImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
-        let gl = adapter.lock();
+        let lock = adapter.lock();
+        let gl = lock.get_glow();
 
         let (raw, uniforms) = state.create_program(&gl, vs.id, fs.id)?;
 

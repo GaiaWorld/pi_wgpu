@@ -45,7 +45,9 @@ impl Adapter {
             ));
         }
 
-        let gl = &self.context.lock();
+        let lock = self.context.lock();
+
+        let gl = lock.get_glow();
 
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
@@ -77,7 +79,8 @@ impl Adapter {
         use wgt::TextureFormat as Tf;
 
         let sample_count = {
-            let max_samples = unsafe { self.context.lock().get_parameter_i32(glow::MAX_SAMPLES) };
+            let lock = self.context.lock();
+            let max_samples = unsafe { lock.get_glow().get_parameter_i32(glow::MAX_SAMPLES) };
             if max_samples >= 8 {
                 Tfc::MULTISAMPLE_X2 | Tfc::MULTISAMPLE_X4 | Tfc::MULTISAMPLE_X8
             } else if max_samples >= 4 {

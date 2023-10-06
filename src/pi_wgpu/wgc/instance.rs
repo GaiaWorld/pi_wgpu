@@ -185,11 +185,7 @@ impl Instance {
     ) -> Result<Surface, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
         
-        let display_handle = HasRawDisplayHandle::raw_display_handle(window);
-
-        let window_handle = HasRawWindowHandle::raw_window_handle(window);
-
-        let raw = self.inner.create_surface(display_handle, window_handle);
+        let raw = self.inner.create_surface(window);
 
 		log::trace!("pi_wgpu::Instance::create_surface, result = {:?}", raw);
         Ok(super::super::Surface {

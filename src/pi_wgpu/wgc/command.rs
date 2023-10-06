@@ -56,14 +56,15 @@ impl CommandEncoder {
         &'pass mut self,
         desc: &RenderPassDescriptor<'pass, '_>,
     ) -> RenderPass<'pass> {
-		log::trace!(
-			"let render_pass = command_encoder.begin_render_pass(&{:?});",desc,
-		);
+        log::trace!(
+            "let render_pass = command_encoder.begin_render_pass(&{:?});",
+            desc,
+        );
 
         let gl = self.inner.begin_render_pass(desc);
 
         RenderPass {
-            gl,
+            lock: gl,
             encoder: &self.inner,
         }
     }
@@ -96,13 +97,13 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
 /// https://gpuweb.github.io/gpuweb/#render-pass-encoder).
 #[derive(Debug)]
 pub struct RenderPass<'a> {
-    gl: AdapterContextLock<'a>,
+    lock: AdapterContextLock<'a>,
     encoder: &'a hal::CommandEncoder,
 }
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
-		log::trace!("Dropping RenderPass");
+        log::trace!("Dropping RenderPass");
         self.encoder.end_render_pass()
     }
 }
@@ -120,9 +121,12 @@ impl<'a> RenderPass<'a> {
         bind_group: &'a BindGroup,
         offsets: &[DynamicOffset],
     ) {
-		log::trace!(
-			"render_pass.set_bind_group({:?}, &bind_group{:?}, &{:?});",index, bind_group.inner.id, offsets
-		);
+        log::trace!(
+            "render_pass.set_bind_group({:?}, &bind_group{:?}, &{:?});",
+            index,
+            bind_group.inner.id,
+            offsets
+        );
 
         self.encoder
             .set_bind_group(index, &bind_group.inner, offsets)
@@ -132,26 +136,27 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will exhibit the behavior defined by `pipeline`.
     pub fn set_pipeline(&mut self, pipeline: &'a RenderPipeline) {
-		log::trace!(
-			"render_pass.set_pipeline(&render_pipeline{:?});", pipeline.inner.0.id
-		);
-        self.encoder.set_render_pipeline(&self.gl, &pipeline.inner)
+        log::trace!(
+            "render_pass.set_pipeline(&render_pipeline{:?});",
+            pipeline.inner.0.id
+        );
+        self.encoder
+            .set_render_pipeline(&self.lock.get_glow(), &pipeline.inner)
     }
 
     /// Sets the blend color as used by some of the blending modes.
     ///
     /// Subsequent blending tests will test against this value.
     pub fn set_blend_constant(&mut self, color: Color) {
-		log::trace!(
-			"render_pass.set_blend_constant({:?});", color
-		);
+        log::trace!("render_pass.set_blend_constant({:?});", color);
         let arr = [
             color.r as f32,
             color.g as f32,
             color.b as f32,
             color.a as f32,
         ];
-        self.encoder.set_blend_constants(&self.gl, &arr)
+        self.encoder
+            .set_blend_constants(&self.lock.get_glow(), &arr)
     }
 
     /// Sets the active index buffer.
@@ -159,14 +164,21 @@ impl<'a> RenderPass<'a> {
     /// Subsequent calls to [`draw_indexed`](RenderPass::draw_indexed) on this [`RenderPass`] will
     /// use `buffer` as the source index buffer.
     pub fn set_index_buffer(&mut self, buffer_slice: BufferSlice<'a>, index_format: IndexFormat) {
-		match buffer_slice.size {
-			Some(r)=> log::trace!(
-				"render_pass.set_index_buffer(buffer{}.slice({}..{}), IndexFormat::{:?});",buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, buffer_slice.offset + r.get(), index_format
-			),
-			None => log::trace!(
-				"render_pass.set_index_buffer(buffer{}.slice({}..), IndexFormat::{:?});",buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, index_format
-			)
-		};
+        match buffer_slice.size {
+            Some(r) => log::trace!(
+                "render_pass.set_index_buffer(buffer{}.slice({}..{}), IndexFormat::{:?});",
+                buffer_slice.buffer.inner.0.raw.0.get(),
+                buffer_slice.offset,
+                buffer_slice.offset + r.get(),
+                index_format
+            ),
+            None => log::trace!(
+                "render_pass.set_index_buffer(buffer{}.slice({}..), IndexFormat::{:?});",
+                buffer_slice.buffer.inner.0.raw.0.get(),
+                buffer_slice.offset,
+                index_format
+            ),
+        };
 
         let binding = super::super::BufferBinding {
             buffer: buffer_slice.buffer,
@@ -175,7 +187,7 @@ impl<'a> RenderPass<'a> {
         };
 
         self.encoder
-            .set_index_buffer(&self.gl, binding, index_format)
+            .set_index_buffer(&self.lock.get_glow(), binding, index_format)
     }
 
     /// Assign a vertex buffer to a slot.
@@ -189,14 +201,21 @@ impl<'a> RenderPass<'a> {
     /// [`draw`]: RenderPass::draw
     /// [`draw_indexed`]: RenderPass::draw_indexed
     pub fn set_vertex_buffer(&mut self, slot: u32, buffer_slice: BufferSlice<'a>) {
-		match buffer_slice.size {
-			Some(r)=> log::trace!(
-				"render_pass.set_vertex_buffer({}, buffer{}.slice({}..{}));", slot, buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset, buffer_slice.offset + r.get()
-			),
-			None => log::trace!(
-				"render_pass.set_vertex_buffer({}, buffer{}.slice({}..));", slot, buffer_slice.buffer.inner.0.raw.0.get(), buffer_slice.offset
-			)
-		};
+        match buffer_slice.size {
+            Some(r) => log::trace!(
+                "render_pass.set_vertex_buffer({}, buffer{}.slice({}..{}));",
+                slot,
+                buffer_slice.buffer.inner.0.raw.0.get(),
+                buffer_slice.offset,
+                buffer_slice.offset + r.get()
+            ),
+            None => log::trace!(
+                "render_pass.set_vertex_buffer({}, buffer{}.slice({}..));",
+                slot,
+                buffer_slice.buffer.inner.0.raw.0.get(),
+                buffer_slice.offset
+            ),
+        };
 
         let binding = super::super::BufferBinding {
             buffer: buffer_slice.buffer,
@@ -210,9 +229,14 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will discard any fragments that fall outside this region.
     pub fn set_scissor_rect(&mut self, x: u32, y: u32, width: u32, height: u32) {
-		log::trace!("render_pass.set_scissor_rect({x}, {y}, {width}, {height});");
-        self.encoder
-            .set_scissor_rect(&self.gl, x as i32, y as i32, width as i32, height as i32)
+        log::trace!("render_pass.set_scissor_rect({x}, {y}, {width}, {height});");
+        self.encoder.set_scissor_rect(
+            &self.lock.get_glow(),
+            x as i32,
+            y as i32,
+            width as i32,
+            height as i32,
+        )
     }
 
     /// Sets the viewport region.
@@ -221,7 +245,13 @@ impl<'a> RenderPass<'a> {
     pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {
         log::trace!("render_pass.set_viewport({x}, {y}, {w}, {h}, {min_depth}, {max_depth});");
         self.encoder.set_viewport(
-            &self.gl, x as i32, y as i32, w as i32, h as i32, min_depth, max_depth,
+            &self.lock.get_glow(),
+            x as i32,
+            y as i32,
+            w as i32,
+            h as i32,
+            min_depth,
+            max_depth,
         )
     }
 
@@ -230,16 +260,17 @@ impl<'a> RenderPass<'a> {
     /// Subsequent stencil tests will test against this value.
     pub fn set_stencil_reference(&mut self, reference: u32) {
         log::trace!("render_pass.set_stencil_reference({reference});");
-        self.encoder.set_stencil_reference(&self.gl, reference)
+        self.encoder
+            .set_stencil_reference(&self.lock.get_glow(), reference)
     }
 
     /// Draws primitives from the active vertex buffer(s).
     ///
     /// The active vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
-		log::trace!("render_pass.draw({:?}, {:?});",vertices, instances);
+        log::trace!("render_pass.draw({:?}, {:?});", vertices, instances);
         self.encoder.draw(
-            &self.gl,
+            &self.lock.get_glow(),
             vertices.start,
             vertices.len() as u32,
             instances.start,
@@ -252,9 +283,9 @@ impl<'a> RenderPass<'a> {
     /// The active index buffer can be set with [`RenderPass::set_index_buffer`], while the active
     /// vertex buffers can be set with [`RenderPass::set_vertex_buffer`].
     pub fn draw_indexed(&mut self, indices: Range<u32>, base_vertex: i32, instances: Range<u32>) {
-		log::trace!("render_pass.draw_indexed({indices:?}, {base_vertex:?}, {instances:?});");
+        log::trace!("render_pass.draw_indexed({indices:?}, {base_vertex:?}, {instances:?});");
         self.encoder.draw_indexed(
-            &self.gl,
+            &self.lock.get_glow(),
             indices.start,
             indices.len() as u32,
             base_vertex,

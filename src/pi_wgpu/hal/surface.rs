@@ -1,7 +1,5 @@
-use std::{thread, time::Duration};
-
-use parking_lot::{Mutex, MutexGuard};
-use pi_share::Share;
+use pi_share::{Share, ShareCell};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use thiserror::Error;
 
 use super::{
@@ -11,39 +9,29 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct Surface {
-    imp: Share<Mutex<SurfaceImpl>>,
+    pub(crate) imp: Share<ShareCell<SurfaceImpl>>,
 }
 
 impl Surface {
     #[inline]
-    pub(crate) fn new(
+    pub(crate) fn new<W: HasRawWindowHandle + HasRawDisplayHandle>(
         adapter: AdapterContext,
-        window_handle: raw_window_handle::RawWindowHandle,
+        handle: &W,
     ) -> Result<Self, super::InstanceError> {
-        SurfaceImpl::new(adapter, window_handle).map(|imp| Self {
-            imp: Share::new(Mutex::new(imp)),
+        SurfaceImpl::new(adapter, handle).map(|imp| Self {
+            imp: Share::new(ShareCell::new(imp)),
         })
     }
 
     #[inline]
-    pub(crate) fn lock(&self) -> MutexGuard<SurfaceImpl> {
-        self.imp
-            .as_ref()
-            .try_lock_for(Duration::from_secs(1))
-            .expect("hal::Surface: Could not lock SurfaceImpl. This is most-likely a deadlcok.")
-    }
-
-    #[inline]
-    pub(crate) fn present(&self) -> Result<(), egl::Error> {
+    pub(crate) fn present(&self) -> Result<(), String> {
         // log::trace!(
         //     "========== Surface::present lock, thread_id = {:?}",
         //     thread::current().id()
         // );
 
         {
-            let mut imp = self.lock();
-
-            imp.present();
+            self.imp.as_ref().borrow_mut().present();
         }
 
         // log::trace!(
@@ -75,7 +63,7 @@ impl Surface {
             return Ok(());
         }
 
-        let r = { self.lock().configure(device, config) };
+        let r = { self.imp.as_ref().borrow_mut().configure(device, config) };
 
         // log::trace!(
         //     "========== Surface::configure unlock, thread_id = {:?}",
@@ -92,7 +80,7 @@ impl Surface {
         //     thread::current().id()
         // );
 
-        let r = { self.lock().acquire_texture() };
+        let r = { self.imp.as_ref().borrow_mut().acquire_texture() };
 
         // log::trace!(
         //     "========== Surface::acquire_texture unlock, thread_id = {:?}",
@@ -105,89 +93,19 @@ impl Surface {
 
 #[derive(Debug)]
 pub(crate) struct SurfaceImpl {
-    raw: egl::Surface,
+    pub(crate) raw: pi_egl::Surface,
+    
     adapter: AdapterContext,
 
     sc: Option<SwapChain>,
 }
 
-impl Drop for SurfaceImpl {
-    fn drop(&mut self) {
-		log::trace!("Dropping SurfaceImpl {:?}", self.raw);
-        self.adapter.remove_surface(self.raw);
-
-        let egl = self.adapter.egl_ref();
-        egl.instance.destroy_surface(egl.display, self.raw).unwrap();
-    }
-}
-
-unsafe impl Sync for SurfaceImpl {}
-unsafe impl Send for SurfaceImpl {}
-
 impl SurfaceImpl {
-    fn new(
+    fn new<W: HasRawWindowHandle + HasRawDisplayHandle>(
         adapter: AdapterContext,
-        window_handle: raw_window_handle::RawWindowHandle,
+        handle: &W,
     ) -> Result<Self, super::InstanceError> {
-        use raw_window_handle::RawWindowHandle as Rwh;
-
-        #[allow(trivial_casts)]
-        let native_window_ptr = match window_handle {
-            Rwh::Win32(handle) => handle.hwnd,
-            Rwh::AndroidNdk(handle) => handle.a_native_window,
-            #[cfg(feature = "emscripten")]
-            Rwh::Web(handle) => handle.id as *mut std::ffi::c_void,
-            _ => {
-                log::error!(
-                    "Initialized platform doesn't work with window {:?}",
-                    window_handle
-                );
-                return Err(super::InstanceError);
-            }
-        };
-
-        let attributes = vec![
-            egl::RENDER_BUFFER,
-            // We don't want any of the buffering done by the driver, because we
-            // manage a swapchain on our side.
-            // Some drivers just fail on surface creation seeing `EGL_SINGLE_BUFFER`.
-            // if cfg!(target_os = "android") || cfg!(windows) {
-            egl::BACK_BUFFER,
-            // } else {
-            //     egl::SINGLE_BUFFER
-            // },
-            // TODO
-            // egl::GL_COLORSPACE,
-            // egl::GL_COLORSPACE_SRGB,
-            egl::ATTRIB_NONE as i32,
-        ];
-
-        log::info!(
-            "============== create_window_surface attributes = {:?}",
-            attributes
-        );
-
-        let raw = {
-            let inner = adapter.egl_ref();
-
-            #[cfg(not(feature = "emscripten"))]
-            let egl1_5 = inner.instance.upcast::<egl::EGL1_5>();
-
-            #[cfg(feature = "emscripten")]
-            let egl1_5: Option<&Arc<EglInstance>> = Some(&inner.instance);
-
-            unsafe {
-                inner
-                    .instance
-                    .create_window_surface(
-                        inner.display,
-                        inner.config.clone(),
-                        native_window_ptr,
-                        Some(&attributes),
-                    )
-                    .map_err(|_| super::InstanceError)?
-            }
-        };
+        let raw = adapter.create_surface(&handle)?;
 
         Ok(Self {
             raw,
@@ -211,7 +129,6 @@ impl SurfaceImpl {
             self.sc = Some(SwapChain::new(device, config));
         }
 
-        self.adapter.set_surface(Some(self.raw));
         self.sc.as_mut().unwrap().configure(device, config);
 
         Ok(())
@@ -228,7 +145,7 @@ impl SurfaceImpl {
             sc.draw_y_flip();
         });
 
-        self.adapter.present();
+        self.adapter.present(&self.raw);
 
         self.sc.as_mut().map(|sc| {
             sc.update_current_texture();

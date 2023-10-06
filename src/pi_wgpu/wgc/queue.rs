@@ -22,7 +22,7 @@ impl Queue {
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     // #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-		log::trace!(
+        log::trace!(
             "queue.write_buffer(&buffer{}, {}, &{:?});",
             buffer.inner.0.raw.0.get(),
             offset,
@@ -31,9 +31,10 @@ impl Queue {
         self.write_buffer_inner(buffer, offset, data);
     }
 
-	#[inline]
+    #[inline]
     pub(crate) fn write_buffer_inner(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        let gl = self.inner.adapter.lock();
+        let lock = self.inner.adapter.lock();
+        let gl = lock.get_glow();
         buffer.inner.write_buffer(&gl, offset as i32, data);
     }
 
@@ -54,7 +55,7 @@ impl Queue {
     /// discard it any time after this call completes.
     ///
     /// This method fails if `size` overruns the size of `texture`, or if `data` is too short.
-	///  #[inline]
+    ///  #[inline]
     pub fn write_texture(
         &self,
         texture: super::super::ImageCopyTexture,
@@ -62,10 +63,8 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-		//todo
-        log::trace!(
-            "queue.write_texture"
-        );
+        //todo
+        log::trace!("queue.write_texture");
 
         self.write_texture_inner(texture, data, data_layout, size);
     }

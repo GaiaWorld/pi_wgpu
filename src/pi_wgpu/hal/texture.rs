@@ -34,7 +34,9 @@ impl Texture {
             depth: 1,
         };
 
-        let gl = adapter.lock();
+        let lock = adapter.lock();
+        let gl = lock.get_glow();
+
         let (inner, is_cubemap) = if render_usage.contains(usage)
             && desc.dimension == wgt::TextureDimension::D2
             && desc.size.depth_or_array_layers == 1
@@ -198,7 +200,9 @@ impl Texture {
 
         let format_desc = &inner.format_desc;
 
-        let gl = adapter.lock();
+        let lock = adapter.lock();
+        let gl = lock.get_glow();
+
         unsafe {
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
@@ -377,7 +381,7 @@ pub(crate) struct TextureView {
     pub(crate) mip_levels: Range<u32>,
     pub(crate) array_layers: Range<u32>,
     pub(crate) format: wgt::TextureFormat,
-	pub(crate) id: u32,
+    pub(crate) id: u32,
 }
 
 impl TextureView {
@@ -414,7 +418,7 @@ impl TextureView {
 
             aspects: super::FormatAspects::from(imp.format)
                 & super::FormatAspects::from(desc.aspect),
-			id: TEXTURE_VIEW_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            id: TEXTURE_VIEW_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         })
     }
 }
@@ -457,19 +461,28 @@ pub(crate) enum TextureInner {
 }
 
 impl TextureInner {
-	pub(crate) fn debug_str(&self) -> String {
-		match self {
-			crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
-			crate::pi_wgpu::hal::TextureInner::Renderbuffer { state, adapter, raw } => "render".to_string() + raw.0.get().to_string().as_str(),
-			crate::pi_wgpu::hal::TextureInner::Texture { state, adapter, raw, target } => "".to_string() + raw.0.get().to_string().as_str(),
-		}
-	}
+    pub(crate) fn debug_str(&self) -> String {
+        match self {
+            crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
+            crate::pi_wgpu::hal::TextureInner::Renderbuffer {
+                state,
+                adapter,
+                raw,
+            } => "render".to_string() + raw.0.get().to_string().as_str(),
+            crate::pi_wgpu::hal::TextureInner::Texture {
+                state,
+                adapter,
+                raw,
+                target,
+            } => "".to_string() + raw.0.get().to_string().as_str(),
+        }
+    }
 }
 
 impl Drop for TextureInner {
     fn drop(&mut self) {
         profiling::scope!("hal::TextureInner::drop");
-		log::trace!("Dropping TextureInner {:?}", self);
+        log::trace!("Dropping TextureInner {:?}", self);
 
         match &self {
             &TextureInner::NativeRenderBuffer => {}
@@ -478,7 +491,9 @@ impl Drop for TextureInner {
                 ref state,
                 ref raw,
             } => {
-                let gl = adapter.lock();
+                let lock = adapter.lock();
+                let gl = lock.get_glow();
+
                 unsafe {
                     gl.delete_renderbuffer(*raw);
                 }
@@ -490,7 +505,9 @@ impl Drop for TextureInner {
                 ref raw,
                 ..
             } => {
-                let gl = adapter.lock();
+                let lock = adapter.lock();
+                let gl = lock.get_glow();
+
                 unsafe {
                     gl.delete_texture(*raw);
                 }

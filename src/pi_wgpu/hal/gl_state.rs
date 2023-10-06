@@ -2,28 +2,23 @@
 //! 全局 缓冲表，见 GLCache
 //!
 
-use std::{thread, time::Duration};
-
 use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,
     valid::{Capabilities as Caps, ModuleInfo},
 };
-use parking_lot::{Mutex, MutexGuard};
-use pi_share::{Share, ShareWeak};
-
-use crate::ColorWrites;
+use pi_share::{Share, ShareCell, ShareWeak};
 
 use super::{
-    super::{hal, wgt, BufferSize},
+    super::{hal, wgt, BufferSize, ColorWrites},
     gl_cache::GLCache,
     gl_conv as conv, PiBindingType, ShaderID, VertexAttribKind,
 };
 
 #[derive(Clone)]
 pub(crate) struct GLState {
-    imp: Share<Mutex<GLStateImpl>>,
+    imp: Share<ShareCell<GLStateImpl>>,
 }
 
 impl std::fmt::Debug for GLState {
@@ -34,19 +29,11 @@ impl std::fmt::Debug for GLState {
 
 impl GLState {
     #[inline]
-    pub(crate) fn lock(&self) -> MutexGuard<GLStateImpl> {
-        self.imp
-            .as_ref()
-            .try_lock_for(Duration::from_secs(1))
-            .expect("GlState: Could not lock GLStateImpl. This is most-likely a deadlcok.")
-    }
-
-    #[inline]
     pub(crate) fn new(gl: &glow::Context) -> Self {
         let imp = GLStateImpl::new(&gl);
 
         Self {
-            imp: Share::new(Mutex::new(imp)),
+            imp: Share::new(ShareCell::new(imp)),
         }
     }
 
@@ -58,7 +45,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.global_shader_id += 1;
             s.global_shader_id
         };
@@ -78,7 +65,7 @@ impl GLState {
         //     thread::current().id()
         // );
 
-        let r = { self.lock().max_attribute_slots };
+        let r = { self.imp.as_ref().borrow().max_attribute_slots };
 
         // log::trace!(
         //     "========== GLState::max_attribute_slots unlock, thread_id = {:?}",
@@ -95,7 +82,7 @@ impl GLState {
         //     thread::current().id()
         // );
 
-        let r = { self.lock().max_textures_slots };
+        let r = { self.imp.as_ref().borrow().max_textures_slots };
 
         // log::trace!(
         //     "========== GLState::max_textures_slots unlock, thread_id = {:?}",
@@ -112,7 +99,7 @@ impl GLState {
         //     thread::current().id()
         // );
 
-        let r = { self.lock().max_color_attachments };
+        let r = { self.imp.as_ref().borrow().max_color_attachments };
 
         // log::trace!(
         //     "========== GLState::max_color_attachments unlock, thread_id = {:?}",
@@ -129,7 +116,7 @@ impl GLState {
         //     thread::current().id()
         // );
 
-        let r = { self.lock().cache.get_program(id) };
+        let r = { self.imp.as_ref().borrow().cache.get_program(id) };
 
         // log::trace!(
         //     "========== GLState::get_program unlock, thread_id = {:?}",
@@ -147,7 +134,11 @@ impl GLState {
         // );
 
         {
-            self.lock().cache.insert_program(id, program);
+            self.imp
+                .as_ref()
+                .borrow_mut()
+                .cache
+                .insert_program(id, program);
         }
 
         // log::trace!(
@@ -164,7 +155,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.get_or_insert_rs(rs)
         };
 
@@ -184,7 +175,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.get_or_insert_ds(ds)
         };
 
@@ -207,7 +198,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.get_or_insert_ss(rs)
         };
 
@@ -227,7 +218,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.get_or_insert_bs(bs)
         };
 
@@ -252,7 +243,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.create_program(gl, vs_id, fs_id)
         };
 
@@ -283,7 +274,7 @@ impl GLState {
         // );
 
         let r = {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.compile_shader(
                 gl,
                 shader,
@@ -313,7 +304,7 @@ impl GLState {
         // );
 
         {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.remove_shader(id);
         }
 
@@ -331,7 +322,7 @@ impl GLState {
         // );
 
         {
-            let mut s = self.lock();
+            let mut s = self.imp.as_ref().borrow_mut();
             s.cache.clear_weak_refs();
         }
 
@@ -351,7 +342,7 @@ impl GLState {
         // );
 
         {
-            let cache = &mut self.lock().cache;
+            let cache = &mut self.imp.as_ref().borrow_mut().cache;
             cache.remove_render_buffer(gl, rb);
         }
 
@@ -375,7 +366,7 @@ impl GLState {
             // );
 
             {
-                let imp = &mut self.lock();
+                let imp = &mut self.imp.as_ref().borrow_mut();
                 if let Some(ib) = imp.index_buffer.as_ref() {
                     if ib.raw == buffer {
                         imp.index_buffer = None;
@@ -396,7 +387,7 @@ impl GLState {
         //     thread::current().id()
         // );
 
-        let cache = &mut self.lock().cache;
+        let cache = &mut self.imp.as_ref().borrow_mut().cache;
         cache.remove_buffer(gl, bind_target, buffer);
 
         // log::trace!(
@@ -415,7 +406,7 @@ impl GLState {
         // );
 
         {
-            let cache = &mut self.lock().cache;
+            let cache = &mut self.imp.as_ref().borrow_mut().cache;
             cache.remove_texture(gl, texture);
         }
 
@@ -447,7 +438,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow();
 
             imp.set_buffer_size(gl, buffer, size);
         }
@@ -474,7 +465,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow();
             imp.set_buffer_sub_data(gl, buffer, offset, data)
         }
 
@@ -494,7 +485,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
             imp.set_render_pipeline(gl, pipeline);
         }
 
@@ -518,7 +509,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_render_target(gl, desc);
         }
@@ -544,7 +535,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_bind_group(index, bind_group, dynamic_offsets);
         }
@@ -571,7 +562,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_vertex_buffer(index, buffer, offset, size)
         }
@@ -601,7 +592,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow();
 
             imp.draw_with_flip(gl, program, vao, width, height, texture, sampler);
         }
@@ -628,7 +619,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow();
 
             imp.flip_surface(gl, fbo, width, height);
         }
@@ -656,7 +647,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_index_buffer(gl, buffer, format, offset, size)
         }
@@ -683,7 +674,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.draw(gl, start_vertex, vertex_count, instance_count);
         }
@@ -710,7 +701,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.draw_indexed(gl, start_index, index_count, instance_count);
         }
@@ -731,7 +722,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_viewport(gl, x, y, w, h);
         }
@@ -752,7 +743,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_scissor(gl, x, y, w, h)
         }
@@ -773,7 +764,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_depth_range(gl, min_depth, max_depth);
         }
@@ -794,7 +785,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
 
             imp.set_blend_color(gl, color);
         }
@@ -815,7 +806,7 @@ impl GLState {
         // );
 
         {
-            let imp = &mut self.lock();
+            let imp = &mut self.imp.as_ref().borrow_mut();
             imp.set_stencil_reference(gl, reference);
         }
 

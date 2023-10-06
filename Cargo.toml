@@ -3,20 +3,25 @@ name = "pi_wgpu"
 version = "0.1.1"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
-description = "WebGPU implement by single thread in gl3.3 / gles3.0 / webgl2"
+description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
 repository = "https://github.com/GaiaWorld/pi_wgpu"
 license = "MIT OR Apache-2.0"
 keywords = ["pi", "webgpu"]
 
 [features]
-default = ["gl"]
-# default = ["gl", "use_wgpu"]
-
-gl = ["naga/glsl-out"]
-use_wgpu = ["wgpu", "wgpu/glsl"]
+default = ["gl", "wgpu/glsl"]
+# default = ["gl", "wgpu", "wgpu/glsl"]
+gl = []
 
 [dependencies]
+
 pi_share = "0.4"
+pi_egl = { path = "../pi_egl" }
+
+glow = "0.12"
+naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
+
+wgpu = { version = "0.16", default-features = false, optional = true }
 
 log = "0.4"
 bitflags = "2.4"
@@ -29,51 +34,12 @@ raw-window-handle = "0.5"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
 
-# backend: Gles
-glow = { version = "0.12" }
-wgpu = { version = "0.16", default-features = false, optional = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-libloading = { version = "0.8" }
-egl = { package = "khronos-egl", version = "4.1", features = ["dynamic"] }
-
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = [
-    "profileapi",
-    "libloaderapi",
-    "windef",
-    "winuser",
-    "dcomp",
-] }
-
-[target.'cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))'.dependencies]
-js-sys = "0.3.61"
-wasm-bindgen = "0.2.84"
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3.61", features = [
-    "Window",
-    "HtmlCanvasElement",
-    "WebGl2RenderingContext",
-    "OffscreenCanvas",
-] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-android_system_properties = "0.1.1"
-
-[dependencies.naga]
-version = "0.12"
-features = ["clone", "glsl-in", "glsl-out"]
-
 # DEV dependencies
 
 [dev-dependencies]
 log = "0.4"
-winit = "0.28"
-bytemuck = "1.14"
-pollster = "0.3"
 env_logger = "0.10"
-nalgebra = "0.32"
 
-[dev-dependencies.naga]
-version = "0.12"
-features = ["clone", "glsl-in", "glsl-out"]
+winit = "0.28"
+pollster = "0.3"
+naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }

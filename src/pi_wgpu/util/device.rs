@@ -52,17 +52,19 @@ impl DeviceExt for super::super::Device {
             };
 
             let buffer = self.create_buffer_inner(&wgt_descriptor);
-            let gl = self.inner.adapter.lock();
+
+            let lock = self.inner.adapter.lock();
+            let gl = lock.get_glow();
+
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);
-			log::trace!(
-				"let buffer{:?} = device.create_buffer_init(&{:?});",
-				buffer.inner.0.raw.0,
-				descriptor,
-			);
+            log::trace!(
+                "let buffer{:?} = device.create_buffer_init(&{:?});",
+                buffer.inner.0.raw.0,
+                descriptor,
+            );
 
             buffer
         }
-		
     }
 
     fn create_texture_with_data(
@@ -71,7 +73,6 @@ impl DeviceExt for super::super::Device {
         desc: &crate::TextureDescriptor,
         data: &[u8],
     ) -> crate::Texture {
-
         // Implicitly add the COPY_DST usage
         let mut desc = desc.to_owned();
         desc.usage |= crate::TextureUsages::COPY_DST;
@@ -131,13 +132,13 @@ impl DeviceExt for super::super::Device {
                 binary_offset = end_offset;
             }
         }
-		{
-			log::trace!(
-				"let texture{:?} = device.create_texture_with_data(&{:?});",
-				texture.inner.0.inner.debug_str(),
-				desc,
-			);
-		}
+        {
+            log::trace!(
+                "let texture{:?} = device.create_texture_with_data(&{:?});",
+                texture.inner.0.inner.debug_str(),
+                desc,
+            );
+        }
 
         texture
     }

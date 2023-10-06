@@ -9,12 +9,15 @@ pub struct BindGroupLayout {
     pub(crate) entries: Share<[wgt::BindGroupLayoutEntry]>,
 	pub(crate) id: u32,
 }
+
 impl BindGroupLayout {
     pub fn new(
         desc: &super::super::BindGroupLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::BindGroupLayout::new");
+
         let entries = desc.entries.to_vec().into();
+        
         Ok(Self { entries, id: GROUP_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed) })
     }
 }
