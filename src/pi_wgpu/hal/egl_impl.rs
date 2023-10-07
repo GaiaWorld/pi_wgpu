@@ -13,15 +13,16 @@ use crate::{pi_wgpu::wgt, AdapterInfo};
 
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
-    surface: ShareWeak<ShareCell<super::SurfaceImpl>>,
     lock_: Share<ReentrantMutex<()>>,
     reentrant_count: Share<AtomicUsize>,
     egl: Share<ShareCell<Egl>>,
-    imp: Share<AdapterContextImpl>,
+    imp: Share<ShareCell<AdapterContextImpl>>,
 }
 
 #[derive(Debug)]
 pub(crate) struct AdapterContextImpl {
+    surface: Option<pi_egl::Surface>,
+
     private_caps: PrivateCapabilities,
     features: wgt::Features,
     limits: wgt::Limits,
@@ -40,13 +41,6 @@ impl std::fmt::Debug for AdapterContext {
 
 impl Default for AdapterContext {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AdapterContext {
-    #[inline]
-    pub(crate) fn new() -> Self {
         let mut egl = Egl::default();
 
         let imp = {
@@ -60,18 +54,20 @@ impl AdapterContext {
             imp
         };
 
-        let surface = ShareWeak::new();
         Self {
-            surface,
             egl: Share::new(ShareCell::new(egl)),
             reentrant_count: Share::new(AtomicUsize::new(0)),
             lock_: Share::new(ReentrantMutex::new(())),
-            imp: Share::new(imp),
+            imp: Share::new(ShareCell::new(imp)),
         }
     }
+}
 
+impl AdapterContext {
     #[inline]
     pub(crate) fn present(&self, surface: &pi_egl::Surface) {
+        let _lock = self.lock(Some(surface));
+
         self.egl.as_ref().borrow().present(surface);
     }
 
@@ -89,49 +85,43 @@ impl AdapterContext {
     }
 
     #[inline]
-    pub(crate) fn set_surface(&mut self, surface: Share<ShareCell<super::SurfaceImpl>>) {
-        self.surface = Share::downgrade(&surface);
-
-        println!(
-            "=============== set_surface, strong_count = {}, weak_count = {}",
-            ShareWeak::strong_count(&self.surface),
-            ShareWeak::weak_count(&self.surface),
-        );
+    pub(crate) fn set_surface(&mut self, surface: pi_egl::Surface) {
+        self.imp.as_ref().borrow_mut().surface = Some(surface);
     }
 
     #[inline]
     pub(crate) fn private_caps(&self) -> PrivateCapabilities {
-        self.imp.private_caps
+        self.imp.as_ref().borrow().private_caps
     }
 
     #[inline]
     pub(crate) fn features(&self) -> wgt::Features {
-        self.imp.features
+        self.imp.as_ref().borrow().features
     }
 
     #[inline]
-    pub(crate) fn limits(&self) -> &wgt::Limits {
-        &self.imp.limits
+    pub(crate) fn limits(&self) -> Ref<wgt::Limits> {
+        self.imp.as_ref().borrow().map(|s| &s.limits)
     }
 
     #[inline]
-    pub(crate) fn downlevel(&self) -> &wgt::DownlevelCapabilities {
-        &self.imp.downlevel
+    pub(crate) fn downlevel(&self) -> Ref<wgt::DownlevelCapabilities> {
+        self.imp.as_ref().borrow().map(|s| &s.downlevel)
     }
 
     #[inline]
     pub(crate) fn max_texture_size(&self) -> u32 {
-        self.imp.max_texture_size
+        self.imp.as_ref().borrow().max_texture_size
     }
 
     #[inline]
     pub(crate) fn shading_language_version(&self) -> naga::back::glsl::Version {
-        self.imp.shading_language_version
+        self.imp.as_ref().borrow().shading_language_version
     }
 
     #[inline]
-    pub(crate) fn info(&self) -> &AdapterInfo {
-        &self.imp.info
+    pub(crate) fn info(&self) -> Ref<AdapterInfo> {
+        self.imp.as_ref().borrow().map(|s| &s.info)
     }
 
     /// Returns the capabilities of working with a specified surface.
@@ -150,6 +140,8 @@ impl AdapterContext {
 
         if self
             .imp
+            .as_ref()
+            .borrow()
             .private_caps
             .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
         {
@@ -167,8 +159,8 @@ impl AdapterContext {
                 height: 4,
                 depth_or_array_layers: 1,
             }..=wgt::Extent3d {
-                width: self.imp.max_texture_size,
-                height: self.imp.max_texture_size,
+                width: self.imp.as_ref().borrow().max_texture_size,
+                height: self.imp.as_ref().borrow().max_texture_size,
                 depth_or_array_layers: 1,
             },
             usage: super::TextureUses::COLOR_TARGET,
@@ -180,7 +172,7 @@ impl AdapterContext {
     /// Obtain a lock to the EGL context and get handle to the [`glow::Context`] that can be used to
     /// do rendering.
     #[track_caller]
-    pub(crate) fn lock<'a>(&'a self) -> AdapterContextLock<'a> {
+    pub(crate) fn lock<'a>(&'a self, surface: Option<&pi_egl::Surface>) -> AdapterContextLock<'a> {
         /// The amount of time to wait while trying to obtain a lock to the adapter context
         const CONTEXT_LOCK_TIMEOUT_SECS: u64 = 1;
 
@@ -196,20 +188,18 @@ impl AdapterContext {
         };
 
         if self.reentrant_count.load(Ordering::SeqCst) == 0 {
-            println!(
-                "=============== make_current, strong_count = {}, weak_count = {}",
-                ShareWeak::strong_count(&self.surface),
-                ShareWeak::weak_count(&self.surface),
-            );
-            match self.surface.upgrade() {
+            match surface {
                 Some(s) => {
-                    // println!("=============== make_current, surface = {:?}", s);
-                    let s = s.as_ref().borrow();
-                    self.egl.as_ref().borrow_mut().make_current(Some(&s.raw));
+                    self.egl.as_ref().borrow_mut().make_current(Some(s));
                 }
-                None => {
-                    self.egl.as_ref().borrow_mut().make_current(None);
-                }
+                None => match self.imp.as_ref().borrow().surface.as_ref() {
+                    Some(s) => {
+                        self.egl.as_ref().borrow_mut().make_current(Some(&s));
+                    }
+                    None => {
+                        self.egl.as_ref().borrow_mut().make_current(None);
+                    }
+                },
             }
         }
 
@@ -517,6 +507,7 @@ impl AdapterContextImpl {
         };
 
         Self {
+            surface: None,
             private_caps,
             features,
             limits,

@@ -149,7 +149,7 @@ impl RenderPipelineImpl {
         let naga_options = &layout.naga_options;
 
         {
-            let lock = adapter.lock();
+            let lock = adapter.lock(None);
             let gl = lock.get_glow();
 
             let version = gl.version().clone();
@@ -616,7 +616,7 @@ pub(crate) struct ProgramImpl {
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
         log::trace!("Dropping ProgramImpl {:?}", self.raw);
-        let lock = self.adapter.lock();
+        let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
         unsafe {
             gl.delete_program(self.raw);
@@ -631,7 +631,7 @@ impl ProgramImpl {
         vs: &super::ShaderModule,
         fs: &super::ShaderModule,
     ) -> Result<Self, super::ShaderError> {
-        let lock = adapter.lock();
+        let lock = adapter.lock(None);
         let gl = lock.get_glow();
 
         let (raw, uniforms) = state.create_program(&gl, vs.id, fs.id)?;

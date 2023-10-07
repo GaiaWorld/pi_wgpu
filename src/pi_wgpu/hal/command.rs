@@ -47,7 +47,7 @@ impl CommandEncoder {
         &'a self,
         desc: &super::super::RenderPassDescriptor,
     ) -> AdapterContextLock<'a> {
-        let lock = self.adapter.lock();
+        let lock = self.adapter.lock(None);
 
         {
             let gl = lock.get_glow();

@@ -45,7 +45,7 @@ impl Adapter {
             ));
         }
 
-        let lock = self.context.lock();
+        let lock = self.context.lock(None);
 
         let gl = lock.get_glow();
 
@@ -79,7 +79,7 @@ impl Adapter {
         use wgt::TextureFormat as Tf;
 
         let sample_count = {
-            let lock = self.context.lock();
+            let lock = self.context.lock(None);
             let max_samples = unsafe { lock.get_glow().get_parameter_i32(glow::MAX_SAMPLES) };
             if max_samples >= 8 {
                 Tfc::MULTISAMPLE_X2 | Tfc::MULTISAMPLE_X4 | Tfc::MULTISAMPLE_X8

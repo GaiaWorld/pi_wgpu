@@ -33,7 +33,7 @@ impl Queue {
 
     #[inline]
     pub(crate) fn write_buffer_inner(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-        let lock = self.inner.adapter.lock();
+        let lock = self.inner.adapter.lock(None);
         let gl = lock.get_glow();
         buffer.inner.write_buffer(&gl, offset as i32, data);
     }

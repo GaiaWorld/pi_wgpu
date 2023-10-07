@@ -53,7 +53,7 @@ impl DeviceExt for super::super::Device {
 
             let buffer = self.create_buffer_inner(&wgt_descriptor);
 
-            let lock = self.inner.adapter.lock();
+            let lock = self.inner.adapter.lock(None);
             let gl = lock.get_glow();
 
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);

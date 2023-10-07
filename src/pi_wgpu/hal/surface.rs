@@ -63,7 +63,7 @@ impl Surface {
             return Ok(());
         }
 
-        let clone = self.imp.clone();
+        let clone = self.imp.as_ref().borrow().raw.clone();
         let r = {
             self.imp
                 .as_ref()
@@ -106,12 +106,6 @@ pub(crate) struct SurfaceImpl {
     sc: Option<SwapChain>,
 }
 
-impl Drop for SurfaceImpl {
-    fn drop(&mut self) {
-        println!("======================= SurfaceImpl Drop");
-    }
-}
-
 impl SurfaceImpl {
     fn new<W: HasRawWindowHandle + HasRawDisplayHandle>(
         adapter: AdapterContext,
@@ -130,7 +124,7 @@ impl SurfaceImpl {
         &mut self,
         device: &crate::Device,
         config: &crate::SurfaceConfiguration,
-        clone: Share<ShareCell<Self>>,
+        clone: pi_egl::Surface,
     ) -> Result<(), super::SurfaceError> {
         log::info!(
             "hal::Surface::config, width = {}, height = {}",

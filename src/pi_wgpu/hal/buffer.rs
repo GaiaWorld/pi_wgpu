@@ -26,7 +26,7 @@ impl Buffer {
 
         let size = desc.size as i32;
 
-        let lock = adapter.lock();
+        let lock = adapter.lock(None);
         let gl = lock.get_glow();
 
         let raw = unsafe { gl.create_buffer().unwrap() };
@@ -69,7 +69,7 @@ pub(crate) struct BufferImpl {
 impl Drop for BufferImpl {
     #[inline]
     fn drop(&mut self) {
-        let lock = self.adapter.lock();
+        let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
 
         log::trace!("Dropping buffer {:?}", self.raw);

@@ -34,7 +34,7 @@ impl Texture {
             depth: 1,
         };
 
-        let lock = adapter.lock();
+        let lock = adapter.lock(None);
         let gl = lock.get_glow();
 
         let (inner, is_cubemap) = if render_usage.contains(usage)
@@ -200,7 +200,7 @@ impl Texture {
 
         let format_desc = &inner.format_desc;
 
-        let lock = adapter.lock();
+        let lock = adapter.lock(None);
         let gl = lock.get_glow();
 
         unsafe {
@@ -491,7 +491,7 @@ impl Drop for TextureInner {
                 ref state,
                 ref raw,
             } => {
-                let lock = adapter.lock();
+                let lock = adapter.lock(None);
                 let gl = lock.get_glow();
 
                 unsafe {
@@ -505,7 +505,7 @@ impl Drop for TextureInner {
                 ref raw,
                 ..
             } => {
-                let lock = adapter.lock();
+                let lock = adapter.lock(None);
                 let gl = lock.get_glow();
 
                 unsafe {
