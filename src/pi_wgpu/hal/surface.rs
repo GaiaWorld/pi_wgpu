@@ -63,7 +63,13 @@ impl Surface {
             return Ok(());
         }
 
-        let r = { self.imp.as_ref().borrow_mut().configure(device, config) };
+        let clone = self.imp.clone();
+        let r = {
+            self.imp
+                .as_ref()
+                .borrow_mut()
+                .configure(device, config, clone)
+        };
 
         // log::trace!(
         //     "========== Surface::configure unlock, thread_id = {:?}",
@@ -94,10 +100,16 @@ impl Surface {
 #[derive(Debug)]
 pub(crate) struct SurfaceImpl {
     pub(crate) raw: pi_egl::Surface,
-    
+
     adapter: AdapterContext,
 
     sc: Option<SwapChain>,
+}
+
+impl Drop for SurfaceImpl {
+    fn drop(&mut self) {
+        println!("======================= SurfaceImpl Drop");
+    }
 }
 
 impl SurfaceImpl {
@@ -118,6 +130,7 @@ impl SurfaceImpl {
         &mut self,
         device: &crate::Device,
         config: &crate::SurfaceConfiguration,
+        clone: Share<ShareCell<Self>>,
     ) -> Result<(), super::SurfaceError> {
         log::info!(
             "hal::Surface::config, width = {}, height = {}",
@@ -128,6 +141,8 @@ impl SurfaceImpl {
         if self.sc.is_none() {
             self.sc = Some(SwapChain::new(device, config));
         }
+
+        self.adapter.set_surface(clone);
 
         self.sc.as_mut().unwrap().configure(device, config);
 

@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -9,8 +9,8 @@ license = "MIT OR Apache-2.0"
 keywords = ["pi", "webgpu"]
 
 [features]
-default = ["gl", "wgpu/glsl"]
-# default = ["gl", "wgpu", "wgpu/glsl"]
+default = ["gl"]
+# default = ["wgpu", "gl", "wgpu/glsl"]
 gl = []
 
 [dependencies]

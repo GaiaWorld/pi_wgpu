@@ -1306,15 +1306,16 @@ impl GLStateImpl {
                     defines: defines.clone(),
                 };
                 let mut parser = naga::front::glsl::Frontend::default();
+                
                 let m = parser.parse(&options, shader).map_err(|e| {
                     super::ShaderError::Compilation(format!("naga compile shader err = {:?}", e))
                 })?;
-
+                
                 module = Some(m);
                 module.as_ref().unwrap()
             }
         };
-
+        
         let entry_point_index = module_ref
             .entry_points
             .iter()
@@ -1322,9 +1323,9 @@ impl GLStateImpl {
             .ok_or(super::ShaderError::Compilation(
                 "Shader not find entry point".to_string(),
             ))?;
-
+        
         let info = get_shader_info(module_ref, features, downlevel)?;
-
+        
         let (gl_str, reflection_info) = compile_naga_shader(
             module_ref,
             version,
@@ -1334,21 +1335,21 @@ impl GLStateImpl {
             naga_options,
             multiview,
         )?;
-
+        
         let shader_type = match shader_stage {
             naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
             naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
             naga::ShaderStage::Compute => unreachable!(),
         };
-
+        
         let raw = compile_gl_shader(gl, gl_str.as_ref(), shader_type)?;
-
+        
         let bg_set_info = self.consume_naga_reflection(
             module_ref,
             &info.get_entry_point(entry_point_index),
             reflection_info,
         )?;
-
+        
         self.cache.insert_shader(
             shader.id,
             super::ShaderInner {
@@ -1357,7 +1358,7 @@ impl GLStateImpl {
                 bg_set_info,
             },
         );
-
+        
         Ok(())
     }
 
@@ -2468,6 +2469,9 @@ fn compile_naga_shader(
     naga_options: &naga::back::glsl::Options,
     multiview: Option<std::num::NonZeroU32>,
 ) -> Result<(String, ReflectionInfo), super::ShaderError> {
+    
+    println!("version = {:?}", version);
+
     let image_check = if !version.is_embedded && (version.major, version.minor) >= (1, 3) {
         BoundsCheckPolicy::ReadZeroSkipWrite
     } else {
@@ -2525,12 +2529,12 @@ fn compile_gl_shader(
     } else {
         let info = unsafe { gl.get_shader_info_log(raw) };
 
-        // log::warn!(
-        //     "shader compile error, type = {:?}, info = {}, source = {}",
-        //     shader_type,
-        //     info,
-        //     source
-        // );
+        log::warn!(
+            "shader compile error, type = {:?}, info = {}, source = {}",
+            shader_type,
+            info,
+            source
+        );
 
         Ok(raw)
         // unsafe { gl.delete_shader(raw) };

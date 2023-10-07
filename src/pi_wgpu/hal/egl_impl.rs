@@ -60,11 +60,12 @@ impl AdapterContext {
             imp
         };
 
+        let surface = ShareWeak::new();
         Self {
+            surface,
             egl: Share::new(ShareCell::new(egl)),
             reentrant_count: Share::new(AtomicUsize::new(0)),
             lock_: Share::new(ReentrantMutex::new(())),
-            surface: ShareWeak::new(),
             imp: Share::new(imp),
         }
     }
@@ -88,10 +89,14 @@ impl AdapterContext {
     }
 
     #[inline]
-    pub(crate) fn set_surface(&mut self, surface: &super::Surface) {
-        let s = surface.imp.clone();
+    pub(crate) fn set_surface(&mut self, surface: Share<ShareCell<super::SurfaceImpl>>) {
+        self.surface = Share::downgrade(&surface);
 
-        self.surface = Share::downgrade(&s);
+        println!(
+            "=============== set_surface, strong_count = {}, weak_count = {}",
+            ShareWeak::strong_count(&self.surface),
+            ShareWeak::weak_count(&self.surface),
+        );
     }
 
     #[inline]
@@ -191,8 +196,14 @@ impl AdapterContext {
         };
 
         if self.reentrant_count.load(Ordering::SeqCst) == 0 {
+            println!(
+                "=============== make_current, strong_count = {}, weak_count = {}",
+                ShareWeak::strong_count(&self.surface),
+                ShareWeak::weak_count(&self.surface),
+            );
             match self.surface.upgrade() {
                 Some(s) => {
+                    // println!("=============== make_current, surface = {:?}", s);
                     let s = s.as_ref().borrow();
                     self.egl.as_ref().borrow_mut().make_current(Some(&s.raw));
                 }
@@ -655,8 +666,8 @@ impl AdapterContextImpl {
         // TODO: make this even more lenient so that we can also accept
         // `<major> "." <minor> [<???>]`
         let mut it = version.split('.');
-        let major = it.next().and_then(|s| s.parse().ok());
-        let minor = it.next().and_then(|s| {
+        let major: Option<u8> = it.next().and_then(|s| s.parse().ok());
+        let minor: Option<u8> = it.next().and_then(|s| {
             let trimmed = if s.starts_with('0') {
                 "0"
             } else {
@@ -666,14 +677,10 @@ impl AdapterContextImpl {
         });
 
         match (major, minor) {
-            (Some(major), Some(minor)) => Ok((
+            (Some(_major), Some(_minor)) => Ok((
                 // Return WebGL 2.0 version as OpenGL ES 3.0
-                if is_webgl && !is_glsl {
-                    major + 1
-                } else {
-                    major
-                },
-                minor,
+                if is_webgl && !is_glsl { 3 } else { 3 },
+                0,
             )),
             _ => {
                 log::warn!("Unable to extract the version from '{}'", version);
