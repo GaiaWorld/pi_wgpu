@@ -1,25 +1,26 @@
 - [pi\_wgpu](#pi_wgpu)
-  - [0. 集成 wgpu-rs](#0-集成-wgpu-rs)
-- [1. 设计](#1-设计)
-- [2. 限制](#2-限制)
-  - [2.0. 销毁资源](#20-销毁资源)
-  - [2.1. **不** 支持](#21-不-支持)
-  - [2.3. wgpu::util](#23-wgpuutil)
-  - [2.2. `Instance`](#22-instance)
-  - [2.3. `Adapter`](#23-adapter)
-  - [2.4. `Surface`](#24-surface)
-  - [2.5. `SurfaceTexture`](#25-surfacetexture)
-  - [2.6. `Device`](#26-device)
-  - [2.7. `Queue`](#27-queue)
-  - [2.8. `CommandEncoder`](#28-commandencoder)
-  - [2.9. `CommandBuffer` 空内容，空实现](#29-commandbuffer-空内容空实现)
-  - [2.10. `RenderPass`](#210-renderpass)
-  - [2.11. `Sampler`](#211-sampler)
-  - [2.12. `Texture`](#212-texture)
-  - [2.13. `Buffer`](#213-buffer)
-  - [2.14. `BufferSlice` 空实现](#214-bufferslice-空实现)
-  - [2.15. `BindGroup`](#215-bindgroup)
-  - [2.16. `ShaderModule`](#216-shadermodule)
+- [1. 使用](#1-使用)
+  - [1.1. 集成 wgpu-rs](#11-集成-wgpu-rs)
+- [2. 设计](#2-设计)
+  - [2.01. 限制](#201-限制)
+  - [2.02. 销毁资源](#202-销毁资源)
+  - [2.03. **不** 支持](#203-不-支持)
+  - [2.04. wgpu::util](#204-wgpuutil)
+  - [2.05. `Instance`](#205-instance)
+  - [2.06. `Adapter`](#206-adapter)
+  - [2.07. `Surface`](#207-surface)
+  - [2.08. `SurfaceTexture`](#208-surfacetexture)
+  - [2.09. `Device`](#209-device)
+  - [2.10. `Queue`](#210-queue)
+  - [2.11. `CommandEncoder`](#211-commandencoder)
+  - [2.12. `CommandBuffer` 空内容，空实现](#212-commandbuffer-空内容空实现)
+  - [2.13. `RenderPass`](#213-renderpass)
+  - [2.14. `Sampler`](#214-sampler)
+  - [2.15. `Texture`](#215-texture)
+  - [2.16. `Buffer`](#216-buffer)
+  - [2.17. `BufferSlice` 空实现](#217-bufferslice-空实现)
+  - [2.18. `BindGroup`](#218-bindgroup)
+  - [2.19. `ShaderModule`](#219-shadermodule)
 - [3. 附录：（无计划）用 `WebGL` 模拟 `WebGPU` 的 要点](#3-附录无计划用-webgl-模拟-webgpu-的-要点)
   - [3.1. 和 `WebGL2` 相比，缺失 的 功能](#31-和-webgl2-相比缺失-的-功能)
   - [3.2. 微信小游戏: `iOS` 的 `WebGL`](#32-微信小游戏-ios-的-webgl)
@@ -51,7 +52,9 @@
         * 粒子 particle / render_stretched.rs
     - 后处理 pi_post_process / main.rs
 
-## 0. 集成 wgpu-rs
+# 1. 使用
+
+## 1.1. 集成 wgpu-rs
 
 为了兼容 wgpu-rs，pi_wgpu 也 包含了 wgpu
 
@@ -64,7 +67,7 @@
 pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
 ```
 
-# 1. 设计
+# 2. 设计
 
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
 
@@ -77,7 +80,7 @@ pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
 
 **注3**：详细的 设计笔记，[见这里](documents/design.md)
 
-# 2. 限制
+## 2.01. 限制
 
 + 销毁资源：可以在录制指令时 创建 / 销毁 资源
 + 线程安全：
@@ -88,7 +91,7 @@ pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
     - 功能: 仅支持 [gles-300 / std140-布局](https://www.khronos.org/files/webgl20-reference-guide.pdf)；
     - 语法: 仅支持 [GLSL 450 语法](https://www.khronos.org/files/webgl20-reference-guide.pdf)；
 
-## 2.0. 销毁资源
+## 2.02. 销毁资源
 
 + 必须等该资源的物体`draw`之后，才能销毁；
 + `RenderPass` 绑定的 纹理 资源，必须等到 `RenderPass` Drop 方法调用后，才能销毁；
@@ -108,7 +111,7 @@ pass.draw()
 pass.set_vertex_buffer(vb2)
 ```
 
-## 2.1. **不** 支持
+## 2.03. **不** 支持
 
 | 函数            | 支持 | 说明            |
 | --------------- | ---- | --------------- |
@@ -119,7 +122,7 @@ pass.set_vertex_buffer(vb2)
 | ComputePass     | ×    |                 |
 | hal::Barrier    | ×    |                 |
 
-## 2.3. wgpu::util
+## 2.04. wgpu::util
 
 | 函数                       | 支持 | 说明                        |
 | -------------------------- | ---- | --------------------------- |
@@ -127,7 +130,7 @@ pass.set_vertex_buffer(vb2)
 | `create_texture_with_data` | ✔    |                             |
 | `create_buffer_init`       | ✔    |                             |
 
-## 2.2. `Instance`
+## 2.05. `Instance`
 
 | 函数               | 支持 | 说明 |
 | ------------------ | ---- | ---- |
@@ -136,7 +139,7 @@ pass.set_vertex_buffer(vb2)
 | `create_surface`   | ✔    |      |
 | enumerate_adapters | ×    |      |
 
-## 2.3. `Adapter`
+## 2.06. `Adapter`
 
 | 函数                          | 支持 | 说明 |
 | ----------------------------- | ---- | ---- |
@@ -148,7 +151,7 @@ pass.set_vertex_buffer(vb2)
 | `is_surface_supported`        | ✔    |      |
 | `get_texture_format_features` | ✔    |      |
 
-## 2.4. `Surface`
+## 2.07. `Surface`
 
 | 函数                  | 支持 | 说明                                                        |
 | --------------------- | ---- | ----------------------------------------------------------- |
@@ -157,13 +160,13 @@ pass.set_vertex_buffer(vb2)
 | get_default_config    | ×    |                                                             |
 | get_capabilities      | ×    |                                                             |
 
-## 2.5. `SurfaceTexture`
+## 2.08. `SurfaceTexture`
 
 | 函数      | 支持 | 说明 |
 | --------- | ---- | ---- |
 | `present` | ✔    |      |
 
-## 2.6. `Device`
+## 2.09. `Device`
 
 | 函数                           | 支持 | 说明                                                |
 | ------------------------------ | ---- | --------------------------------------------------- |
@@ -192,7 +195,7 @@ pass.set_vertex_buffer(vb2)
 | stop_capture                   | ×    |                                                     |
 | as_hal                         | ×    |                                                     |
 
-## 2.7. `Queue`
+## 2.10. `Queue`
 
 | 函数                           | 支持 | 说明   |
 | ------------------------------ | ---- | ------ |
@@ -204,7 +207,7 @@ pass.set_vertex_buffer(vb2)
 | copy_external_image_to_texture | ×    |        |
 | get_timestamp_period           | ×    |        |
 
-## 2.8. `CommandEncoder`
+## 2.11. `CommandEncoder`
 
 | 函数                    | 支持 | 说明               |
 | ----------------------- | ---- | ------------------ |
@@ -223,9 +226,9 @@ pass.set_vertex_buffer(vb2)
 | write_timestamp         | ×    |                    |
 | resolve_query_set       | ×    |                    |
 
-## 2.9. `CommandBuffer` 空内容，空实现
+## 2.12. `CommandBuffer` 空内容，空实现
 
-## 2.10. `RenderPass`
+## 2.13. `RenderPass`
 
 | 函数                              | 支持 | 说明                                                   |
 | --------------------------------- | ---- | ------------------------------------------------------ |
@@ -254,11 +257,11 @@ pass.set_vertex_buffer(vb2)
 | begin_pipeline_statistics_query   | ×    |                                                        |
 | end_pipeline_statistics_query     | ×    |                                                        |
 
-## 2.11. `Sampler`
+## 2.14. `Sampler`
 
 **注**：其生命周期还受到 `BindGroup` 的影响，见`BindGroup`
 
-## 2.12. `Texture`
+## 2.15. `Texture`
 
 **注**：其生命周期还受到 `BindGroup` 的影响，见`BindGroup`
 
@@ -278,7 +281,7 @@ pass.set_vertex_buffer(vb2)
 | as_hal                  | ×    |      |
 | destroy                 | ×    |      |
 
-## 2.13. `Buffer`
+## 2.16. `Buffer`
 
 **注**：其生命周期还受到 `BindGroup` 的影响，见`BindGroup`
 
@@ -292,7 +295,7 @@ pass.set_vertex_buffer(vb2)
 | unmap                      | ×    |      |
 | destroy                    | ×    |      |
 
-## 2.14. `BufferSlice` 空实现
+## 2.17. `BufferSlice` 空实现
 
 | 函数                 | 支持 | 说明 |
 | -------------------- | ---- | ---- |
@@ -300,13 +303,13 @@ pass.set_vertex_buffer(vb2)
 | get_mapped_range     | ×    |      |
 | get_mapped_range_mut | ×    |      |
 
-## 2.15. `BindGroup`
+## 2.18. `BindGroup`
 
 `BindGroup` 会握住它使用的`Buffer`, `Texture`, `Sampler` 对象，使其不会被销毁。
 
 如果想要对应的资源被销毁，必须同时扔掉`BindGroup`和对应的资源。
 
-## 2.16. `ShaderModule`
+## 2.19. `ShaderModule`
 
 + 仅支持 Naga 编译过后，版本为 glsl 3.0 的 无 define 宏 的 glsl
 + 扩展：带上一个字段，用于说明 这个shader原始的 set-binding 和 uniform 的 名字
