@@ -82,7 +82,7 @@ pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
 + 销毁资源：可以在录制指令时 创建 / 销毁 资源
 + 线程安全：
     - 录制指令 是 `单线程`，录制即为提交，所谓的队列提交是空实现；
-    - **TODO**: 创建，销毁 资源，Exe / Apk `多线程`；
+    - 创建，销毁 资源，Exe / Apk `多线程`；
     - `注`：使用者自己确保，创建/释放 和 录制指令 的 线程安全性；
 + GLSL:
     - 功能: 仅支持 [gles-300 / std140-布局](https://www.khronos.org/files/webgl20-reference-guide.pdf)；
