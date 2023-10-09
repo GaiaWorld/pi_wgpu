@@ -1,4 +1,5 @@
 - [pi\_wgpu](#pi_wgpu)
+  - [0. 集成 wgpu-rs](#0-集成-wgpu-rs)
 - [1. 设计](#1-设计)
 - [2. 限制](#2-限制)
   - [2.0. 销毁资源](#20-销毁资源)
@@ -37,37 +38,31 @@
     - `Android` / PC-Android 模拟器: `GLES 3.0`
     - 浏览器 / 微信小游戏: [WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)
 
-| 序号 | 功能                     | 时间  | 说明                               |
-| ---- | ------------------------ | ----- | ---------------------------------- |
-| 01   | ~~BindGroup~~            | 1天   | **Done**                           |
-| 02   | ~~egl：初始化~~          | 1.5天 | **Done**                           |
-| 03   | ~~压缩纹理：DDS / ASTC~~ | 0.5天 | **Done**                           |
-| 04   | ~~多线程~~               | 1.5天 | **Done**                           |
-| 05   | ~~Shader~~               | 2.0天 | **Done**                           |
-| 06   | ~~Surface~~              | 1.0天 | **Done**                           |
-| 07   | EXE 联调                 | 5天+  | **Doing**                          |
-| 08   | `TODO` WebGL2 实现       | ?天   | ?                                  |
-| 08   | `TODO` WebGL2 联调       | ?天   | ?                                  |
-| 08   | `TODO` Android 实现      | ?天   | ?                                  |
-| 09   | `TODO` Android 联调      | ?天   | ?                                  |
-| 10   | `TODO` 多重采样          | ?天   | 待定                               |
-| 11   | `TODO` 多目标 渲染       | ?天   | 待定: `drawBuffers` / `clearBufer` |
-| 12   | `TODO` 各种 Copy         | ?天   | 待定: `blitFramebuffer`            |
-| 13   | `TODO` `QuerySet`        | ?天   | 待定:                              |
-| 14   | `TODO` `Fence`           | ?天   | 待定:                              |
-| 15   | `TODO` 其他功能          | ?天   | 待定: 如 `framebufferTextureLayer` |
-| 16   | `TODO` 其他 Feature      | ?天   | 待定: 如 `PushConst`               |
-
 需要调试的 Demo:
 
 + GUI: pi_ui_render, bevy 分支
-    - 最简单的渲染 quad.rs
+    - shadow.rs
+    - blend_mode.rs
+    - compress_texture
 + 3D:
     - pi_3d
         * 最简单的渲染 simple / dispose.rs
         * 动画，buffer更新：anime / 01.rs
         * 粒子 particle / render_stretched.rs
     - 后处理 pi_post_process / main.rs
+
+## 0. 集成 wgpu-rs
+
+为了兼容 wgpu-rs，pi_wgpu 也 包含了 wgpu
+
+如果不加 feature，默认就是用 pi-wgpu 的实现
+
+如果 想用 wgpu-rs 实现，在 feature加入 wgpu 即可，例子：
+
+``` toml
+[dependencies]
+pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
+```
 
 # 1. 设计
 
