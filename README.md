@@ -60,11 +60,11 @@
 
 如果不加 feature，默认就是用 pi-wgpu 的实现
 
-如果 想用 wgpu-rs 实现，在 feature加入 wgpu 即可，例子：
+如果 想用 wgpu-rs 实现，在 feature加入 `use_wgpu` 即可，例子：
 
 ``` toml
 [dependencies]
-pi_wgpu = {version = "0.1", default-features = false, features = ["wgpu"]}
+pi_wgpu = {version = "0.1", default-features = false, features = ["use_wgpu"]}
 ```
 
 # 2. 设计
