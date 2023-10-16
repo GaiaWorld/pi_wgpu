@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -17,7 +17,6 @@ use_wgpu = ["wgpu", "wgpu/glsl"]
 [dependencies]
 
 pi_share = "0.4"
-pi_egl = { path = "../pi_egl" }
 
 glow = "0.12"
 naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
@@ -35,6 +34,9 @@ raw-window-handle = "0.5"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
 serde = { version = "1.0", optional = true, features = ["derive"]}
+
+[yn]
+pi_egl = "0.1"
 
 # DEV dependencies
 
