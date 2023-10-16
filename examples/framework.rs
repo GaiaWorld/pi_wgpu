@@ -24,10 +24,10 @@ pub trait Example: 'static + Sized {
     fn init(device: &Device, queue: &Queue, config: &SurfaceConfiguration) -> Self;
     fn render<'b, 'a: 'b>(&'a mut self, device: &'a Device, queue: &'a Queue, rpass: &'b mut RenderPass<'a>);
 
-    // fn get_init_size(&self) -> Option<Size<u32>> {
-    //     // None表示使用默认值
-    //     None
-    // }
+    fn get_init_size() -> Option<(u32, u32)> {
+        // None表示使用默认值
+        None
+    }
 }
 
 pub fn start<T: Example + Sync + Send + 'static>() {

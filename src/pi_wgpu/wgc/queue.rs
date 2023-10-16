@@ -77,7 +77,7 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        log::trace!("pi_wgpu::Queue::write_texture, texture = {:?}, data = {:?}, data_layout = {:?}, size = {:?}", texture, data, data_layout,size);
+        log::trace!("pi_wgpu::Queue::write_texture, texture = {:?}, data_layout = {:?}, size = {:?}", texture, data_layout, size);
 
         hal::Texture::write_data(texture, data, data_layout, size);
     }
