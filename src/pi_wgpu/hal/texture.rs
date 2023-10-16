@@ -101,6 +101,7 @@ impl Texture {
             }
 
             if is_3d {
+				// TODO, 3.3版本不支持该函数
                 unsafe {
                     gl.tex_storage_3d(
                         target,
@@ -114,15 +115,24 @@ impl Texture {
             } else if desc.sample_count > 1 {
                 unimplemented!()
             } else {
-                unsafe {
-                    gl.tex_storage_2d(
-                        target,
-                        desc.mip_level_count as i32,
-                        format_desc.internal,
-                        desc.size.width as i32,
-                        desc.size.height as i32,
-                    )
-                };
+				unsafe {
+					// gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
+					gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+					gl.tex_image_2d(target, 0, format_desc.internal as i32, desc.size.width as i32, desc.size.height as i32, 0, format_desc.external, format_desc.data_type, None);
+				}
+				// unsafe {l
+				// 	gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
+				// 	gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+				// }
+                // unsafe {
+                //     gl.tex_storage_2d(
+                //         target,
+                //         desc.mip_level_count as i32,
+                //         format_desc.internal,
+                //         desc.size.width as i32,
+                //         desc.size.height as i32,
+                //     )
+                // };
             }
 
             unsafe { gl.bind_texture(target, None) };
@@ -204,7 +214,7 @@ impl Texture {
         let gl = lock.get_glow();
 
         unsafe {
-            gl.active_texture(glow::TEXTURE0);
+            // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
         }
 

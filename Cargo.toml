@@ -34,13 +34,20 @@ ordered-float = "3.9"
 raw-window-handle = "0.5"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
+serde = { version = "1.0", optional = true, features = ["derive"]}
 
 # DEV dependencies
 
 [dev-dependencies]
 log = "0.4"
 env_logger = "0.10"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"]}
+glow = {version = "0.12", features = ["debug_trace_calls"]}
+
 
 winit = "0.28"
 pollster = "0.3"
 naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
+bytemuck = { version = "1.4", features = ["derive"] }
+glam = "0.24"

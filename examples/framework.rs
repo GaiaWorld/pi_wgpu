@@ -1,15 +1,12 @@
-use pi_wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    Buffer, BufferAddress, BufferUsages, Color, ColorTargetState, ColorWrites,
-    CommandEncoderDescriptor, CompareFunction, DepthBiasState, DepthStencilState, Device,
-    DeviceDescriptor, Extent3d, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
-    MultisampleState, Operations, PipelineLayout, PipelineLayoutDescriptor, PolygonMode,
-    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, RenderPassColorAttachment,
-    RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource,
-    StencilState, SurfaceConfiguration, Texture, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, TextureViewDescriptor, VertexAttribute, VertexBufferLayout,
-    VertexFormat, VertexState, VertexStepMode,
+
+use pi_wgpu::{Color,
+    CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Extent3d, Features, Instance, Limits, LoadOp, Operations,
+    PowerPreference, PresentMode, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions,
+    SurfaceConfiguration, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureViewDescriptor,
+    Queue, RenderPass
 };
 use winit::{
     dpi::PhysicalSize,
@@ -18,16 +15,31 @@ use winit::{
     window::Window,
 };
 
-fn main() {
+#[allow(dead_code)]
+fn main() {}
+
+
+pub trait Example: 'static + Sized {
+    // fn setting(&mut self, device: &Device, device: &Device,) {}
+    fn init(device: &Device, queue: &Queue, config: &SurfaceConfiguration) -> Self;
+    fn render<'b, 'a: 'b>(&'a mut self, device: &'a Device, queue: &'a Queue, rpass: &'b mut RenderPass<'a>);
+
+    // fn get_init_size(&self) -> Option<Size<u32>> {
+    //     // None表示使用默认值
+    //     None
+    // }
+}
+
+pub fn start<T: Example + Sync + Send + 'static>() {
     let event_loop = EventLoop::new();
     let window = winit::window::Window::new(&event_loop).unwrap();
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::Builder::new()
-            .filter(None, log::LevelFilter::Info)
+            .filter(Some("glow=trace"), log::LevelFilter::Warn)
             .init();
 
-        pollster::block_on(run(event_loop, window));
+        pollster::block_on(run::<T>(event_loop, window));
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -43,11 +55,11 @@ fn main() {
                     .ok()
             })
             .expect("couldn't append canvas to document body");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window));
+        wasm_bindgen_futures::spawn_local(run::<T>(event_loop, window));
     }
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, window: Window) {
     window.set_inner_size(PhysicalSize {
         width: 450,
         height: 720,
@@ -95,16 +107,25 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
     };
+	let surface_view_format = config.format.add_srgb_suffix();
+    config.view_formats.push(surface_view_format);
     surface.configure(&device, &config);
 
-    let depth_format = TextureFormat::Depth24Plus;
-    let mut depth_texture =
+	let depth_format = TextureFormat::Depth24Plus;
+	let depth_texture =
         create_depth_texture(&device, config.width, config.height, depth_format);
     let mut depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
 
-    let vb = create_vb(&device);
+	let mut example = T::init(&device, &queue, &config);
 
-    let rp = create_render_pipeline(&device, swapchain_format, depth_format);
+    // let depth_format = TextureFormat::Depth24Plus;
+    // let mut depth_texture =
+    //     create_depth_texture(&device, config.width, config.height, depth_format);
+    // let mut depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
+
+    // let vb = create_vb(&device);
+
+    // let rp = create_render_pipeline(&device, swapchain_format, depth_format);
 
     let mut can_draw = false;
     event_loop.run(move |event, _, control_flow| {
@@ -126,8 +147,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     config.width = size.width;
                     config.height = size.height;
                     surface.configure(&device, &config);
-
-                    depth_texture =
+					
+                    let depth_texture =
                         create_depth_texture(&device, config.width, config.height, depth_format);
 
                     depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
@@ -147,7 +168,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
 
-                let view = frame.texture.create_view(&TextureViewDescriptor::default());
+
+                let view: pi_wgpu::TextureView = frame.texture.create_view(&TextureViewDescriptor::default());
 
                 let mut encoder =
                     device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -177,9 +199,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         }),
                     });
 
-                    rpass.set_pipeline(&rp);
-                    rpass.set_vertex_buffer(0, vb.slice(..));
-                    rpass.draw(0..3, 0..1);
+					example.render(&device, &queue, &mut rpass);
                 }
 
                 queue.submit(Some(encoder.finish()));
@@ -195,56 +215,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     });
 }
 
-#[repr(C)]
-struct Vertex {
-    position: [f32; 2],
-    color: [f32; 4],
-}
-
-fn create_vb(device: &Device) -> Buffer {
-    let vertices = [
-        Vertex {
-            position: [0.0, 0.0],
-            color: [1.0, 0.0, 0.0, 1.0],
-        },
-        Vertex {
-            position: [0.0, 0.5],
-            color: [0.0, 1.0, 0.0, 1.0],
-        },
-        Vertex {
-            position: [0.5, 0.5],
-            color: [0.0, 0.0, 1.0, 1.0],
-        },
-    ];
-
-    let slice = vertices.as_slice();
-    let contents = unsafe {
-        std::slice::from_raw_parts(
-            slice.as_ptr() as *const u8,
-            slice.len() * std::mem::size_of::<Vertex>(),
-        )
-    };
-
-    let desc = BufferInitDescriptor {
-        label: Some("Vertex Buffer"),
-        usage: BufferUsages::VERTEX,
-        contents,
-    };
-
-    device.create_buffer_init(&desc)
-}
-
-fn create_pipeline_layout(device: &Device) -> PipelineLayout {
-    let desc = PipelineLayoutDescriptor {
-        label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[],
-        push_constant_ranges: &[],
-    };
-
-    let layout = device.create_pipeline_layout(&desc);
-
-    layout
-}
 
 fn create_depth_texture(
     device: &Device,
@@ -272,86 +242,3 @@ fn create_depth_texture(
     texture
 }
 
-fn create_render_pipeline(
-    device: &Device,
-    swapchain_format: TextureFormat,
-    depth_format: TextureFormat,
-) -> RenderPipeline {
-    let vs = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("VS"),
-        source: ShaderSource::Glsl {
-            shader: include_str!("shader/triangle.vert").into(),
-            stage: naga::ShaderStage::Vertex,
-            defines: Default::default(),
-        },
-    });
-
-    let fs = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some("FS"),
-        source: ShaderSource::Glsl {
-            shader: include_str!("shader/triangle.frag").into(),
-            stage: naga::ShaderStage::Fragment,
-            defines: Default::default(),
-        },
-    });
-
-    let targets = [Some(ColorTargetState {
-        format: swapchain_format,
-        blend: None,
-        write_mask: ColorWrites::ALL,
-    })];
-
-    let pipeline_layout = create_pipeline_layout(&device);
-
-    let desc = RenderPipelineDescriptor {
-        label: Some("Render Pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: VertexState {
-            module: &vs,
-            entry_point: "main",
-            buffers: &[VertexBufferLayout {
-                array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
-                step_mode: VertexStepMode::Vertex,
-                attributes: &[
-                    VertexAttribute {
-                        format: VertexFormat::Float32x2,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    VertexAttribute {
-                        format: VertexFormat::Float32x4,
-                        offset: std::mem::size_of::<[f32; 2]>() as BufferAddress,
-                        shader_location: 1,
-                    },
-                ],
-            }],
-        },
-        primitive: PrimitiveState {
-            topology: PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: FrontFace::Cw,
-            cull_mode: Some(Face::Back),
-            unclipped_depth: false,
-            polygon_mode: PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: Some(DepthStencilState {
-            format: depth_format,
-            depth_write_enabled: true,
-            depth_compare: CompareFunction::LessEqual,
-            stencil: StencilState::default(),
-            bias: DepthBiasState::default(),
-        }),
-        multisample: MultisampleState::default(),
-        fragment: Some(FragmentState {
-            module: &fs,
-            entry_point: "main",
-            targets: &targets,
-        }),
-        multiview: None,
-    };
-
-    let rp = device.create_render_pipeline(&desc);
-
-    rp
-}

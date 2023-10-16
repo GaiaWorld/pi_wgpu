@@ -1598,7 +1598,7 @@ impl GLStateImpl {
         for (i, bindings) in program.uniforms.iter().enumerate() {
             let bg = &bg_set[i];
             if bg.is_none() {
-                assert!(bindings.len() == 0);
+                // assert!(bindings.len() == 0);
                 continue;
             }
             let bg = bg.as_ref().unwrap();
