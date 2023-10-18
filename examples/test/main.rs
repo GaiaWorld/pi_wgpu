@@ -22,8 +22,8 @@ pub struct TestExample {
     render_pipeline1: pi_wgpu::RenderPipeline,
     render_pipeline3: pi_wgpu::RenderPipeline,
 
-	bind_group_layout22: pi_wgpu::BindGroupLayout,
-	sampler3: pi_wgpu::Sampler,
+    bind_group_layout22: pi_wgpu::BindGroupLayout,
+    sampler3: pi_wgpu::Sampler,
 }
 
 impl Example for TestExample {
@@ -217,7 +217,7 @@ source: ShaderSource::Glsl { shader: Cow::from("#version 450\n\nprecision highp 
             multiview: None,
         });
 
-		let (width, height) = (256, 256);
+        let (width, height) = (256, 256);
         let texture3 = device.create_texture(&TextureDescriptor {
             label: Some("first depth buffer"),
             size: Extent3d {
@@ -993,9 +993,9 @@ source: ShaderSource::Glsl { shader: Cow::from("#version 450\n\nprecision highp 
             ],
             usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
         });
-		queue.write_buffer(
+        queue.write_buffer(
             &buffer8,
-            256,
+            0,
             &[
                 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 128, 191,
@@ -1025,7 +1025,7 @@ source: ShaderSource::Glsl { shader: Cow::from("#version 450\n\nprecision highp 
             ],
         );
         queue.write_buffer(&buffer10, 268, &[0, 0, 128, 63]);
-		
+
         let bind_group26 = device.create_bind_group(&BindGroupDescriptor {
             label: Some("depth group group"),
             layout: &bind_group_layout20,
@@ -1163,7 +1163,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             }),
             multiview: None,
         });
-       
+
         Self {
             buffer3,
             buffer5,
@@ -1174,8 +1174,8 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             render_pipeline1,
             render_pipeline3,
 
-			bind_group_layout22,
-			sampler3,
+            bind_group_layout22,
+            sampler3,
         }
     }
 
@@ -1185,14 +1185,14 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
         queue: &'a pi_wgpu::Queue,
         rpass: &'b mut pi_wgpu::RenderPass<'a>,
     ) {
-		let texture_size = 256u32;
+        let texture_size = 256u32;
         let texels = create_texels(texture_size as usize, texture_size as usize);
         let texture_extent = pi_wgpu::Extent3d {
             width: texture_size,
             height: texture_size,
             depth_or_array_layers: 1,
         };
-		println!("mip_level_count====================");
+        println!("mip_level_count====================");
         let texture = device.create_texture(&pi_wgpu::TextureDescriptor {
             label: None,
             size: texture_extent,
@@ -1203,7 +1203,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             usage: pi_wgpu::TextureUsages::TEXTURE_BINDING | pi_wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-		println!("mip_level_count end====================");
+        println!("mip_level_count end====================");
         let texture_view = texture.create_view(&pi_wgpu::TextureViewDescriptor::default());
         queue.write_texture(
             texture.as_image_copy(),
@@ -1215,10 +1215,10 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             },
             texture_extent,
         );
-		let bind_group = device.create_bind_group(&pi_wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&pi_wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout22,
             entries: &[
-				pi_wgpu::BindGroupEntry {
+                pi_wgpu::BindGroupEntry {
                     binding: 0,
                     resource: pi_wgpu::BindingResource::Sampler(&self.sampler3),
                 },
@@ -1229,33 +1229,35 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             ],
             label: None,
         });
-		self.bind_group29 = bind_group;
-
-        // rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
-        // rpass.set_bind_group(2, &self.bind_group24, &[0]);
-        // rpass.set_bind_group(1, &self.bind_group26, &[0]);
-        // rpass.set_pipeline(&self.render_pipeline1);
-        // rpass.set_bind_group(0, &self.bind_group25, &[0]);
-        // rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
-        // rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
-        // rpass.draw_indexed(0..6, 0, 0..1);
+        self.bind_group29 = bind_group;
 
         rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
-		rpass.set_pipeline(&self.render_pipeline3);
-        rpass.set_bind_group(0, &self.bind_group25, &[512]);
-        // rpass.set_bind_group(0, &self.bind_group25, &[512]);
-        rpass.set_bind_group(1, &self.bind_group26, &[256]);
+        rpass.set_bind_group(2, &self.bind_group24, &[0]);
+        rpass.set_bind_group(1, &self.bind_group26, &[0]);
         
-        rpass.set_bind_group(2, &self.bind_group24, &[512]);
-        rpass.set_bind_group(3, &self.bind_group29, &[]);
+        rpass.set_pipeline(&self.render_pipeline1);
         
-        rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
+        rpass.set_bind_group(0, &self.bind_group25, &[0]);
         rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
-        
         rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
-        
         rpass.draw_indexed(0..6, 0, 0..1);
-        
+
+        // rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
+        // rpass.set_pipeline(&self.render_pipeline3);
+        // rpass.set_bind_group(0, &self.bind_group25, &[512]);
+        // // rpass.set_bind_group(0, &self.bind_group25, &[512]);
+        // rpass.set_bind_group(1, &self.bind_group26, &[256]);
+
+        // rpass.set_bind_group(2, &self.bind_group24, &[512]);
+        // rpass.set_bind_group(3, &self.bind_group29, &[]);
+
+        // rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
+        // rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
+
+        // rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
+
+        // rpass.draw_indexed(0..6, 0, 0..1);
+
         // rpass.draw(0..3, 0..1);
     }
 }
