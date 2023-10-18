@@ -161,7 +161,7 @@ source: ShaderSource::Glsl { shader: Cow::from("#version 450\n\nprecision highp 
                 conservative: false,
             },
             depth_stencil: Some(DepthStencilState {
-                format: TextureFormat::Depth32Float,
+                format: TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
                 depth_compare: CompareFunction::Always,
                 stencil: StencilState {
@@ -1059,7 +1059,7 @@ defines: naga::FastHashMap::default() } });
         let shader_module32 = device.create_shader_module(ShaderModuleDescriptor { label: Some("pi_ui_render::shader::image::ProgramMeta"), 
 source: ShaderSource::Glsl { shader: Cow::from("#version 450\nfloat sdfEllipseSimple(vec2 p, vec2 center, vec2 ab)\n\n{\n\n\tp -= center;\n\n\tfloat k1 = length(p / ab);\n\n\tfloat k2 = length(p/(ab * ab));\n\n\treturn (k1 - 1.0) * k1 / k2;\n\n}\n\nfloat sdfRect(vec2 xy, vec2 wh)\n\n{\n\n\tvec2 d = abs(xy) - wh;\n\n\treturn length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);\n\n}\n\nfloat computeAARange(vec2 position) {\n\n\tvec2 w = fwidth(position);\n\n\treturn inversesqrt(0.5 * dot(w, w));\n\n}\n\nfloat distanceAA(float recip_scale, float signed_distance) {\n\n\tfloat d = recip_scale * signed_distance;\n\n\treturn clamp(0.5 * (1.0 - d), 0.0, 1.0);\n\n}\n\nfloat crossPt(vec2 v1, vec2 v2) {\n\n\treturn -(v1.x * v2.y - v1.y * v2.x);\n\n}\n\nbool isCcw(vec2 p0, vec2 p1, vec2 p2) {\n\n\tvec2 v1 = p1 - p0;\n\n\tvec2 v2 = p2 - p0;\n\n\tfloat r = crossPt(v1, v2);\n\n\treturn r > 0.0;\n\n}\n\nbool isLeftTop(vec2 pt, vec2 wh, vec2 center) {\n\n\tvec2 pt0 = vec2(-wh.x, center.y);\n\n\tvec2 pt1 = vec2(center.x, -wh.y);\n\n\treturn isCcw(pt, pt0, pt1);\n\n}\n\nbool isTopRight(vec2 pt, vec2 wh, vec2 center) {\n\n\tvec2 pt0 = vec2(center.x, -wh.y);\n\n\tvec2 pt1 = vec2(wh.x, center.y);\n\n\treturn isCcw(pt, pt0, pt1);\n\n}\n\nbool isRightBottom(vec2 pt, vec2 wh, vec2 center) {\n\n\tvec2 pt0 = vec2(wh.x, center.y);\n\n\tvec2 pt1 = vec2(center.x, wh.y);\n\n\treturn isCcw(pt, pt0, pt1);\n\n}\n\nbool 
 isBottomLeft(vec2 pt, vec2 wh, vec2 center) {\n\n\tvec2 pt0 = vec2(center.x, wh.y);\n\n\tvec2 pt1 = vec2(-wh.x, center.y);\n\n\treturn isCcw(pt, pt0, pt1);\n\n}\n\nfloat sdfRoundRect(vec2 pt, vec2 
-extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_rect = sdfRect(pt, extent);\n\n\tvec2 center = vec2(-extent.x + offset1.x, -extent.y + offset1.y); \n\n\tif (isLeftTop(pt, extent, center)) {\n\n\t\tfloat d_lt = sdfEllipseSimple(pt, center, abs(offset1));\n\n\t\treturn max(d_rect, d_lt);\n\n\t}\n\n\tcenter = vec2(extent.x + offset2.x, -extent.y + offset2.y); \n\n\tif (isTopRight(pt, extent, center)) {\n\n\t\tfloat d_tr = sdfEllipseSimple(pt, center, abs(offset2));\n\n\t\treturn max(d_rect, d_tr);\n\n\t}\n\n\tcenter = vec2(extent.x + offset3.x, extent.y + offset3.y); \n\n\tif (isRightBottom(pt, extent, center)) {\n\n\t\tfloat d_rb = sdfEllipseSimple(pt, center, abs(offset3));\n\n\t\treturn max(d_rect, d_rb);\n\n\t}\n\n\tcenter = vec2(-extent.x + offset4.x, extent.y + offset4.y); \n\n\tif (isBottomLeft(pt, extent, center)) {\n\n\t\tfloat d_bl = sdfEllipseSimple(pt, center, abs(offset4));\n\n\t\treturn max(d_rect, d_bl);\n\n\t}\n\n\treturn d_rect;\n\n}\nlayout(location=0)in vec2 vUv;\nlayout(location=1)in vec2 vVertexPosition;\nlayout(location=0)out vec4 o_Target;\nlayout(set=2,binding=0) uniform M_2_0_M{\nmat4 world;\nmat4 clipSdf;\nvec4 color;\nvec4 strokeColorOrURect;\nvec2 textureSizeOrBottomLeftBorder;\nfloat blur;\nfloat PATCH_2_0;\n};\nlayout(set=3,binding=0) uniform sampler samp;\nlayout(set=3,binding=1)uniform texture2D tex2d;\nvoid main(){\n\tvec4 color=texture(sampler2D(tex2d,samp),vUv);\n\to_Target=vec4(color.rgb,color.a);\n}\n"), stage: ShaderStage::Fragment, defines: naga::FastHashMap::default() } });
+extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_rect = sdfRect(pt, extent);\n\n\tvec2 center = vec2(-extent.x + offset1.x, -extent.y + offset1.y); \n\n\tif (isLeftTop(pt, extent, center)) {\n\n\t\tfloat d_lt = sdfEllipseSimple(pt, center, abs(offset1));\n\n\t\treturn max(d_rect, d_lt);\n\n\t}\n\n\tcenter = vec2(extent.x + offset2.x, -extent.y + offset2.y); \n\n\tif (isTopRight(pt, extent, center)) {\n\n\t\tfloat d_tr = sdfEllipseSimple(pt, center, abs(offset2));\n\n\t\treturn max(d_rect, d_tr);\n\n\t}\n\n\tcenter = vec2(extent.x + offset3.x, extent.y + offset3.y); \n\n\tif (isRightBottom(pt, extent, center)) {\n\n\t\tfloat d_rb = sdfEllipseSimple(pt, center, abs(offset3));\n\n\t\treturn max(d_rect, d_rb);\n\n\t}\n\n\tcenter = vec2(-extent.x + offset4.x, extent.y + offset4.y); \n\n\tif (isBottomLeft(pt, extent, center)) {\n\n\t\tfloat d_bl = sdfEllipseSimple(pt, center, abs(offset4));\n\n\t\treturn max(d_rect, d_bl);\n\n\t}\n\n\treturn d_rect;\n\n}\nlayout(location=0)in vec2 vUv;\nlayout(location=1)in vec2 vVertexPosition;\nlayout(location=0)out vec4 o_Target;\nlayout(set=2,binding=0) uniform M_2_0_M{\nmat4 world;\nmat4 clipSdf;\nvec4 color;\nvec4 strokeColorOrURect;\nvec2 textureSizeOrBottomLeftBorder;\nfloat blur;\nfloat PATCH_2_0;\n};\nlayout(set=3,binding=0) uniform sampler samp;\nlayout(set=3,binding=1)uniform texture2D tex2d;\nvoid main(){\n\tvec4 color=texture(sampler2D(tex2d,samp),vUv);\n\to_Target=vec4(color.rgb, 1.0);\n}\n"), stage: ShaderStage::Fragment, defines: naga::FastHashMap::default() } });
         let pipeline_layout3 = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("pi_ui_render::shader::image::ProgramMeta"),
             bind_group_layouts: &[
@@ -1108,9 +1108,9 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
                 conservative: false,
             },
             depth_stencil: Some(DepthStencilState {
-                format: TextureFormat::Depth32Float,
+                format: TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
-                depth_compare: CompareFunction::GreaterEqual,
+                depth_compare: CompareFunction::Always,
                 stencil: StencilState {
                     front: StencilFaceState {
                         compare: CompareFunction::Always,
@@ -1210,7 +1210,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             &texels,
             pi_wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(texture_size),
+                bytes_per_row: Some(4 * texture_size),
                 rows_per_image: None,
             },
             texture_extent,
@@ -1239,18 +1239,23 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
         // rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
         // rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
         // rpass.draw_indexed(0..6, 0, 0..1);
+
         rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
 		rpass.set_pipeline(&self.render_pipeline3);
         rpass.set_bind_group(0, &self.bind_group25, &[512]);
-        rpass.set_bind_group(0, &self.bind_group25, &[512]);
+        // rpass.set_bind_group(0, &self.bind_group25, &[512]);
         rpass.set_bind_group(1, &self.bind_group26, &[256]);
         
         rpass.set_bind_group(2, &self.bind_group24, &[512]);
         rpass.set_bind_group(3, &self.bind_group29, &[]);
+        
         rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
         rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
+        
         rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
+        
         rpass.draw_indexed(0..6, 0, 0..1);
+        
         // rpass.draw(0..3, 0..1);
     }
 }

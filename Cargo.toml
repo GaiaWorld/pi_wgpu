@@ -11,6 +11,7 @@ keywords = ["pi", "webgpu"]
 [features]
 default = ["gl"]
 # default = ["use_wgpu", "gl"]
+
 gl = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
 
@@ -35,7 +36,7 @@ codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
 serde = { version = "1.0", optional = true, features = ["derive"]}
 
-[yn]
+# [patch.yn]
 # pi_egl = {path = "../pi_egl"}
 
 
