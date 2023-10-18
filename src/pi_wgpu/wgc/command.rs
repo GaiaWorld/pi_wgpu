@@ -164,6 +164,7 @@ impl<'a> RenderPass<'a> {
     /// Subsequent calls to [`draw_indexed`](RenderPass::draw_indexed) on this [`RenderPass`] will
     /// use `buffer` as the source index buffer.
     pub fn set_index_buffer(&mut self, buffer_slice: BufferSlice<'a>, index_format: IndexFormat) {
+		#[cfg(not(target_arch = "wasm32"))]
         match buffer_slice.size {
             Some(r) => log::trace!(
                 "render_pass.set_index_buffer(buffer{}.slice({}..{}), IndexFormat::{:?});",
@@ -201,6 +202,7 @@ impl<'a> RenderPass<'a> {
     /// [`draw`]: RenderPass::draw
     /// [`draw_indexed`]: RenderPass::draw_indexed
     pub fn set_vertex_buffer(&mut self, slot: u32, buffer_slice: BufferSlice<'a>) {
+		#[cfg(not(target_arch = "wasm32"))]
         match buffer_slice.size {
             Some(r) => log::trace!(
                 "render_pass.set_vertex_buffer({}, buffer{}.slice({}..{}));",

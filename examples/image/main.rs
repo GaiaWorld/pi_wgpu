@@ -4,9 +4,16 @@ mod framework;
 use bytemuck::{Pod, Zeroable};
 use framework::Example;
 use pi_wgpu::{util::DeviceExt, *};
-
-
 fn main() {
+	framework::start::<ImageExample>();
+}
+
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+#[test]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn test() {
+	web_sys::console::log_1(&"aaaa===========".into());
 	framework::start::<ImageExample>();
 }
 pub struct ImageExample {

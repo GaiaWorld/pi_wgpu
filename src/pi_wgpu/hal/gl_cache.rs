@@ -5,8 +5,9 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use pi_time::Instant;
 
 use glow::HasContext;
 use pi_share::{Share, ShareWeak};

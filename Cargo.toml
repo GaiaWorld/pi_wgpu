@@ -34,12 +34,26 @@ raw-window-handle = "0.5"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
 serde = { version = "1.0", optional = true, features = ["derive"]}
+pi_time = "0.3"
 
-[yn]
-# pi_egl = {path = "../pi_egl"}
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+web-sys = {version="0.3", features = [
+	"HtmlCanvasElement",
+]}
+js-sys = "0.3"
+log = {version = "0.4", features = ["max_level_warn"]}
+
+
+[patch.yn]
+pi_egl = {path = "../pi_egl"}
 
 
 # DEV dependencies
+
+# [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# my_library = { version = "0.1", features = ["wgpu"] }
+# wgpu = { version = "0.16", default-features = false, features = ["glsl", "wgc"] }
 
 [dev-dependencies]
 log = "0.4"
@@ -47,10 +61,35 @@ env_logger = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"]}
 glow = {version = "0.12", features = ["debug_trace_calls"]}
-
-
-winit = "0.28"
+winit = {registry = "yn", version = "0.27"}
 pollster = "0.3"
 naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
 bytemuck = { version = "1.4", features = ["derive"] }
 glam = "0.24"
+
+# [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+web-sys = {version="0.3", features = [
+	"HtmlCanvasElement",
+	"OffscreenCanvas",
+	"ImageBitmapRenderingContext",
+]}
+js-sys = "0.3"
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+getrandom = {version="0.2", features=["js"]}
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = "0.3"
+
+
+[[example]]
+name = "triangle"
+crate-type = ["cdylib"]
+test = true
+
+[[example]]
+name = "image"
+test = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-glue = "0.2"

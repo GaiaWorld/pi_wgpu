@@ -130,6 +130,7 @@ impl Device {
     #[inline]
     pub fn create_buffer(&self, desc: &super::super::BufferDescriptor) -> Buffer {
         let buffer =self.create_buffer_inner(desc);
+		#[cfg(not(target_arch = "wasm32"))]
 		log::trace!(
 			"let buffer{:?} = device.create_buffer(&{:?});",
 			buffer.inner.0.raw.0,
@@ -236,6 +237,7 @@ impl Device {
     pub fn create_sampler(&self, desc: &SamplerDescriptor) -> Sampler {
         let r = self.inner.create_sampler(&desc);
         let r = r.unwrap();
+		#[cfg(not(target_arch = "wasm32"))]
 		log::trace!("let sampler{} = device.create_sampler(&{:?});", r.0.raw.0.get(), desc);
         Sampler::from_hal(r)
     }

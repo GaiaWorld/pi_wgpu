@@ -6,9 +6,21 @@ use framework::Example;
 use pi_wgpu::{util::{DeviceExt, BufferInitDescriptor}, *};
 
 
+#[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
+
 fn main() {
 	framework::start::<TriangleExample>();
 }
+
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+#[test]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn test() {
+	web_sys::console::log_1(&"aaaa===========".into());
+	framework::start::<TriangleExample>();
+}
+
 pub struct TriangleExample {
     vertex_buf: pi_wgpu::Buffer,
     pipeline: pi_wgpu::RenderPipeline,

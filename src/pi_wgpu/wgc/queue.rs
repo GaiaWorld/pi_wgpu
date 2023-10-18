@@ -22,6 +22,7 @@ impl Queue {
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     // #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
+		#[cfg(not(target_arch = "wasm32"))]
         log::trace!(
             "queue.write_buffer(&buffer{}, {}, &{:?});",
             buffer.inner.0.raw.0.get(),

@@ -57,6 +57,7 @@ impl DeviceExt for super::super::Device {
             let gl = lock.get_glow();
 
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);
+			#[cfg(not(target_arch = "wasm32"))]
             log::trace!(
                 "let buffer{:?} = device.create_buffer_init(&{:?});",
                 buffer.inner.0.raw.0,

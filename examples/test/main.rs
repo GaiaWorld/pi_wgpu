@@ -1110,7 +1110,8 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
-                depth_compare: CompareFunction::GreaterEqual,
+                // depth_compare: CompareFunction::GreaterEqual,
+				depth_compare: CompareFunction::Always,
                 stencil: StencilState {
                     front: StencilFaceState {
                         compare: CompareFunction::Always,
@@ -1210,7 +1211,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             &texels,
             pi_wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(texture_size),
+                bytes_per_row: Some(texture_size * 4),
                 rows_per_image: None,
             },
             texture_extent,

@@ -472,20 +472,19 @@ pub(crate) enum TextureInner {
 
 impl TextureInner {
     pub(crate) fn debug_str(&self) -> String {
-        match self {
+		#[cfg(not(target_arch = "wasm32"))]
+        let r = match self {
             crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
             crate::pi_wgpu::hal::TextureInner::Renderbuffer {
-                state,
-                adapter,
-                raw,
+                raw,..
             } => "render".to_string() + raw.0.get().to_string().as_str(),
             crate::pi_wgpu::hal::TextureInner::Texture {
-                state,
-                adapter,
-                raw,
-                target,
+                raw,..
             } => "".to_string() + raw.0.get().to_string().as_str(),
-        }
+        };
+		#[cfg(target_arch = "wasm32")]
+		let r = "".to_string();
+		r
     }
 }
 
@@ -493,7 +492,6 @@ impl Drop for TextureInner {
     fn drop(&mut self) {
         profiling::scope!("hal::TextureInner::drop");
         log::trace!("Dropping TextureInner {:?}", self);
-
         match &self {
             &TextureInner::NativeRenderBuffer => {}
             &TextureInner::Renderbuffer {
