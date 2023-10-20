@@ -3,13 +3,15 @@ mod framework;
 
 use bytemuck::{Pod, Zeroable};
 use framework::Example;
-use pi_wgpu::{util::{DeviceExt, BufferInitDescriptor}, *};
-
+use pi_wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    *,
+};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
 
 fn main() {
-	framework::start::<TriangleExample>();
+    framework::start::<TriangleExample>();
 }
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -17,8 +19,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 #[test]
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn test() {
-	web_sys::console::log_1(&"aaaa===========".into());
-	framework::start::<TriangleExample>();
+    web_sys::console::log_1(&"aaaa===========".into());
+    framework::start::<TriangleExample>();
 }
 
 pub struct TriangleExample {
@@ -26,14 +28,13 @@ pub struct TriangleExample {
     pipeline: pi_wgpu::RenderPipeline,
 }
 
-
 impl Example for TriangleExample {
     fn init(device: &Device, _queue: &pi_wgpu::Queue, config: &SurfaceConfiguration) -> Self {
-		let depth_format = TextureFormat::Depth24Plus;
-	
-		let vertex_buf = create_vb(&device);
-	
-		let pipeline: RenderPipeline = create_render_pipeline(&device, depth_format, config);
+        let depth_format = TextureFormat::Depth24Plus;
+
+        let vertex_buf = create_vb(&device);
+
+        let pipeline: RenderPipeline = create_render_pipeline(&device, depth_format, config);
 
         TriangleExample {
             vertex_buf,
@@ -41,10 +42,15 @@ impl Example for TriangleExample {
         }
     }
 
-    fn render<'b, 'a: 'b>(&'a mut self, _device: &'a Device, _queue: &'a pi_wgpu::Queue, rpass: &'b mut pi_wgpu::RenderPass<'a>) {
-		rpass.set_pipeline(&self.pipeline);
-		rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-		rpass.draw(0..3, 0..1);
+    fn render<'b, 'a: 'b>(
+        &'a mut self,
+        _device: &'a Device,
+        _queue: &'a pi_wgpu::Queue,
+        rpass: &'b mut pi_wgpu::RenderPass<'a>,
+    ) {
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        rpass.draw(0..3, 0..1);
     }
 }
 
@@ -54,7 +60,6 @@ struct Vertex {
     position: [f32; 2],
     color: [f32; 4],
 }
-
 
 fn create_vb(device: &Device) -> Buffer {
     let vertices = [
@@ -89,7 +94,6 @@ fn create_vb(device: &Device) -> Buffer {
     device.create_buffer_init(&desc)
 }
 
-
 fn create_pipeline_layout(device: &Device) -> PipelineLayout {
     let desc = PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
@@ -105,7 +109,7 @@ fn create_pipeline_layout(device: &Device) -> PipelineLayout {
 fn create_render_pipeline(
     device: &Device,
     depth_format: TextureFormat,
-	config: &SurfaceConfiguration,
+    config: &SurfaceConfiguration,
 ) -> RenderPipeline {
     let vs = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("VS"),
@@ -132,7 +136,7 @@ fn create_render_pipeline(
     // })];
 
     let pipeline_layout = create_pipeline_layout(&device);
-	let target = [Some(config.view_formats[0].into())];
+    let target = [Some(config.view_formats[0].into())];
 
     let desc = RenderPipelineDescriptor {
         label: Some("Render Pipeline"),
@@ -150,7 +154,7 @@ fn create_render_pipeline(
                         shader_location: 0,
                     },
                     VertexAttribute {
-                        format: VertexFormat::Float32x2,
+                        format: VertexFormat::Float32x4,
                         offset: std::mem::size_of::<[f32; 2]>() as BufferAddress,
                         shader_location: 1,
                     },
@@ -186,8 +190,3 @@ fn create_render_pipeline(
 
     rp
 }
-
-
-
-
-

@@ -31,7 +31,9 @@ impl Surface {
         // );
 
         {
+            // log::warn!("111 Surface::present begin");
             self.imp.as_ref().borrow_mut().present();
+            // log::warn!("111 Surface::present end");
         }
 
         // log::trace!(
@@ -131,6 +133,7 @@ impl SurfaceImpl {
             config.width,
             config.height
         );
+        
         self.adapter.set_surface(clone);
         
         if self.sc.is_none() {
@@ -372,7 +375,7 @@ impl SwapChain {
             }),
             multiview: None,
         });
-
+        
         let sampler = device.create_sampler(&super::super::SamplerDescriptor {
             label: Some("Flip-Y Sampler"),
             address_mode_u: wgt::AddressMode::ClampToEdge,

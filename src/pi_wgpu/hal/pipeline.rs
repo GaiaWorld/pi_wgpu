@@ -230,7 +230,6 @@ impl RenderPipelineImpl {
     ) -> Result<Program, super::PipelineError> {
         let vs_id = vs.id;
         let fs_id = fs.id;
-
         match state.get_program(&(vs_id, fs_id)) {
             Some(program) => Ok(program),
             None => {
@@ -615,6 +614,7 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
+        log::error!("============================== delete_program: raw = {:?}", self.raw);
         log::trace!("Dropping ProgramImpl {:?}", self.raw);
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();

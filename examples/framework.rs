@@ -37,7 +37,7 @@ pub fn start<T: Example + Sync + Send + 'static>() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::Builder::new()
-            .filter(Some("glow=trace"), log::LevelFilter::Warn)
+            .filter(Some("glow=trace"), log::LevelFilter::Trace)
             .init();
 
         pollster::block_on(run::<T>(event_loop, window));
@@ -45,7 +45,10 @@ pub fn start<T: Example + Sync + Send + 'static>() {
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
+
+        // console_log::init().expect("could not initialize logger");
+        console_log::init_with_level(log::Level::Trace).expect("could not initialize logger");
+
         use winit::platform::web::WindowExtWebSys;
         // On wasm, append the canvas to the document body
         web_sys::window()
@@ -92,6 +95,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
         )
         .await
         .expect("Failed to create device");
+
     let depth_format = TextureFormat::Depth24Plus;
 
     let mut surface: Option<Surface> = None;
@@ -100,61 +104,77 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
     let mut example: Option<T> = None;
     let mut tex: Option<Texture> = None;
 
-    let mut can_draw = false;
+    let mut already_resume = false;
+    let mut already_resize = false;
+    let mut is_init = false;
+
+    let mut last_size: PhysicalSize<u32> = Default::default();
+
     event_loop.run(move |event, _, control_flow| {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
         let _ = (&instance, &adapter);
-        
-        *control_flow = ControlFlow::Wait;
-        log::error!("======= event : {:?}", event);
+
+        *control_flow = ControlFlow::Poll;
+
+        // log::error!("======= event : {:?}", event);
         match event {
             Event::WindowEvent {
-                event: WindowEvent::Resized(size),
+                // 注: Wasm 收不到 Resize，所以全部写到 MainEventCleard 去
+                event: WindowEvent::Resized(_),
                 ..
-            } => {
-                
-            }
+            } => {}
             Event::MainEventsCleared => {
                 let size = window.inner_size();
-                log::error!("======= size : {:?}", size);
-                can_draw = size.width > 0 && size.height > 0;
-                if can_draw {
-                    // Reconfigure the surface with the new size
-                    if let Some((config, surface)) = config.as_mut().zip(surface.as_ref()) {
-                        config.width = size.width;
-                        config.height = size.height;
-                        surface.configure(&device, &config);
+                // log::error!("======= size : {:?}", size);
 
-                        let depth_texture = create_depth_texture(
-                            &device,
-                            config.width,
-                            config.height,
-                            depth_format,
-                        );
-                        depth_view =
-                            Some(depth_texture.create_view(&TextureViewDescriptor::default()));
-                        window.request_redraw();
+                if last_size.width != size.width || last_size.height != size.height {
+                    last_size = size;
+
+                    already_resize = size.width > 0 && size.height > 0;
+                    if already_resize {
+                        // Reconfigure the surface with the new size
+                        if let Some((config, surface)) = config.as_mut().zip(surface.as_ref()) {
+                            config.width = size.width;
+                            config.height = size.height;
+                            surface.configure(&device, &config);
+
+                            let depth_texture = create_depth_texture(
+                                &device,
+                                config.width,
+                                config.height,
+                                depth_format,
+                            );
+
+                            depth_view =
+                                Some(depth_texture.create_view(&TextureViewDescriptor::default()));
+
+                            window.request_redraw();
+                        }
                     }
                 }
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
-                if !can_draw {
+                if !already_resize || !already_resume {
                     return;
                 }
-                log::error!("1111");
+
+                if !is_init {
+                    let e = T::init(&device, &queue, config.as_ref().unwrap());
+                    example.replace(e);
+
+                    is_init = true;
+                }
+
                 if let Some(((surface, example), depth_view)) = surface
                     .as_ref()
                     .zip(example.as_mut())
                     .zip(depth_view.as_ref())
                 {
-                    log::error!("22222");
-                    let frame = surface
-                        .get_current_texture()
-                        .unwrap();
-                    log::error!("33333");
+                    let frame = surface.get_current_texture().unwrap();
+
                     let view: pi_wgpu::TextureView =
                         frame.texture.create_view(&TextureViewDescriptor::default());
 
@@ -200,22 +220,26 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
             } => *control_flow = ControlFlow::Exit,
 
             Event::Resumed => {
+                already_resume = true;
+
                 let s = unsafe { instance.create_surface(&window) }.unwrap();
                 let size = window.inner_size();
-                log::error!("======= Resumed : {:?}", size);
+
+                log::info!("======= Resumed : {:?}", size);
+
                 let (cfg, view, t) =
                     create_depth_view(&adapter, &device, &s, depth_format, size.width, size.height);
-                let e = T::init(&device, &queue, &cfg);
+
                 surface.replace(s);
                 config.replace(cfg);
                 depth_view.replace(view);
-                example.replace(e);
                 tex.replace(t);
                 // can_draw = true;
             }
             Event::Suspended => {
-                println!("event: {:?}", event);
-                can_draw = false},
+                println!("event: Event::Suspended");
+                already_resume = false
+            }
             _ => {}
         }
     });

@@ -574,63 +574,6 @@ impl GLState {
     }
 
     #[inline]
-    pub(crate) fn draw_with_flip(
-        &self,
-        gl: &glow::Context,
-        program: Option<glow::Program>,
-        vao: Option<glow::VertexArray>,
-        width: i32,
-        height: i32,
-        texture: Option<glow::Texture>,
-        sampler: Option<glow::Sampler>,
-    ) {
-        profiling::scope!("hal::GLState::draw_with_flip");
-
-        // log::trace!(
-        //     "========== GLState::draw_with_flip lock, thread_id = {:?}",
-        //     thread::current().id()
-        // );
-
-        {
-            let imp = &mut self.imp.as_ref().borrow();
-
-            imp.draw_with_flip(gl, program, vao, width, height, texture, sampler);
-        }
-
-        // log::trace!(
-        //     "========== GLState::draw_with_flip unlock, thread_id = {:?}",
-        //     thread::current().id()
-        // );
-    }
-
-    #[inline]
-    pub(crate) fn flip_surface(
-        &self,
-        gl: &glow::Context,
-        fbo: glow::Framebuffer,
-        width: i32,
-        height: i32,
-    ) {
-        profiling::scope!("hal::GLState::flip_surface");
-
-        // log::trace!(
-        //     "========== GLState::flip_surface lock, thread_id = {:?}",
-        //     thread::current().id()
-        // );
-
-        {
-            let imp = &mut self.imp.as_ref().borrow();
-
-            imp.flip_surface(gl, fbo, width, height);
-        }
-
-        // log::trace!(
-        //     "========== GLState::flip_surface unlock, thread_id = {:?}",
-        //     thread::current().id()
-        // );
-    }
-
-    #[inline]
     pub(crate) fn set_index_buffer(
         &self,
         gl: &glow::Context,
@@ -819,6 +762,8 @@ impl GLState {
 
 #[derive(Debug)]
 pub(crate) struct GLStateImpl {
+    active_units: Box<[(u32, u32)]>, // (target, unit) 当前 draw call 绑定的 纹理中，作为 渲染目标的 纹理单元；每次 draw 之后都要清掉
+
     cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
@@ -878,9 +823,12 @@ impl GLStateImpl {
 
         let cache = GLCache::new(max_uniform_buffer_bindings, max_textures_slots);
 
+        let active_units = vec![(0u32, 0u32); max_textures_slots];
+
         Self {
             global_shader_id: 0,
             last_vbs: None,
+            active_units: active_units.into_boxed_slice(),
 
             max_attribute_slots,
             max_uniform_buffer_bindings,
@@ -958,6 +906,7 @@ impl GLStateImpl {
 
             Self::apply_alpha_to_coverage(gl, new.alpha_to_coverage_enabled);
             Self::apply_color_mask(gl, &new.color_writes);
+            
             Self::apply_program(gl, Some(&new.program));
 
             Self::apply_raster(gl, &new.rs.imp);
@@ -1135,10 +1084,11 @@ impl GLStateImpl {
         vertex_count: u32,
         instance_count: u32,
     ) {
-        self.before_draw(gl);
+        let tex_size = self.before_draw(gl);
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
+        // log::warn!("111 draw");
         if instance_count == 1 {
             unsafe { gl.draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32) };
         } else {
@@ -1150,6 +1100,14 @@ impl GLStateImpl {
                     instance_count as i32,
                 )
             };
+        }
+
+        unsafe {
+            for i in 0..tex_size {
+                let (target, unit) = self.active_units[i];
+                gl.active_texture(glow::TEXTURE0 + unit);
+                gl.bind_texture(target, None);
+            }
         }
 
         self.after_draw(gl);
@@ -1174,6 +1132,8 @@ impl GLStateImpl {
         }
 
         let offset = ib.offset + start_index * ib.ib_count;
+
+        // log::warn!("111 draw_indexed");
 
         if instance_count == 1 {
             unsafe {
@@ -1544,10 +1504,10 @@ impl GLStateImpl {
     }
 
     #[inline]
-    fn before_draw(&mut self, gl: &glow::Context) {
+    fn before_draw(&mut self, gl: &glow::Context) -> usize {
         self.update_vao(gl);
 
-        self.update_uniforms(gl);
+        self.update_uniforms(gl)
     }
 
     fn after_draw(&mut self, gl: &glow::Context) {
@@ -1595,7 +1555,7 @@ impl GLStateImpl {
     }
 
     // 根据 render_pipeline.program + bind_group 更新 uniform
-    fn update_uniforms(&mut self, gl: &glow::Context) {
+    fn update_uniforms(&mut self, gl: &glow::Context) -> usize {
         let program = &self.render_pipeline.as_ref().unwrap().0.program;
 
         let program = program.0.as_ref();
@@ -1603,6 +1563,8 @@ impl GLStateImpl {
         let bg_set = &mut self.bind_group_set;
 
         let reorder = &self.render_pipeline.as_ref().unwrap().0.layout_reoder;
+
+        let mut use_size = 0;
 
         for (i, bindings) in program.uniforms.iter().enumerate() {
             let bg = &bg_set[i];
@@ -1655,9 +1617,20 @@ impl GLStateImpl {
                         let inner = raw.upgrade().unwrap();
                         let imp = inner.as_ref();
                         match &imp.inner {
-                            hal::TextureInner::Texture { raw, target, .. } => {
+                            hal::TextureInner::Texture {
+                                is_use_for_rt,
+                                raw,
+                                target,
+                                ..
+                            } => {
+                                if *is_use_for_rt {
+                                    self.active_units[use_size] = (*target, binding.glow_binding);
+                                    use_size += 1;
+                                }
+
                                 // TODO 加 比较
                                 gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
+                                // log::warn!("111 bind_texture = {:?}", *raw);
                                 gl.bind_texture(*target, Some(*raw));
                             }
                             _ => panic!("mis match texture size"),
@@ -1675,6 +1648,8 @@ impl GLStateImpl {
                 }
             }
         }
+
+        use_size
     }
 
     fn clear_render_target(
@@ -1730,195 +1705,6 @@ impl GLStateImpl {
         if clear_mask != 0 {
             unsafe {
                 gl.clear(clear_mask);
-            }
-        }
-    }
-
-    #[inline]
-    fn draw_with_flip(
-        &self,
-        gl: &glow::Context,
-        program: Option<glow::Program>,
-        vao: Option<glow::VertexArray>,
-        width: i32,
-        height: i32,
-        texture: Option<glow::Texture>,
-        sampler: Option<glow::Sampler>,
-    ) {
-        unsafe {
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-
-            if self.scissor.is_enable {
-                gl.disable(glow::SCISSOR_TEST);
-            }
-
-            let is_cull_enable = self.render_pipeline.is_some()
-                && self
-                    .render_pipeline
-                    .as_ref()
-                    .unwrap()
-                    .0
-                    .as_ref()
-                    .rs
-                    .imp
-                    .is_cull_enable;
-            if is_cull_enable {
-                gl.disable(glow::CULL_FACE);
-            }
-
-            let is_blend_enable = self.render_pipeline.is_some()
-                && self
-                    .render_pipeline
-                    .as_ref()
-                    .unwrap()
-                    .0
-                    .as_ref()
-                    .bs
-                    .imp
-                    .is_enable;
-            if is_blend_enable {
-                gl.disable(glow::BLEND);
-            }
-
-            gl.use_program(program);
-
-            let vp = &self.viewport;
-            let need_vp_dirty = vp.x != 0 || vp.y != 0 || vp.w != width || vp.h != height;
-
-            if need_vp_dirty {
-                gl.viewport(0, 0, width, height);
-            }
-
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, texture);
-
-            gl.bind_sampler(0, sampler);
-
-            gl.bind_vertex_array(vao);
-            gl.draw_arrays(glow::TRIANGLES, 0, 6);
-
-            gl.bind_vertex_array(None);
-
-            // TODO 还原 Texture / Sampler
-
-            if need_vp_dirty {
-                gl.viewport(vp.x, vp.y, vp.w, vp.h);
-            }
-
-            // TODO 还原 Program
-            if self.render_pipeline.is_some() {
-                gl.use_program(Some(
-                    self.render_pipeline
-                        .as_ref()
-                        .unwrap()
-                        .0
-                        .as_ref()
-                        .program
-                        .0
-                        .as_ref()
-                        .raw,
-                ));
-            }
-
-            if is_blend_enable {
-                gl.enable(glow::BLEND);
-            }
-
-            if is_cull_enable {
-                gl.enable(glow::CULL_FACE);
-            }
-
-            if self.scissor.is_enable {
-                gl.enable(glow::SCISSOR_TEST);
-            }
-        }
-    }
-
-    fn flip_surface(&self, gl: &glow::Context, fbo: glow::Framebuffer, width: i32, height: i32) {
-        unsafe {
-            if self.scissor.is_enable {
-                gl.disable(glow::SCISSOR_TEST);
-            }
-
-            let rp = self.render_pipeline.as_ref();
-
-            let is_cull_enable = rp.is_some() && rp.unwrap().0.rs.imp.is_cull_enable;
-            if is_cull_enable {
-                gl.disable(glow::CULL_FACE);
-            }
-
-            let is_blend_enable = rp.is_some() && rp.unwrap().0.bs.imp.is_enable;
-            if is_blend_enable {
-                gl.disable(glow::BLEND);
-            }
-
-            let is_bias_enable = if rp.is_some() {
-                let bias = &rp.unwrap().0.ds.imp.depth_bias;
-
-                bias.slope_scale != 0.0 || bias.constant != 0
-            } else {
-                false
-            };
-            if is_bias_enable {
-                gl.disable(glow::POLYGON_OFFSET_FILL);
-            }
-
-            let is_alpha_to_coverae = rp.is_some() && rp.unwrap().0.alpha_to_coverage_enabled;
-            if is_alpha_to_coverae {
-                gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
-            }
-
-            let is_cw_all = rp.is_none() || rp.unwrap().0.color_writes == ColorWrites::ALL;
-            if !is_cw_all {
-                Self::apply_color_mask(gl, &ColorWrites::ALL);
-            }
-
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(fbo));
-
-            // Note the Y-flipping here. GL's presentation is not flipped,
-            // but main rendering is. Therefore, we Y-flip the output positions
-            // in the shader, and also this blit.
-            gl.blit_framebuffer(
-                0,
-                height,
-                width,
-                0,
-                0,
-                0,
-                width,
-                height,
-                glow::COLOR_BUFFER_BIT,
-                glow::NEAREST,
-            );
-
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
-
-            if is_cull_enable {
-                gl.enable(glow::CULL_FACE);
-            }
-
-            if is_blend_enable {
-                gl.enable(glow::BLEND);
-            }
-
-            if is_bias_enable {
-                gl.enable(glow::POLYGON_OFFSET_FILL);
-            }
-
-            if is_alpha_to_coverae {
-                gl.enable(glow::SAMPLE_ALPHA_TO_COVERAGE);
-            }
-
-            if !is_cw_all {
-                Self::apply_color_mask(gl, &rp.unwrap().0.color_writes);
-            }
-
-            if self.scissor.is_enable {
-                gl.enable(glow::SCISSOR_TEST);
             }
         }
     }
@@ -2537,23 +2323,22 @@ fn compile_gl_shader(
 
     unsafe { gl.compile_shader(raw) };
 
-    if unsafe { gl.get_shader_completion_status(raw) } {
+    if unsafe { gl.get_shader_compile_status(raw) } {
         Ok(raw)
     } else {
         let info = unsafe { gl.get_shader_info_log(raw) };
 
-        log::warn!(
+        log::error!(
             "shader compile error, type = {:?}, info = {}, source = {}",
             shader_type,
             info,
             source
         );
 
-        Ok(raw)
-        // unsafe { gl.delete_shader(raw) };
-        // Err(super::ShaderError::Compilation(format!(
-        //     "shader compile error, info = {:?}",
-        //     info
-        // )))
+        unsafe { gl.delete_shader(raw) };
+        Err(super::ShaderError::Compilation(format!(
+            "shader compile error, info = {:?}",
+            info
+        )))
     }
 }

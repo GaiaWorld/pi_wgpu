@@ -80,6 +80,8 @@ impl Texture {
             let raw = unsafe { gl.create_texture().unwrap() };
             let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
 
+            // log::warn!("111 bind_texture = {:?}", raw);
+
             unsafe { gl.bind_texture(target, Some(raw)) };
 
             //Note: this has to be done before defining the storage!
@@ -101,47 +103,47 @@ impl Texture {
             }
 
             if is_3d {
-				// TODO, 3.3版本不支持该函数
                 unsafe {
-                    gl.tex_storage_3d(
+                    gl.tex_image_3d(
                         target,
-                        desc.mip_level_count as i32,
-                        format_desc.internal,
+                        0,
+                        format_desc.internal as i32,
                         desc.size.width as i32,
                         desc.size.height as i32,
                         desc.size.depth_or_array_layers as i32,
-                    )
+                        0,
+                        format_desc.external,
+                        format_desc.data_type,
+                        None,
+                    );
                 };
             } else if desc.sample_count > 1 {
                 unimplemented!()
             } else {
-				unsafe {
-					// gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
-					gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
-					gl.tex_image_2d(target, 0, format_desc.internal as i32, desc.size.width as i32, desc.size.height as i32, 0, format_desc.external, format_desc.data_type, None);
-				}
-				// unsafe {l
-				// 	gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
-				// 	gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
-				// }
-                // unsafe {
-                //     gl.tex_storage_2d(
-                //         target,
-                //         desc.mip_level_count as i32,
-                //         format_desc.internal,
-                //         desc.size.width as i32,
-                //         desc.size.height as i32,
-                //     )
-                // };
+                unsafe {
+                    // gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
+                    gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+                    gl.tex_image_2d(
+                        target,
+                        0,
+                        format_desc.internal as i32,
+                        desc.size.width as i32,
+                        desc.size.height as i32,
+                        0,
+                        format_desc.external,
+                        format_desc.data_type,
+                        None,
+                    );
+                }
             }
 
             unsafe { gl.bind_texture(target, None) };
-
             (
                 TextureInner::Texture {
                     raw,
                     target,
                     state,
+                    is_use_for_rt: desc.usage.contains(wgt::TextureUsages::RENDER_ATTACHMENT),
                     adapter: adapter.clone(),
                 },
                 is_cubemap,
@@ -214,7 +216,11 @@ impl Texture {
         let gl = lock.get_glow();
 
         unsafe {
-            // gl.active_texture(glow::TEXTURE0);
+            // TODO 状态机
+            gl.active_texture(glow::TEXTURE0);
+
+            // log::warn!("111 bind_texture = {:?}", raw);
+
             gl.bind_texture(dst_target, Some(raw));
         }
 
@@ -464,7 +470,7 @@ pub(crate) enum TextureInner {
     Texture {
         state: GLState,
         adapter: AdapterContext,
-
+        is_use_for_rt: bool,
         raw: glow::Texture,
         target: super::BindTarget,
     },
@@ -472,19 +478,19 @@ pub(crate) enum TextureInner {
 
 impl TextureInner {
     pub(crate) fn debug_str(&self) -> String {
-		#[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_arch = "wasm32"))]
         let r = match self {
             crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
-            crate::pi_wgpu::hal::TextureInner::Renderbuffer {
-                raw,..
-            } => "render".to_string() + raw.0.get().to_string().as_str(),
-            crate::pi_wgpu::hal::TextureInner::Texture {
-                raw,..
-            } => "".to_string() + raw.0.get().to_string().as_str(),
+            crate::pi_wgpu::hal::TextureInner::Renderbuffer { raw, .. } => {
+                "render".to_string() + raw.0.get().to_string().as_str()
+            }
+            crate::pi_wgpu::hal::TextureInner::Texture { raw, .. } => {
+                "".to_string() + raw.0.get().to_string().as_str()
+            }
         };
-		#[cfg(target_arch = "wasm32")]
-		let r = "".to_string();
-		r
+        #[cfg(target_arch = "wasm32")]
+        let r = "".to_string();
+        r
     }
 }
 
@@ -503,6 +509,7 @@ impl Drop for TextureInner {
                 let gl = lock.get_glow();
 
                 unsafe {
+                    log::error!("==================== delete_renderbuffer = {:?}", raw);
                     gl.delete_renderbuffer(*raw);
                 }
                 state.remove_render_buffer(&gl, *raw);

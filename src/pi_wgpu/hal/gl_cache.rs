@@ -3,11 +3,11 @@
 //! 作用：状态机 分配资源时，先到这里找，找到了就返回，有利于设置时候，全局比较指针
 //!
 
+use pi_time::Instant;
 use std::{
     collections::{HashMap, HashSet},
     time::Duration,
 };
-use pi_time::Instant;
 
 use glow::HasContext;
 use pi_share::{Share, ShareWeak};
@@ -199,6 +199,7 @@ impl GLCache {
 
         match self.fbo_map.get(render_target) {
             Some(fbo) => unsafe {
+                // log::warn!("111 bind_fbo: {:?}", *fbo);
                 gl.bind_framebuffer(glow::FRAMEBUFFER, Some(*fbo));
             },
             None => unsafe {
@@ -206,6 +207,7 @@ impl GLCache {
                     gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                 } else {
                     let fbo = gl.create_framebuffer().unwrap();
+
                     gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
 
                     match &render_target.colors {
