@@ -138,6 +138,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                         if let Some((config, surface)) = config.as_mut().zip(surface.as_ref()) {
                             config.width = size.width;
                             config.height = size.height;
+
                             surface.configure(&device, &config);
 
                             let depth_texture = create_depth_texture(
@@ -280,7 +281,9 @@ fn create_depth_view(
     height: u32,
 ) -> (SurfaceConfiguration, TextureView, Texture) {
     let swapchain_capabilities = surface.get_capabilities(&adapter);
+
     let swapchain_format = swapchain_capabilities.formats[0];
+
     let mut config = SurfaceConfiguration {
         usage: TextureUsages::RENDER_ATTACHMENT,
         format: swapchain_format,
@@ -290,6 +293,7 @@ fn create_depth_view(
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
     };
+
     let surface_view_format = config.format.add_srgb_suffix();
     config.view_formats.push(surface_view_format);
 

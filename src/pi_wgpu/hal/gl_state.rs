@@ -1126,10 +1126,11 @@ impl GLStateImpl {
 
         let ib = self.index_buffer.as_ref().unwrap();
 
-        if self.need_update_ib {
+        // TODO
+        // if self.need_update_ib {
             Self::apply_ib(gl, Some(ib.raw));
-            self.need_update_ib = false;
-        }
+        //     self.need_update_ib = false;
+        // }
 
         let offset = ib.offset + start_index * ib.ib_count;
 

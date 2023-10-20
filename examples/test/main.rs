@@ -1249,17 +1249,17 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
         rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
         rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
         rpass.draw_indexed(0..6, 0, 0..1);
-
-        // rpass.set_pipeline(&self.render_pipeline3);
-        // rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
-        // rpass.set_bind_group(0, &self.bind_group25, &[512]);
-        // rpass.set_bind_group(1, &self.bind_group26, &[256]);
-        // rpass.set_bind_group(2, &self.bind_group24, &[512]);
-        // rpass.set_bind_group(3, &self.bind_group29, &[]);
-        // rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
-        // rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
-        // rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
-        // rpass.draw_indexed(0..6, 0, 0..1);
+        rpass.set_pipeline(&self.render_pipeline3);
+        rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
+        rpass.set_bind_group(0, &self.bind_group25, &[512]);
+        rpass.set_bind_group(1, &self.bind_group26, &[256]);
+        rpass.set_bind_group(2, &self.bind_group24, &[512]);
+        rpass.set_bind_group(3, &self.bind_group29, &[]);
+        rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
+        rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
+        rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
+        
+        rpass.draw_indexed(0..6, 0, 0..1);
     }
 }
 
