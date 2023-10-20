@@ -137,8 +137,6 @@ impl SurfaceImpl {
             self.sc = Some(SwapChain::new(device, config));
         }
 
-        self.adapter.set_surface(clone);
-
         self.sc.as_mut().unwrap().configure(device, config);
 
         Ok(())
