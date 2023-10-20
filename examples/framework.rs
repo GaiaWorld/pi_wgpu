@@ -98,6 +98,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
     let mut config: Option<SurfaceConfiguration> = None;
     let mut depth_view = None;
     let mut example: Option<T> = None;
+    let mut tex: Option<Texture> = None;
 
     let mut can_draw = false;
     event_loop.run(move |event, _, control_flow| {
@@ -113,7 +114,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                 event: WindowEvent::Resized(size),
                 ..
             } => {
-               
+                
             }
             Event::MainEventsCleared => {
                 let size = window.inner_size();
@@ -137,7 +138,6 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                         window.request_redraw();
                     }
                 }
-
                 window.request_redraw();
             }
             Event::RedrawRequested(_) => {
@@ -201,13 +201,16 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
 
             Event::Resumed => {
                 let s = unsafe { instance.create_surface(&window) }.unwrap();
-                let (cfg, view) =
+                let size = window.inner_size();
+                log::error!("======= Resumed : {:?}", size);
+                let (cfg, view, t) =
                     create_depth_view(&adapter, &device, &s, depth_format, size.width, size.height);
                 let e = T::init(&device, &queue, &cfg);
                 surface.replace(s);
                 config.replace(cfg);
                 depth_view.replace(view);
                 example.replace(e);
+                tex.replace(t);
                 // can_draw = true;
             }
             Event::Suspended => {
@@ -251,7 +254,7 @@ fn create_depth_view(
     depth_format: TextureFormat,
     width: u32,
     height: u32,
-) -> (SurfaceConfiguration, TextureView) {
+) -> (SurfaceConfiguration, TextureView, Texture) {
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
     let mut config = SurfaceConfiguration {
@@ -268,5 +271,5 @@ fn create_depth_view(
 
     let depth_texture = create_depth_texture(&device, config.width, config.height, depth_format);
     let depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
-    (config, depth_view)
+    (config, depth_view, depth_texture)
 }
