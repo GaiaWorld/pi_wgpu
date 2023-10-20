@@ -4,6 +4,8 @@ mod framework;
 use bytemuck::{Pod, Zeroable};
 use framework::Example;
 use pi_wgpu::{util::DeviceExt, *};
+
+#[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
 fn main() {
 	framework::start::<ImageExample>();
 }

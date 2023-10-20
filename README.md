@@ -8,6 +8,6 @@
 2. 在浏览器中访问`http://127.0.0.1:8000`地址，即可运行测试
 
 ## android平台
-1. 打开Linux Shell, 执行`cargo apk run --example triangle`编译example为apk
+1. 打开Linux Shell, 执行`cargo apk run --example triangle --lib`编译example为apk
 2. 链接手机 在`target\debug\apk\examples`中打开cmd， 并执行`adb install triangle.apk`来安装apk
 

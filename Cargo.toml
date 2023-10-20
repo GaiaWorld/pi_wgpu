@@ -61,7 +61,7 @@ log = "0.4"
 env_logger = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"]}
-glow = {version = "0.12", features = ["debug_trace_calls"]}
+glow = {version = "0.12" }
 winit = {registry = "yn", version = "0.27"}
 pollster = "0.3"
 naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
@@ -82,10 +82,8 @@ getrandom = {version="0.2", features=["js"]}
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
 
-
-[[example]]
+[target.'cfg(target_os = "android")'.example]
 name = "triangle"
-crate-type = ["cdylib"]
 test = true
 
 [[example]]
@@ -93,4 +91,7 @@ name = "image"
 test = true
 
 [target.'cfg(target_os = "android")'.dependencies]
-ndk-glue = "0.2"
+ndk-glue = "0.7"
+
+[patch.crates-io]
+glow = { path = "../glow-0.12.3"}
