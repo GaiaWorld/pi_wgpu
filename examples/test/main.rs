@@ -1120,7 +1120,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
                 format: TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
                 // depth_compare: CompareFunction::GreaterEqual,
-				depth_compare: CompareFunction::Always,
+                depth_compare: CompareFunction::Always,
                 stencil: StencilState {
                     front: StencilFaceState {
                         compare: CompareFunction::Always,
@@ -1202,7 +1202,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             height: texture_size,
             depth_or_array_layers: 1,
         };
-        println!("mip_level_count====================");
+
         let texture = device.create_texture(&pi_wgpu::TextureDescriptor {
             label: None,
             size: texture_extent,
@@ -1213,7 +1213,7 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
             usage: pi_wgpu::TextureUsages::TEXTURE_BINDING | pi_wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        println!("mip_level_count end====================");
+
         let texture_view = texture.create_view(&pi_wgpu::TextureViewDescriptor::default());
         queue.write_texture(
             texture.as_image_copy(),
@@ -1241,34 +1241,25 @@ extent, vec2 offset1, vec2 offset2, vec2 offset3, vec2 offset4) {\n\n\tfloat d_r
         });
         self.bind_group29 = bind_group;
 
+        rpass.set_pipeline(&self.render_pipeline1);
         rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
         rpass.set_bind_group(2, &self.bind_group24, &[0]);
         rpass.set_bind_group(1, &self.bind_group26, &[0]);
-        
-        rpass.set_pipeline(&self.render_pipeline1);
-        
         rpass.set_bind_group(0, &self.bind_group25, &[0]);
         rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
         rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
         rpass.draw_indexed(0..6, 0, 0..1);
 
-        // rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
         // rpass.set_pipeline(&self.render_pipeline3);
+        // rpass.set_viewport(0.0, 0.0, 450.0, 720.0, 0.0, 1.0);
         // rpass.set_bind_group(0, &self.bind_group25, &[512]);
-        // // rpass.set_bind_group(0, &self.bind_group25, &[512]);
         // rpass.set_bind_group(1, &self.bind_group26, &[256]);
-
         // rpass.set_bind_group(2, &self.bind_group24, &[512]);
         // rpass.set_bind_group(3, &self.bind_group29, &[]);
-
         // rpass.set_vertex_buffer(1, self.buffer3.slice(0..32));
         // rpass.set_vertex_buffer(0, self.buffer3.slice(0..32));
-
         // rpass.set_index_buffer(self.buffer5.slice(0..12), IndexFormat::Uint16);
-
         // rpass.draw_indexed(0..6, 0, 0..1);
-
-        // rpass.draw(0..3, 0..1);
     }
 }
 
