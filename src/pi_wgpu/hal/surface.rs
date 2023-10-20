@@ -131,9 +131,9 @@ impl SurfaceImpl {
             config.width,
             config.height
         );
-        log::warn!("configure sc");
+        self.adapter.set_surface(clone);
+        
         if self.sc.is_none() {
-            log::warn!("configure sc2");
             self.sc = Some(SwapChain::new(device, config));
         }
 
