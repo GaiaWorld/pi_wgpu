@@ -11,6 +11,15 @@ use std::num::NonZeroU64;
 fn main() {
     framework::start::<TestExample>();
 }
+
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+#[test]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn test() {
+	web_sys::console::log_1(&"aaaa===========".into());
+	framework::start::<TestExample>();
+}
+
 pub struct TestExample {
     buffer3: pi_wgpu::Buffer,
     buffer5: pi_wgpu::Buffer,

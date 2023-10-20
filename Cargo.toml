@@ -91,6 +91,10 @@ test = true
 name = "image"
 test = true
 
+[[example]]
+name = "test"
+test = true
+
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-glue = "0.7"
 
