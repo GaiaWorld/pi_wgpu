@@ -906,7 +906,7 @@ impl GLStateImpl {
 
             Self::apply_alpha_to_coverage(gl, new.alpha_to_coverage_enabled);
             Self::apply_color_mask(gl, &new.color_writes);
-            
+
             Self::apply_program(gl, Some(&new.program));
 
             Self::apply_raster(gl, &new.rs.imp);
@@ -1127,7 +1127,7 @@ impl GLStateImpl {
 
         // TODO
         // if self.need_update_ib {
-            Self::apply_ib(gl, Some(ib.raw));
+        Self::apply_ib(gl, Some(ib.raw));
         //     self.need_update_ib = false;
         // }
 
@@ -1660,8 +1660,31 @@ impl GLStateImpl {
 
         let mut clear_mask = 0;
 
+        let state = self
+            .render_pipeline
+            .as_ref()
+            .map(|rp| rp.0.as_ref())
+            .map(|imp| (imp.ds.as_ref().imp.is_write_enable, imp.color_writes));
+
         if let super::super::LoadOp::Clear(color) = color {
             clear_mask |= glow::COLOR_BUFFER_BIT;
+
+            if self.scissor.is_enable {
+                unsafe {
+                    // 受到 裁剪的影响
+                    gl.disable(glow::SCISSOR_TEST);
+                }
+            }
+
+            if let Some((_, color_writes)) = state {
+                if color_writes != ColorWrites::ALL {
+                    // clear 受到 color_mask 的 影响
+                    unsafe {
+                        gl.color_mask(true, true, true, true);
+                    }
+                }
+            }
+
             if self.clear_color != *color {
                 unsafe {
                     gl.clear_color(
@@ -1678,6 +1701,18 @@ impl GLStateImpl {
         if let Some(ds_ops) = depth {
             if let super::super::LoadOp::Clear(depth) = ds_ops {
                 clear_mask |= glow::DEPTH_BUFFER_BIT;
+
+                match state {
+                    Some((mask, _)) => unsafe {
+                        if !mask {
+                            gl.depth_mask(true);
+                        }
+                    },
+                    None => unsafe {
+                        gl.depth_mask(true);
+                    },
+                }
+
                 if self.clear_depth != *depth {
                     unsafe {
                         gl.clear_depth_f32(*depth);
@@ -1702,6 +1737,33 @@ impl GLStateImpl {
         if clear_mask != 0 {
             unsafe {
                 gl.clear(clear_mask);
+            }
+        }
+
+        if clear_mask & glow::COLOR_BUFFER_BIT != 0 {
+            if self.scissor.is_enable {
+                unsafe {
+                    gl.enable(glow::SCISSOR_TEST);
+                }
+            }
+
+            if let Some((_, color_writes)) = state {
+                if color_writes != ColorWrites::ALL {
+                    Self::apply_color_mask(gl, &color_writes);
+                }
+            }
+        }
+
+        if clear_mask & glow::DEPTH_BUFFER_BIT != 0 {
+            match state {
+                Some((mask, _)) => unsafe {
+                    if !mask {
+                        gl.depth_mask(false);
+                    }
+                },
+                None => unsafe {
+                    gl.depth_mask(false);
+                },
             }
         }
     }
