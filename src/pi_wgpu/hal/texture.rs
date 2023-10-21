@@ -1,5 +1,4 @@
-use std::ops::Range;
-use std::sync::atomic::AtomicU32;
+use std::{ops::Range, sync::atomic::AtomicU32};
 
 use glow::HasContext;
 use pi_share::Share;
@@ -80,8 +79,6 @@ impl Texture {
             let raw = unsafe { gl.create_texture().unwrap() };
             let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
 
-            // log::warn!("111 bind_texture = {:?}", raw);
-
             unsafe { gl.bind_texture(target, Some(raw)) };
 
             //Note: this has to be done before defining the storage!
@@ -102,38 +99,74 @@ impl Texture {
                 _ => {}
             }
 
-            if is_3d {
-                unsafe {
-                    gl.tex_image_3d(
-                        target,
-                        0,
-                        format_desc.internal as i32,
-                        desc.size.width as i32,
-                        desc.size.height as i32,
-                        desc.size.depth_or_array_layers as i32,
-                        0,
-                        format_desc.external,
-                        format_desc.data_type,
-                        None,
-                    );
-                };
-            } else if desc.sample_count > 1 {
-                unimplemented!()
+            unsafe {
+                // gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
+
+                gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+            }
+
+            let block_dims = desc.format.block_dimensions();
+            if block_dims != (1, 1) {
+                if is_3d {
+                    // TODO 目前并不清楚 3D 压缩纹理的 深度格式，不实现
+                    unimplemented!();
+                } else if desc.sample_count > 1 {
+                    unimplemented!()
+                } else {
+                    let block_size = get_texture_bytes_per_block(desc.format);
+
+                    let block_width = (desc.size.width + block_dims.0 - 1) / block_dims.0;
+
+                    let block_height = (desc.size.height + block_dims.1 - 1) / block_dims.1;
+
+                    let image_size = block_width * block_height * block_size; // ASTC 块总是使用 128 位，即 16 字节。
+
+                    let data = vec![0u8; image_size as usize];
+                    unsafe {
+                        gl.compressed_tex_image_2d(
+                            target,
+                            0,
+                            format_desc.internal as i32,
+                            desc.size.width as i32,
+                            desc.size.height as i32,
+                            0,
+                            image_size as i32,
+                            data.as_slice(),
+                        );
+                    }
+                }
             } else {
-                unsafe {
-                    // gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
-                    gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
-                    gl.tex_image_2d(
-                        target,
-                        0,
-                        format_desc.internal as i32,
-                        desc.size.width as i32,
-                        desc.size.height as i32,
-                        0,
-                        format_desc.external,
-                        format_desc.data_type,
-                        None,
-                    );
+                if is_3d {
+                    unsafe {
+                        gl.tex_image_3d(
+                            target,
+                            0,
+                            format_desc.internal as i32,
+                            desc.size.width as i32,
+                            desc.size.height as i32,
+                            desc.size.depth_or_array_layers as i32,
+                            0,
+                            format_desc.external,
+                            format_desc.data_type,
+                            None,
+                        );
+                    };
+                } else if desc.sample_count > 1 {
+                    unimplemented!()
+                } else {
+                    unsafe {
+                        gl.tex_image_2d(
+                            target,
+                            0,
+                            format_desc.internal as i32,
+                            desc.size.width as i32,
+                            desc.size.height as i32,
+                            0,
+                            format_desc.external,
+                            format_desc.data_type,
+                            None,
+                        );
+                    }
                 }
             }
 
@@ -218,9 +251,6 @@ impl Texture {
         unsafe {
             // TODO 状态机
             gl.active_texture(glow::TEXTURE0);
-
-            // log::warn!("111 bind_texture = {:?}", raw);
-
             gl.bind_texture(dst_target, Some(raw));
         }
 
@@ -529,5 +559,29 @@ impl Drop for TextureInner {
                 state.remove_texture(&gl, *raw);
             }
         }
+    }
+}
+
+fn get_texture_bytes_per_block(format: TextureFormat) -> u32 {
+    match format {
+        TextureFormat::Bc1RgbaUnorm => 8,
+        TextureFormat::Bc1RgbaUnormSrgb => 8,
+        TextureFormat::Bc2RgbaUnorm => 16,
+        TextureFormat::Bc2RgbaUnormSrgb => 16,
+
+        TextureFormat::Bc3RgbaUnorm => 16,
+        TextureFormat::Bc3RgbaUnormSrgb => 16,
+        TextureFormat::Bc4RUnorm => 8,
+        TextureFormat::Bc4RSnorm => 8,
+        TextureFormat::Bc5RgUnorm => 16,
+        TextureFormat::Bc5RgSnorm => 16,
+        TextureFormat::Bc6hRgbUfloat => 16,
+        TextureFormat::Bc6hRgbFloat => 16,
+        TextureFormat::Bc7RgbaUnorm => 16,
+        TextureFormat::Bc7RgbaUnormSrgb => 16,
+
+        TextureFormat::Astc { .. } => 16, // ASTC 块总是使用 128 位，即 16 字节。
+
+        _ => unimplemented!(),
     }
 }

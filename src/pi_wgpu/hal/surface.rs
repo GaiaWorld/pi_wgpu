@@ -31,9 +31,7 @@ impl Surface {
         // );
 
         {
-            // log::warn!("111 Surface::present begin");
             self.imp.as_ref().borrow_mut().present();
-            // log::warn!("111 Surface::present end");
         }
 
         // log::trace!(

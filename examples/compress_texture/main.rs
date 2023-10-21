@@ -265,6 +265,7 @@ pub fn create_texture_from_ktx(
 
 	let decoder = ktx::Decoder::new(buffer)?;
 	let format = convert_format(decoder.gl_internal_format());
+    log::warn!("============ format: {:?}", format);
 
 	let texture_extent = pi_wgpu::Extent3d {
 		width: decoder.pixel_width(),

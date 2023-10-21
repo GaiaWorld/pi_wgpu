@@ -199,7 +199,6 @@ impl GLCache {
 
         match self.fbo_map.get(render_target) {
             Some(fbo) => unsafe {
-                // log::warn!("111 bind_fbo: {:?}", *fbo);
                 gl.bind_framebuffer(glow::FRAMEBUFFER, Some(*fbo));
             },
             None => unsafe {

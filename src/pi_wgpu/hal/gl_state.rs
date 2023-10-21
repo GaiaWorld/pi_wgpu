@@ -1088,7 +1088,6 @@ impl GLStateImpl {
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
-        // log::warn!("111 draw");
         if instance_count == 1 {
             unsafe { gl.draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32) };
         } else {
@@ -1133,8 +1132,6 @@ impl GLStateImpl {
         // }
 
         let offset = ib.offset + start_index * ib.ib_count;
-
-        // log::warn!("111 draw_indexed");
 
         if instance_count == 1 {
             unsafe {
@@ -1631,7 +1628,6 @@ impl GLStateImpl {
 
                                 // TODO 加 比较
                                 gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
-                                // log::warn!("111 bind_texture = {:?}", *raw);
                                 gl.bind_texture(*target, Some(*raw));
                             }
                             _ => panic!("mis match texture size"),
