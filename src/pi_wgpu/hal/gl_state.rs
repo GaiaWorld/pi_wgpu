@@ -1697,12 +1697,7 @@ impl GLStateImpl {
                         let inner = raw_ref.upgrade().unwrap();
                         let imp = inner.as_ref();
                         match &imp.inner {
-                            hal::TextureInner::Texture {
-                                is_use_for_rt,
-                                raw,
-                                target,
-                                ..
-                            } => {
+                            hal::TextureInner::Texture { raw, target, .. } => {
                                 let need_update = match self.textures[binding.glow_binding as usize]
                                 {
                                     (None, _) => true,

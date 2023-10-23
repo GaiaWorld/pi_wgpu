@@ -312,8 +312,7 @@ impl RenderPipelineImpl {
             Some(d) => {
                 let is_write_enable = d.depth_write_enabled;
                 let function = conv::map_compare_func(d.depth_compare);
-                let is_test_enable = d.depth_compare != wgt::CompareFunction::Always;
-
+                
                 let depth_bias = super::DepthBiasState {
                     constant: d.bias.constant,
                     slope_scale: OrderedFloat(d.bias.slope_scale),

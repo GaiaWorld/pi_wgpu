@@ -181,7 +181,6 @@ impl Texture {
                     raw,
                     target,
                     state,
-                    is_use_for_rt: desc.usage.contains(wgt::TextureUsages::RENDER_ATTACHMENT),
                     adapter: adapter.clone(),
                 },
                 is_cubemap,
@@ -503,7 +502,6 @@ pub(crate) enum TextureInner {
     Texture {
         state: GLState,
         adapter: AdapterContext,
-        is_use_for_rt: bool,
         raw: glow::Texture,
         target: super::BindTarget,
     },
