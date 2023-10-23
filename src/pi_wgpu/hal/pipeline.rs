@@ -320,7 +320,6 @@ impl RenderPipelineImpl {
                 };
 
                 super::DepthStateImpl {
-                    is_test_enable,
                     is_write_enable,
                     function,
                     depth_bias,
@@ -338,7 +337,6 @@ impl RenderPipelineImpl {
         let ss = match desc {
             None => super::StencilStateImpl::default(),
             Some(s) => super::StencilStateImpl {
-                is_enable: s.stencil.is_enabled(),
                 mask_read: s.stencil.read_mask,
                 mask_write: s.stencil.write_mask,
                 front: Self::create_stencil_face(&s.stencil.front),
@@ -444,7 +442,6 @@ impl DepthState {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct DepthStateImpl {
-    pub(crate) is_test_enable: bool,
     pub(crate) is_write_enable: bool,
     pub(crate) function: u32, // wgt::CompareFunction, map_compare_func
 
@@ -455,7 +452,6 @@ impl Default for DepthStateImpl {
     #[inline]
     fn default() -> Self {
         Self {
-            is_test_enable: false,
             is_write_enable: false,
             function: glow::ALWAYS,
 
@@ -514,7 +510,6 @@ impl StencilState {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct StencilStateImpl {
-    pub(crate) is_enable: bool,
     pub(crate) mask_read: u32,
     pub(crate) mask_write: u32,
 
@@ -526,7 +521,6 @@ impl Default for StencilStateImpl {
     #[inline]
     fn default() -> Self {
         Self {
-            is_enable: false,
             mask_read: 0,
             mask_write: 0,
 
@@ -614,7 +608,10 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        log::error!("============================== delete_program: raw = {:?}", self.raw);
+        log::error!(
+            "============================== delete_program: raw = {:?}",
+            self.raw
+        );
         log::trace!("Dropping ProgramImpl {:?}", self.raw);
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();

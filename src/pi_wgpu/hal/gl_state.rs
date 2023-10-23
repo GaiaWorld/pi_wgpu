@@ -10,6 +10,8 @@ use naga::{
 };
 use pi_share::{Share, ShareCell, ShareWeak};
 
+use crate::pi_wgpu::wgt::math;
+
 use super::{
     super::{hal, wgt, BufferSize, ColorWrites},
     gl_cache::GLCache,
@@ -792,6 +794,9 @@ pub(crate) struct GLStateImpl {
     viewport: Viewport,
     scissor: Scissor,
 
+    is_depth_test_enable: bool,
+    is_stencil_test_enable: bool,
+
     stencil_ref: i32,
     blend_color: [f32; 4],
 
@@ -825,6 +830,12 @@ impl GLStateImpl {
 
         let active_units = vec![(0u32, 0u32); max_textures_slots];
 
+        let is_depth_test_enable = false;
+        Self::apply_depth_test_enable(gl, is_depth_test_enable);
+
+        let is_stencil_test_enable = false;
+        Self::apply_stencil_test_enable(gl, is_stencil_test_enable);
+
         Self {
             global_shader_id: 0,
             last_vbs: None,
@@ -844,6 +855,9 @@ impl GLStateImpl {
             need_update_ib: false,
 
             bind_group_set: [None, None, None, None],
+
+            is_depth_test_enable,
+            is_stencil_test_enable,
 
             viewport: Default::default(),
             scissor: Default::default(),
@@ -1669,13 +1683,6 @@ impl GLStateImpl {
         if let super::super::LoadOp::Clear(color) = color {
             clear_mask |= glow::COLOR_BUFFER_BIT;
 
-            if self.scissor.is_enable {
-                unsafe {
-                    // 受到 裁剪的影响
-                    gl.disable(glow::SCISSOR_TEST);
-                }
-            }
-
             if let Some((_, color_writes)) = state {
                 if color_writes != ColorWrites::ALL {
                     // clear 受到 color_mask 的 影响
@@ -1698,55 +1705,73 @@ impl GLStateImpl {
             }
         }
 
-        if let Some(ds_ops) = depth {
-            if let super::super::LoadOp::Clear(depth) = ds_ops {
-                clear_mask |= glow::DEPTH_BUFFER_BIT;
+        match depth {
+            None => self.set_depth_test_enable(gl, false),
+            Some(ds_ops) => {
+                self.set_depth_test_enable(gl, true);
 
-                match state {
-                    Some((mask, _)) => unsafe {
-                        if !mask {
+                if let super::super::LoadOp::Clear(depth) = ds_ops {
+                    clear_mask |= glow::DEPTH_BUFFER_BIT;
+
+                    // 深度 clear 受 depth-mask 的 影响
+                    match state {
+                        Some((mask, _)) => unsafe {
+                            if !mask {
+                                gl.depth_mask(true);
+                            }
+                        },
+                        None => unsafe {
                             gl.depth_mask(true);
-                        }
-                    },
-                    None => unsafe {
-                        gl.depth_mask(true);
-                    },
-                }
-
-                if self.clear_depth != *depth {
-                    unsafe {
-                        gl.clear_depth_f32(*depth);
+                        },
                     }
-                    self.clear_depth = *depth;
+
+                    if self.clear_depth != *depth {
+                        unsafe {
+                            gl.clear_depth_f32(*depth);
+                        }
+                        self.clear_depth = *depth;
+                    }
                 }
             }
         }
 
-        if let Some(stencil_ops) = stencil {
-            if let super::super::LoadOp::Clear(stencil) = &stencil_ops {
-                clear_mask |= glow::STENCIL_BUFFER_BIT;
-                if self.clear_stencil != *stencil {
-                    unsafe {
-                        gl.clear_stencil(*stencil as i32);
+        match stencil {
+            None => self.set_stencil_test_enable(gl, false),
+            Some(stencil_ops) => {
+                self.set_stencil_test_enable(gl, true);
+
+                if let super::super::LoadOp::Clear(stencil) = &stencil_ops {
+                    clear_mask |= glow::STENCIL_BUFFER_BIT;
+                    if self.clear_stencil != *stencil {
+                        unsafe {
+                            gl.clear_stencil(*stencil as i32);
+                        }
+                        self.clear_stencil = *stencil;
                     }
-                    self.clear_stencil = *stencil;
                 }
             }
         }
 
         if clear_mask != 0 {
+            if self.scissor.is_enable {
+                unsafe {
+                    // 清屏 受到 裁剪的影响，而 wgpu 的接口预期 清 全屏
+                    gl.disable(glow::SCISSOR_TEST);
+                }
+            }
+
             unsafe {
                 gl.clear(clear_mask);
             }
-        }
 
-        if clear_mask & glow::COLOR_BUFFER_BIT != 0 {
             if self.scissor.is_enable {
                 unsafe {
                     gl.enable(glow::SCISSOR_TEST);
                 }
             }
+        }
 
+        if clear_mask & glow::COLOR_BUFFER_BIT != 0 {
             if let Some((_, color_writes)) = state {
                 if color_writes != ColorWrites::ALL {
                     Self::apply_color_mask(gl, &color_writes);
@@ -1819,7 +1844,6 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_depth(gl: &glow::Context, new: &super::DepthStateImpl) {
-        Self::apply_depth_test_enable(gl, new);
         Self::apply_depth_write_enable(gl, new);
         Self::apply_depth_test_function(gl, new);
         Self::apply_depth_bias(gl, &new.depth_bias);
@@ -1827,10 +1851,7 @@ impl GLStateImpl {
 
     #[inline]
     fn apply_stencil(gl: &glow::Context, stencil_ref: i32, new: &super::StencilStateImpl) {
-        Self::apply_stencil_test(&gl, new);
-
         Self::apply_stencil_face(&gl, glow::FRONT, stencil_ref, &new, &new.front);
-
         Self::apply_stencil_face(&gl, glow::BACK, stencil_ref, &new, &new.back);
     }
 
@@ -1860,10 +1881,6 @@ impl GLStateImpl {
     fn set_depth(gl: &glow::Context, new: &super::DepthStateImpl, old: &super::DepthStateImpl) {
         profiling::scope!("hal::GLState::set_depth");
 
-        if new.is_test_enable != old.is_test_enable {
-            Self::apply_depth_test_enable(gl, new);
-        }
-
         if new.is_write_enable != old.is_write_enable {
             Self::apply_depth_write_enable(gl, new);
         }
@@ -1887,8 +1904,6 @@ impl GLStateImpl {
         old: &super::StencilStateImpl,
     ) {
         profiling::scope!("hal::GLState::set_stencil");
-
-        Self::set_stencil_test(&gl, new, old);
 
         Self::set_stencil_face(
             &gl,
@@ -1951,8 +1966,24 @@ impl GLStateImpl {
     }
 
     #[inline]
-    fn apply_depth_test_enable(gl: &glow::Context, new: &super::DepthStateImpl) {
-        if new.is_test_enable {
+    fn set_depth_test_enable(&mut self, gl: &glow::Context, is_enable: bool) {
+        if self.is_depth_test_enable != is_enable {
+            self.is_depth_test_enable = is_enable;
+            Self::apply_depth_test_enable(gl, is_enable);
+        }
+    }
+
+    #[inline]
+    fn set_stencil_test_enable(&mut self, gl: &glow::Context, is_enable: bool) {
+        if self.is_stencil_test_enable != is_enable {
+            self.is_stencil_test_enable = is_enable;
+            Self::apply_stencil_test_enable(gl, is_enable);
+        }
+    }
+
+    #[inline]
+    fn apply_depth_test_enable(gl: &glow::Context, is_enable: bool) {
+        if is_enable {
             unsafe {
                 gl.enable(glow::DEPTH_TEST);
             }
@@ -1989,8 +2020,8 @@ impl GLStateImpl {
     }
 
     #[inline]
-    fn apply_stencil_test(gl: &glow::Context, new: &super::StencilStateImpl) {
-        if new.is_enable {
+    fn apply_stencil_test_enable(gl: &glow::Context, is_enable: bool) {
+        if is_enable {
             unsafe {
                 gl.enable(glow::STENCIL_TEST);
             }
@@ -1998,16 +2029,6 @@ impl GLStateImpl {
             unsafe {
                 gl.disable(glow::STENCIL_TEST);
             }
-        }
-    }
-
-    fn set_stencil_test(
-        gl: &glow::Context,
-        new: &super::StencilStateImpl,
-        old: &super::StencilStateImpl,
-    ) {
-        if new.is_enable != old.is_enable {
-            Self::apply_stencil_test(gl, new);
         }
     }
 
