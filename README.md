@@ -155,6 +155,8 @@ pass.set_vertex_buffer(vb2)
 
 ## 2.09. `Device`
 
+**注：** 所有方法，都要等 Surface.configure(Device, &config) 调用之后，才能使用！
+
 | 函数                           | 支持 | 说明                                                |
 | ------------------------------ | ---- | --------------------------------------------------- |
 | `features`                     | ✔    |                                                     |
@@ -183,6 +185,8 @@ pass.set_vertex_buffer(vb2)
 | as_hal                         | ×    |                                                     |
 
 ## 2.10. `Queue`
+
+**注：** 所有方法，都要等和该Queue对应的Device 调用 Surface.configure(Device, &config) 之后，才能使用！
 
 | 函数                           | 支持 | 说明   |
 | ------------------------------ | ---- | ------ |
@@ -301,7 +305,7 @@ pass.set_vertex_buffer(vb2)
 + 仅支持 Naga 编译过后，版本为 glsl 3.0 的 无 define 宏 的 glsl
 + 扩展：带上一个字段，用于说明 这个shader原始的 set-binding 和 uniform 的 名字
 
-# 3. 附录：（无计划）用 `WebGL` 模拟 `WebGPU` 的 要点
+# 3. 附录
 
 ## 3.1. 和 `WebGL2` 相比，缺失 的 功能
 
@@ -325,3 +329,17 @@ pass.set_vertex_buffer(vb2)
 
 + `WebGL`: 如果发现 iOS 14 的 帧率提升不上去，试试 在 canvas.getContext 接口 将 antialias: true
 + `WebGL`: iOS 版本 14.0 ~ iOS 15.3, 多个 drawcall 使用不同偏移 来 共享 `VB`/`IB`，性能非常糟糕 ！
+
+## 3.3. 初始化流程
+
+Instance --> Adatper --> (Device, QUeue)
+         
+         --(Resumed Event)--> Surface
+
+所有的 Device / Queue 的函数，都要等：Surface.configure(Device, &config) 之后调用。
+
+原因：因为 Web平台 没有 跨 Surface 共享的 Context 
+
+可以将 所有的 渲染初始化，放到一个 furture，哪个furture 留到 窗口的 Resumed 事件判断并初始化。
+
+然后，configure 还是要 等 Resized 调用（web没有Resize事件，就再 request_draw 中模拟）
