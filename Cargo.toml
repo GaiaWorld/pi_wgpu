@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.9"
+version = "0.1.11"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -16,7 +16,7 @@ gl = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
-pi_egl = { version = "0.1", registry = "yn"}
+pi_egl = { version = "0.1", registry = "yn" }
 pi_share = "0.4"
 
 glow = "0.12"
@@ -34,21 +34,21 @@ ordered-float = "3.9"
 raw-window-handle = "0.5"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
-serde = { version = "1.0", optional = true, features = ["derive"]}
+serde = { version = "1.0", optional = true, features = ["derive"] }
 pi_time = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
-web-sys = {version="0.3", features = [
+web-sys = { version = "0.3", features = [
 	"HtmlCanvasElement",
 	"OffscreenCanvas",
-]}
+] }
 js-sys = "0.3"
-log = {version = "0.4", features = ["max_level_warn"]}
+log = { version = "0.4", features = ["max_level_warn"] }
 
 
 [patch.yn]
-pi_egl = {path = "../pi_egl"}
+pi_egl = { path = "../pi_egl" }
 
 
 # DEV dependencies
@@ -62,25 +62,25 @@ ktx = "0.3"
 log = "0.4"
 env_logger = "0.10"
 serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"]}
-glow = {version = "0.12" }
-winit = {registry = "yn", version = "0.27"}
+serde = { version = "1.0", features = ["derive"] }
+glow = { version = "0.12" }
+winit = { registry = "yn", version = "0.27" }
 pollster = "0.3"
 naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
 bytemuck = { version = "1.4", features = ["derive"] }
 glam = "0.24"
 
 # [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-web-sys = {version="0.3", features = [
+web-sys = { version = "0.3", features = [
 	"HtmlCanvasElement",
 	"OffscreenCanvas",
 	"ImageBitmapRenderingContext",
-]}
+] }
 js-sys = "0.3"
 wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 console_error_panic_hook = "0.1"
 console_log = "1.0"
-getrandom = {version="0.2", features=["js"]}
+getrandom = { version = "0.2", features = ["js"] }
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
 
