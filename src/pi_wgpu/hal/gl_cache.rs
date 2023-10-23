@@ -24,6 +24,8 @@ pub(crate) type ProgramID = (ShaderID, ShaderID);
 pub(crate) struct GLCache {
     last_clear_time: Instant,
 
+    vao: Option<glow::VertexArray>,
+
     shader_binding_map: super::ShaderBindingMap,
     vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
     fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
@@ -40,6 +42,8 @@ impl GLCache {
     #[inline]
     pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
         Self {
+            vao: None,
+
             last_clear_time: Instant::now(),
             vao_map: Default::default(),
             fbo_map: Default::default(),
@@ -263,24 +267,48 @@ impl GLCache {
         }
     }
 
+    #[inline]
+    pub(crate) fn restore_current_vao(&self, gl: &glow::Context) {
+        match &self.vao {
+            Some(v) => unsafe {
+                gl.bind_vertex_array(Some(*v));
+            },
+            None => unsafe {
+                gl.bind_vertex_array(None);
+            },
+        };
+    }
+
     pub(crate) fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
         profiling::scope!("hal::GLCache::bind_vao");
 
         match self.vao_map.get(geometry) {
             Some(vao) => unsafe {
-                gl.bind_vertex_array(Some(*vao));
+                let need_update = match &self.vao {
+                    Some(v) => *v != *vao,
+                    None => true,
+                };
+
+                if need_update {
+                    self.vao = Some(*vao);
+                    gl.bind_vertex_array(Some(*vao));
+                }
             },
             None => unsafe {
                 let vao = gl.create_vertex_array().unwrap();
 
+                self.vao = Some(vao);
                 gl.bind_vertex_array(Some(vao));
+
+                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, geometry.ib);
 
                 for (i, attrib) in geometry.attributes.info.iter().enumerate() {
                     let i = i as u32;
 
                     match attrib {
                         None => {
-                            gl.disable_vertex_attrib_array(i);
+                            // TODO 有些低端的Android机子，可能需要显示设置
+                            // gl.disable_vertex_attrib_array(i);
                         }
                         Some(attrib) => {
                             gl.enable_vertex_attrib_array(i);
@@ -344,7 +372,7 @@ impl GLCache {
 
                 return false;
             })
-            .map(|(k, v)| v)
+            .map(|(_, v)| v)
             .collect::<HashSet<_>>();
 
         for fbo in set {
@@ -374,7 +402,7 @@ impl GLCache {
 
                 return false;
             })
-            .map(|(k, v)| v)
+            .map(|(_, v)| v)
             .collect::<HashSet<_>>();
 
         for fbo in set {
@@ -392,24 +420,36 @@ impl GLCache {
     ) {
         profiling::scope!("hal::GLCache::remove_buffer");
 
-        assert!(bind_target == glow::ARRAY_BUFFER);
-
-        let set = self
-            .vao_map
-            .drain_filter(|k, vao| {
-                let mut r = false;
-                for v in k.vbs.iter() {
-                    if let Some(vb) = v.as_ref() {
-                        if vb.raw == buffer {
-                            r = true;
-                            break;
+        let set: HashSet<glow::VertexArray> = if bind_target == glow::ARRAY_BUFFER {
+            self.vao_map
+                .drain_filter(|k, _| {
+                    let mut r = false;
+                    for v in k.vbs.iter() {
+                        if let Some(vb) = v.as_ref() {
+                            if vb.raw == buffer {
+                                r = true;
+                                break;
+                            }
                         }
                     }
-                }
-                return r;
-            })
-            .map(|(k, v)| v)
-            .collect::<HashSet<_>>();
+                    return r;
+                })
+                .map(|(_, v)| v)
+                .collect::<HashSet<_>>()
+        } else if bind_target == glow::ELEMENT_ARRAY_BUFFER {
+            self.vao_map
+                .drain_filter(|k, _| {
+                    let mut r = false;
+                    if let Some(ib) = &k.ib {
+                        r = *ib == buffer;
+                    }
+                    return r;
+                })
+                .map(|(_, v)| v)
+                .collect::<HashSet<_>>()
+        } else {
+            unreachable!();
+        };
 
         for vao in set {
             unsafe {
@@ -423,6 +463,7 @@ impl GLCache {
 pub(crate) struct GeometryState {
     pub(crate) attributes: AttributeState,
     pub(crate) vbs: Box<[Option<VBState>]>, // 长度 为 attributes.vb_count
+    pub(crate) ib: Option<glow::Buffer>,
 }
 
 #[derive(Debug)]

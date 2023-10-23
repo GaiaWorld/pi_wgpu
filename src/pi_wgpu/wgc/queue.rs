@@ -22,7 +22,7 @@ impl Queue {
     /// This method fails if `data` overruns the size of `buffer` starting at `offset`.
     // #[inline]
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) {
-		#[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_arch = "wasm32"))]
         log::trace!(
             "queue.write_buffer(&buffer{}, {}, &{:?});",
             buffer.inner.0.raw.0.get(),
@@ -64,7 +64,6 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        //todo
         log::trace!("queue.write_texture");
 
         self.write_texture_inner(texture, data, data_layout, size);
@@ -78,9 +77,14 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        log::trace!("pi_wgpu::Queue::write_texture, texture = {:?}, data_layout = {:?}, size = {:?}", texture, data_layout, size);
+        log::trace!(
+            "pi_wgpu::Queue::write_texture, texture = {:?}, data_layout = {:?}, size = {:?}",
+            texture,
+            data_layout,
+            size
+        );
 
-        hal::Texture::write_data(texture, data, data_layout, size);
+        hal::Texture::write_data(&self.inner.state, texture, data, data_layout, size);
     }
 
     /// Submits a series of finished command buffers for execution.

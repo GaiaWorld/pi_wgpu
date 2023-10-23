@@ -5,7 +5,7 @@ use std::{
 
 use glow::HasContext;
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
-use pi_share::{cell::Ref, Share, ShareCell, ShareWeak};
+use pi_share::{cell::Ref, Share, ShareCell};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use super::{db, PrivateCapabilities};
