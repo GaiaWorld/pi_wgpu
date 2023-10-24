@@ -422,12 +422,20 @@ impl GLCache {
 
         let set: HashSet<glow::VertexArray> = if bind_target == glow::ARRAY_BUFFER {
             self.vao_map
-                .drain_filter(|k, _| {
+                .drain_filter(|k, vao| {
                     let mut r = false;
                     for v in k.vbs.iter() {
                         if let Some(vb) = v.as_ref() {
                             if vb.raw == buffer {
                                 r = true;
+
+                                if let Some(old) = self.vao {
+                                    if old == *vao {
+                                        self.vao = None;
+                                        unsafe { gl.bind_vertex_array(None) };
+                                    }
+                                }
+
                                 break;
                             }
                         }
@@ -438,10 +446,19 @@ impl GLCache {
                 .collect::<HashSet<_>>()
         } else if bind_target == glow::ELEMENT_ARRAY_BUFFER {
             self.vao_map
-                .drain_filter(|k, _| {
+                .drain_filter(|k, vao| {
                     let mut r = false;
                     if let Some(ib) = &k.ib {
                         r = *ib == buffer;
+
+                        if r {
+                            if let Some(old) = self.vao {
+                                if old == *vao {
+                                    self.vao = None;
+                                    unsafe { gl.bind_vertex_array(None) };
+                                }
+                            }
+                        }
                     }
                     return r;
                 })

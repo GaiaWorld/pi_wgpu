@@ -375,7 +375,7 @@ impl GLState {
     pub(crate) fn restore_current_texture(&self, gl: &glow::Context, unit: u32, target: u32) {
         self.imp
             .as_ref()
-            .borrow()
+            .borrow_mut()
             .restore_current_texture(gl, unit, target);
     }
 
@@ -777,6 +777,8 @@ pub(crate) struct GLStateImpl {
     // 长度 不会 超过 max_uniform_buffer_bindings
     ubos: Box<[Option<UBOState>]>,
 
+    active_texture_unit: u32, // 当前激活的纹理单元
+
     // 长度 不会 超过 max_textures_slots
     textures: Box<
         [(
@@ -828,6 +830,8 @@ impl GLStateImpl {
         let textures = vec![(None, None); max_textures_slots];
 
         Self {
+            active_texture_unit: 0,
+
             global_shader_id: 0,
             last_vbs: None,
 
@@ -1012,7 +1016,9 @@ impl GLStateImpl {
                         Some((target, tex)) => {
                             if *c == *tex {
                                 unsafe {
+                                    self.active_texture_unit = i as u32;
                                     gl.active_texture(glow::TEXTURE0 + i as u32);
+
                                     gl.bind_texture(*target, None);
                                 }
                             }
@@ -1577,15 +1583,17 @@ impl GLStateImpl {
         }
     }
 
-    fn restore_current_texture(&self, gl: &glow::Context, unit: u32, target: u32) {
+    fn restore_current_texture(&mut self, gl: &glow::Context, unit: u32, target: u32) {
         let (slot, _) = &self.textures[unit as usize];
 
         match slot {
             None => unsafe {
+                self.active_texture_unit = unit;
                 gl.active_texture(glow::TEXTURE0 + unit);
                 gl.bind_texture(target, None);
             },
             Some((target, raw)) => unsafe {
+                self.active_texture_unit = unit;
                 gl.active_texture(glow::TEXTURE0 + unit);
                 gl.bind_texture(*target, Some(*raw));
             },
@@ -1710,7 +1718,10 @@ impl GLStateImpl {
                                     self.textures[binding.glow_binding as usize].0 =
                                         Some((*target, *raw));
 
-                                    gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
+                                    if self.active_texture_unit != binding.glow_binding {
+                                        self.active_texture_unit = binding.glow_binding;
+                                        gl.active_texture(glow::TEXTURE0 + binding.glow_binding);
+                                    }
                                     gl.bind_texture(*target, Some(*raw));
                                 }
                             }

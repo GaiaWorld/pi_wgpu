@@ -81,7 +81,6 @@ impl Texture {
 
             unsafe {
                 gl.active_texture(glow::TEXTURE0);
-
                 gl.bind_texture(target, Some(raw))
             };
 
