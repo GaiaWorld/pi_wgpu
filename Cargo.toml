@@ -46,10 +46,8 @@ web-sys = { version = "0.3", features = [
 js-sys = "0.3"
 log = { version = "0.4", features = ["max_level_warn"] }
 
-
-[patch.yn]
-pi_egl = { path = "../pi_egl" }
-
+# [patch.yn]
+# pi_egl = { path = "../pi_egl" }
 
 # DEV dependencies
 
