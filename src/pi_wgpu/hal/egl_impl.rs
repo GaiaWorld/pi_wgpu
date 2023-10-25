@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use glow::HasContext;
+use glow::{HasContext, FALSE};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use pi_share::{cell::Ref, Share, ShareCell};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -716,7 +716,7 @@ struct Egl {
 
 impl Default for Egl {
     fn default() -> Self {
-        let is_vsync = true;
+        let is_vsync = false;
 
         let instance =
             pi_egl::Instance::new(pi_egl::PowerPreference::HighPerformance, is_vsync).unwrap();
