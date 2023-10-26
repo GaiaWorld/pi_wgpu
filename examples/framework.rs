@@ -37,7 +37,8 @@ pub fn start<T: Example + Sync + Send + 'static>() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::Builder::new()
-            .filter(Some("glow=trace"), log::LevelFilter::Trace)
+            .filter(Some("glow=trace"), log::LevelFilter::Info)
+            .filter(None, log::LevelFilter::Info)
             .init();
 
         pollster::block_on(run::<T>(event_loop, window));

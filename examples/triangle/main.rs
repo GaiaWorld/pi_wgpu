@@ -62,13 +62,13 @@ impl Example for TriangleExample {
         queue: &'a pi_wgpu::Queue,
         rpass: &'b mut pi_wgpu::RenderPass<'a>,
     ) {
-        let count = 1000;
-        let begin = pi_time::Instant::now();
-        for _ in 0..count {
-            queue.write_buffer(&self.temp_buf, 0, &self.temp_data.as_slice());
-        }
-        let d = begin.elapsed();
-        log::warn!("{} write_buffer time = {:?}", count, d);
+        // let count = 1000;
+        // let begin = pi_time::Instant::now();
+        // for _ in 0..count {
+        //     queue.write_buffer(&self.temp_buf, 0, &self.temp_data.as_slice());
+        // }
+        // let d = begin.elapsed();
+        // log::warn!("{} write_buffer time = {:?}", count, d);
 
         rpass.set_pipeline(&self.pipeline);
         rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));

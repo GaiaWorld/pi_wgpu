@@ -759,6 +759,8 @@ impl<'a> Drop for AdapterContextLock<'a> {
 struct Egl {
     instance: pi_egl::Instance,
     context: pi_egl::Context,
+
+    last_surface: Option<pi_egl::Surface>, // 只用于 single_thread
 }
 
 impl Default for Egl {
@@ -770,21 +772,62 @@ impl Default for Egl {
 
         let context = instance.create_context().unwrap();
 
-        Self { instance, context }
+        Self {
+            instance,
+            context,
+            last_surface: None,
+        }
     }
 }
 
 impl Egl {
     #[inline]
     fn make_current(&mut self, surface: &pi_egl::Surface) {
-        let _ = self
+        #[cfg(not(feature = "single_thread"))]
+        {
+            // let now = pi_time::Instant::now();
+
+            let _ = self
             .instance
             .make_current(Some(surface), Some(&self.context));
+        
+            // log::warn!(
+            //     "============== not single_thread, pi_egl::make_current now call, time = {:?}",
+            //     now.elapsed()
+            // );
+        }
+
+        #[cfg(feature = "single_thread")]
+        {
+            let need_update = match &self.last_surface {
+                None => true,
+                Some(old) => old != surface,
+            };
+
+            if need_update {
+                self.last_surface = Some(surface.clone());
+
+                let now = pi_time::Instant::now();
+
+                let _ = self
+                    .instance
+                    .make_current(Some(surface), Some(&self.context));
+
+                log::warn!(
+                    "============== single_thread, pi_egl::make_current now call, time = {:?}",
+                    now.elapsed()
+                );
+            }
+        }
     }
 
     #[inline]
     fn unmake_current(&mut self) {
-        self.instance.make_current(None, None);
+        // 单线程 不解绑
+        #[cfg(not(feature = "single_thread"))]
+        {
+            self.instance.make_current(None, None);
+        }
     }
 
     #[inline]
