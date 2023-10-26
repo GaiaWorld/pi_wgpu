@@ -18,8 +18,13 @@ impl Surface {
         adapter: AdapterContext,
         handle: &W,
     ) -> Result<Self, super::InstanceError> {
-        SurfaceImpl::new(adapter, handle).map(|imp| Self {
-            imp: Share::new(ShareCell::new(imp)),
+        SurfaceImpl::new(adapter, handle).map(|mut imp| {
+            let s = imp.raw.clone();
+            imp.adapter.set_surface(s);
+
+            Self {
+                imp: Share::new(ShareCell::new(imp)),
+            }
         })
     }
 
@@ -131,9 +136,9 @@ impl SurfaceImpl {
             config.width,
             config.height
         );
-        
+
         self.adapter.set_surface(clone);
-        
+
         if self.sc.is_none() {
             self.sc = Some(SwapChain::new(device, config));
         }
@@ -373,7 +378,7 @@ impl SwapChain {
             }),
             multiview: None,
         });
-        
+
         let sampler = device.create_sampler(&super::super::SamplerDescriptor {
             label: Some("Flip-Y Sampler"),
             address_mode_u: wgt::AddressMode::ClampToEdge,
