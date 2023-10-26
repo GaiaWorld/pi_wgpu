@@ -3,17 +3,20 @@ use std::{
     time::Duration,
 };
 
-use glow::{HasContext, FALSE};
-use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+use glow::HasContext;
 use pi_share::{cell::Ref, Share, ShareCell};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use super::{db, PrivateCapabilities};
-use crate::{pi_wgpu::wgt, AdapterInfo};
+use crate::{
+    pi_wgpu::wgt,
+    util::{ReentrantMutexGuardWrap, ReentrantMutexWrap},
+    AdapterInfo,
+};
 
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
-    lock_: Share<ReentrantMutex<()>>,
+    lock_: Share<ReentrantMutexWrap<()>>,
     reentrant_count: Share<AtomicUsize>,
     egl: Share<ShareCell<Egl>>,
     imp: Share<ShareCell<AdapterContextImpl>>,
@@ -57,7 +60,7 @@ impl Default for AdapterContext {
         Self {
             egl: Share::new(ShareCell::new(egl)),
             reentrant_count: Share::new(AtomicUsize::new(0)),
-            lock_: Share::new(ReentrantMutex::new(())),
+            lock_: Share::new(ReentrantMutexWrap::new(())),
             imp: Share::new(ShareCell::new(imp)),
         }
     }
@@ -684,7 +687,7 @@ impl AdapterContextImpl {
 /// A guard containing a lock to an [`AdapterContext`]
 #[derive(Debug)]
 pub struct AdapterContextLock<'a> {
-    lock: ReentrantMutexGuard<'a, ()>,
+    lock: ReentrantMutexGuardWrap<'a, ()>,
     reentrant_count: Share<AtomicUsize>,
 
     egl: Share<ShareCell<Egl>>,

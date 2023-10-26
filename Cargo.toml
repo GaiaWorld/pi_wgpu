@@ -13,6 +13,7 @@ default = ["gl"]
 # default = ["use_wgpu", "gl"]
 
 gl = []
+single_thread = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
