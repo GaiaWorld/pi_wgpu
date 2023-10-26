@@ -15,9 +15,9 @@ impl Buffer {
         profiling::scope!("hal::Buffer::new");
 
         let (gl_target, gl_usage) = if desc.usage.contains(BufferUsages::VERTEX) {
-            (glow::ARRAY_BUFFER, glow::STATIC_DRAW)
+            (glow::ARRAY_BUFFER, glow::DYNAMIC_DRAW)
         } else if desc.usage.contains(BufferUsages::INDEX) {
-            (glow::ELEMENT_ARRAY_BUFFER, glow::STATIC_DRAW)
+            (glow::ELEMENT_ARRAY_BUFFER, glow::DYNAMIC_DRAW)
         } else if desc.usage.contains(BufferUsages::UNIFORM) {
             (glow::UNIFORM_BUFFER, glow::DYNAMIC_DRAW)
         } else {
