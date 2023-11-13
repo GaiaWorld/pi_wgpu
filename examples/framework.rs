@@ -37,7 +37,8 @@ pub fn start<T: Example + Sync + Send + 'static>() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::Builder::new()
-            .filter(Some("glow=trace"), log::LevelFilter::Trace)
+            .filter(Some("glow=trace"), log::LevelFilter::Info)
+            .filter(None, log::LevelFilter::Info)
             .init();
 
         pollster::block_on(run::<T>(event_loop, window));
@@ -68,178 +69,111 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
         width: 450,
         height: 720,
     });
-    let size = window.inner_size();
-
-    let instance = Instance::default();
-
-    let adapter = instance
-        .request_adapter(&RequestAdapterOptions {
-            power_preference: PowerPreference::default(),
-            force_fallback_adapter: false,
-            // Request an adapter which can render to our surface
-            compatible_surface: None,
-        })
-        .await
-        .expect("Failed to find an appropriate adapter");
-
-    // Create the logical device and command queue
-    let (device, queue) = adapter
-        .request_device(
-            &DeviceDescriptor {
-                label: None,
-                features: Features::empty(),
-                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
-            },
-            None,
-        )
-        .await
-        .expect("Failed to create device");
-
-    let depth_format = TextureFormat::Depth24Plus;
-
-    let mut surface: Option<Surface> = None;
-    let mut config: Option<SurfaceConfiguration> = None;
-    let mut depth_view = None;
-    let mut example: Option<T> = None;
-    let mut tex: Option<Texture> = None;
 
     let mut already_resume = false;
     let mut already_resize = false;
-    let mut is_init = false;
 
-    let mut last_size: PhysicalSize<u32> = Default::default();
+    let mut engine: Option<Engine> = None;
+    let mut example: Option<T> = None;
 
     event_loop.run(move |event, _, control_flow| {
-        // Have the closure take ownership of the resources.
-        // `event_loop.run` never returns, therefore we must do this to ensure
-        // the resources are properly cleaned up.
-        let _ = (&instance, &adapter);
-
         *control_flow = ControlFlow::Poll;
-
-        // log::error!("======= event : {:?}", event);
         match event {
             Event::WindowEvent {
                 // 注: Wasm 收不到 Resize，所以全部写到 MainEventCleard 去
                 event: WindowEvent::Resized(_),
                 ..
             } => {}
-            Event::MainEventsCleared => {
-                let size = window.inner_size();
-                // log::error!("======= size : {:?}", size);
-
-                if last_size.width != size.width || last_size.height != size.height {
-                    last_size = size;
-
-                    already_resize = size.width > 0 && size.height > 0;
-                    if already_resize {
-                        // Reconfigure the surface with the new size
-                        if let Some((config, surface)) = config.as_mut().zip(surface.as_ref()) {
-                            config.width = size.width;
-                            config.height = size.height;
-
-                            surface.configure(&device, &config);
-
-                            let depth_texture = create_depth_texture(
-                                &device,
-                                config.width,
-                                config.height,
-                                depth_format,
-                            );
-
-                            depth_view =
-                                Some(depth_texture.create_view(&TextureViewDescriptor::default()));
-
-                            window.request_redraw();
-                        }
-                    }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            Event::Suspended => already_resume = false,
+            Event::Resumed => {
+                already_resume = true;
+                if already_resize {
+                    window.request_redraw();
                 }
-                window.request_redraw();
+            }
+            Event::MainEventsCleared => {
+                already_resize = true;
+                if already_resume {
+                    window.request_redraw();
+                }
             }
             Event::RedrawRequested(_) => {
                 if !already_resize || !already_resume {
                     return;
                 }
 
-                if !is_init {
-                    let e = T::init(&device, &queue, config.as_ref().unwrap());
-                    example.replace(e);
-
-                    is_init = true;
+                if engine.is_none() {
+                    let e = pollster::block_on(Engine::new(&window));
+                    engine = Some(e);
+                } else {
+                    engine.as_mut().unwrap().configure(&window);
                 }
 
-                if let Some(((surface, example), depth_view)) = surface
+                if example.is_none() {
+                    let engine = engine.as_ref().unwrap();
+                    let e = T::init(&engine.device, &engine.queue, &engine.config);
+                    example = Some(e);
+                }
+
+                let e = engine.as_ref().unwrap();
+                let surface = &e.surface;
+                let depth_view = &e.depth_view;
+                let example = example.as_mut().unwrap();
+
+                let frame = surface.get_current_texture().unwrap();
+
+                let view: pi_wgpu::TextureView =
+                    frame.texture.create_view(&TextureViewDescriptor::default());
+
+                let mut encoder = engine
                     .as_ref()
-                    .zip(example.as_mut())
-                    .zip(depth_view.as_ref())
+                    .unwrap()
+                    .device
+                    .create_command_encoder(&CommandEncoderDescriptor { label: None });
                 {
-                    let frame = surface.get_current_texture().unwrap();
-
-                    let view: pi_wgpu::TextureView =
-                        frame.texture.create_view(&TextureViewDescriptor::default());
-
-                    let mut encoder =
-                        device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-                    {
-                        let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                            label: None,
-                            color_attachments: &[Some(RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: Operations {
-                                    load: LoadOp::Clear(Color {
-                                        r: 0.0,
-                                        g: 0.0,
-                                        b: 0.0,
-                                        a: 1.0,
-                                    }),
-                                    store: true,
-                                },
-                            })],
-                            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                                view: &depth_view,
-                                depth_ops: Some(Operations {
-                                    load: LoadOp::Clear(1.0),
-                                    store: false,
+                    let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: Operations {
+                                load: LoadOp::Clear(Color {
+                                    r: 0.0,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
                                 }),
-                                stencil_ops: None,
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(Operations {
+                                load: LoadOp::Clear(1.0),
+                                store: false,
                             }),
-                        });
+                            stencil_ops: None,
+                        }),
+                    });
 
-                        example.render(&device, &queue, &mut rpass);
-                    }
-
-                    queue.submit(Some(encoder.finish()));
-
-                    frame.present();
+                    example.render(
+                        &engine.as_ref().unwrap().device,
+                        &engine.as_ref().unwrap().queue,
+                        &mut rpass,
+                    );
                 }
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => *control_flow = ControlFlow::Exit,
 
-            Event::Resumed => {
-                already_resume = true;
+                engine
+                    .as_ref()
+                    .unwrap()
+                    .queue
+                    .submit(Some(encoder.finish()));
 
-                let s = unsafe { instance.create_surface(&window) }.unwrap();
-                let size = window.inner_size();
-
-                log::info!("======= Resumed : {:?}", size);
-
-                let (cfg, view, t) =
-                    create_depth_view(&adapter, &device, &s, depth_format, size.width, size.height);
-
-                surface.replace(s);
-                config.replace(cfg);
-                depth_view.replace(view);
-                tex.replace(t);
-                // can_draw = true;
-            }
-            Event::Suspended => {
-                println!("event: Event::Suspended");
-                already_resume = false
+                frame.present();
             }
             _ => {}
         }
@@ -299,5 +233,110 @@ fn create_depth_view(
 
     let depth_texture = create_depth_texture(&device, config.width, config.height, depth_format);
     let depth_view = depth_texture.create_view(&TextureViewDescriptor::default());
+
     (config, depth_view, depth_texture)
+}
+
+struct Engine {
+    instance: Instance,
+    adapter: Adapter,
+    device: Device,
+    queue: Queue,
+
+    surface: Surface,
+    config: SurfaceConfiguration,
+
+    tex: Texture,
+    depth_view: TextureView,
+    depth_format: TextureFormat,
+}
+
+impl Engine {
+    async fn new(window: &Window) -> Self {
+        let depth_format = TextureFormat::Depth24Plus;
+
+        let instance = Instance::default();
+
+        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+
+        println!("surface = {:?}", surface);
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::default(),
+                force_fallback_adapter: false,
+                // Request an adapter which can render to our surface
+                compatible_surface: None,
+            })
+            .await
+            .expect("Failed to find an appropriate adapter");
+
+        // Create the logical device and command queue
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: None,
+                    features: Features::empty(),
+                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                    limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create device");
+
+        let size = window.inner_size();
+
+        let (config, depth_view, tex) = create_depth_view(
+            &adapter,
+            &device,
+            &surface,
+            depth_format,
+            size.width,
+            size.height,
+        );
+
+        surface.configure(&device, &config);
+
+        Self {
+            instance,
+            adapter,
+            device,
+            queue,
+            surface,
+            config,
+            tex,
+            depth_view,
+            depth_format,
+        }
+    }
+
+    fn configure(&mut self, window: &Window) {
+        let size = window.inner_size();
+
+        if size.width == self.config.width && size.height == self.config.height {
+            return;
+        }
+
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+
+        let surface = unsafe { self.instance.create_surface(&window) }.unwrap();
+        let (config, depth_view, tex) = create_depth_view(
+            &self.adapter,
+            &self.device,
+            &self.surface,
+            self.depth_format,
+            size.width,
+            size.height,
+        );
+
+        surface.configure(&self.device, &config);
+
+        self.surface = surface;
+        self.config = config;
+        self.tex = tex;
+        self.depth_view = depth_view;
+    }
 }

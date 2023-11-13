@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -16,15 +17,15 @@ use crate::{
 
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
-    lock_: Share<ReentrantMutexWrap<()>>,
+    lock_: ReentrantMutexWrap<()>,
     reentrant_count: Share<AtomicUsize>,
     egl: Share<ShareCell<Egl>>,
-    imp: Share<ShareCell<AdapterContextImpl>>,
+    imp: Share<ShareCell<Option<AdapterContextImpl>>>,
 }
 
 #[derive(Debug)]
 pub(crate) struct AdapterContextImpl {
-    surface: Option<pi_egl::Surface>,
+    surface: pi_egl::Surface,
 
     private_caps: PrivateCapabilities,
     features: wgt::Features,
@@ -43,25 +44,15 @@ impl std::fmt::Debug for AdapterContext {
 }
 
 impl Default for AdapterContext {
+    #[inline]
     fn default() -> Self {
-        let mut egl = Egl::default();
-
-        let imp = {
-            egl.make_current(None);
-            let gl = egl.get_glow();
-
-            let imp = AdapterContextImpl::new(gl);
-
-            egl.unmake_current();
-
-            imp
-        };
+        let egl = Egl::default();
 
         Self {
             egl: Share::new(ShareCell::new(egl)),
             reentrant_count: Share::new(AtomicUsize::new(0)),
-            lock_: Share::new(ReentrantMutexWrap::new(())),
-            imp: Share::new(ShareCell::new(imp)),
+            lock_: ReentrantMutexWrap::new(()),
+            imp: Share::new(ShareCell::new(None)),
         }
     }
 }
@@ -89,42 +80,80 @@ impl AdapterContext {
 
     #[inline]
     pub(crate) fn set_surface(&mut self, surface: pi_egl::Surface) {
-        self.imp.as_ref().borrow_mut().surface = Some(surface);
+        if self.imp.as_ref().borrow_mut().is_none() {
+            let imp = {
+                let mut egl = self.egl.as_ref().borrow_mut();
+
+                egl.make_current(&surface);
+
+                let gl = egl.get_glow();
+                let imp = AdapterContextImpl::new(gl, surface);
+
+                egl.unmake_current();
+
+                imp
+            };
+
+            self.imp.as_ref().borrow_mut().replace(imp);
+        } else {
+            let mut s = self.imp.as_ref().borrow_mut();
+            let r = s.as_mut().unwrap();
+            r.surface = surface;
+        }
     }
 
     #[inline]
     pub(crate) fn private_caps(&self) -> PrivateCapabilities {
-        self.imp.as_ref().borrow().private_caps
+        self.imp.as_ref().borrow().as_ref().unwrap().private_caps
     }
 
     #[inline]
     pub(crate) fn features(&self) -> wgt::Features {
-        self.imp.as_ref().borrow().features
+        self.imp.as_ref().borrow().as_ref().unwrap().features
     }
 
     #[inline]
     pub(crate) fn limits(&self) -> Ref<wgt::Limits> {
-        self.imp.as_ref().borrow().map(|s| &s.limits)
+        self.imp
+            .as_ref()
+            .borrow()
+            .map(|s| &s.as_ref().unwrap().limits)
     }
 
     #[inline]
     pub(crate) fn downlevel(&self) -> Ref<wgt::DownlevelCapabilities> {
-        self.imp.as_ref().borrow().map(|s| &s.downlevel)
+        self.imp
+            .as_ref()
+            .borrow()
+            .map(|s| &s.as_ref().unwrap().downlevel)
     }
 
     #[inline]
     pub(crate) fn max_texture_size(&self) -> u32 {
-        self.imp.as_ref().borrow().max_texture_size
+        self.imp
+            .as_ref()
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .max_texture_size
     }
 
     #[inline]
     pub(crate) fn shading_language_version(&self) -> naga::back::glsl::Version {
-        self.imp.as_ref().borrow().shading_language_version
+        self.imp
+            .as_ref()
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .shading_language_version
     }
 
     #[inline]
     pub(crate) fn info(&self) -> Ref<AdapterInfo> {
-        self.imp.as_ref().borrow().map(|s| &s.info)
+        self.imp
+            .as_ref()
+            .borrow()
+            .map(|s| &s.as_ref().unwrap().info)
     }
 
     /// Returns the capabilities of working with a specified surface.
@@ -145,6 +174,8 @@ impl AdapterContext {
             .imp
             .as_ref()
             .borrow()
+            .as_ref()
+            .unwrap()
             .private_caps
             .contains(super::PrivateCapabilities::COLOR_BUFFER_HALF_FLOAT)
         {
@@ -162,8 +193,20 @@ impl AdapterContext {
                 height: 4,
                 depth_or_array_layers: 1,
             }..=wgt::Extent3d {
-                width: self.imp.as_ref().borrow().max_texture_size,
-                height: self.imp.as_ref().borrow().max_texture_size,
+                width: self
+                    .imp
+                    .as_ref()
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .max_texture_size,
+                height: self
+                    .imp
+                    .as_ref()
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .max_texture_size,
                 depth_or_array_layers: 1,
             },
             usage: super::TextureUses::COLOR_TARGET,
@@ -193,16 +236,17 @@ impl AdapterContext {
         if self.reentrant_count.load(Ordering::SeqCst) == 0 {
             match surface {
                 Some(s) => {
-                    self.egl.as_ref().borrow_mut().make_current(Some(s));
+                    self.egl.as_ref().borrow_mut().make_current(s);
                 }
-                None => match self.imp.as_ref().borrow().surface.as_ref() {
-                    Some(s) => {
-                        self.egl.as_ref().borrow_mut().make_current(Some(&s));
-                    }
-                    None => {
-                        self.egl.as_ref().borrow_mut().make_current(None);
-                    }
-                },
+                None => {
+                    let s = self
+                        .imp
+                        .as_ref()
+                        .borrow()
+                        .map(|v| &v.as_ref().unwrap().surface);
+
+                    self.egl.as_ref().borrow_mut().make_current(&s);
+                }
             }
         }
 
@@ -220,7 +264,7 @@ impl AdapterContext {
 }
 
 impl AdapterContextImpl {
-    fn new(gl: &glow::Context) -> Self {
+    fn new(gl: &glow::Context, surface: pi_egl::Surface) -> Self {
         let extensions = gl.supported_extensions();
         log::info!("GL Extensions: {:#?}", extensions);
 
@@ -510,7 +554,7 @@ impl AdapterContextImpl {
         };
 
         Self {
-            surface: None,
+            surface,
             private_caps,
             features,
             limits,
@@ -715,6 +759,8 @@ impl<'a> Drop for AdapterContextLock<'a> {
 struct Egl {
     instance: pi_egl::Instance,
     context: pi_egl::Context,
+
+    last_surface: Option<pi_egl::Surface>, // 只用于 single_thread
 }
 
 impl Default for Egl {
@@ -726,19 +772,62 @@ impl Default for Egl {
 
         let context = instance.create_context().unwrap();
 
-        Self { instance, context }
+        Self {
+            instance,
+            context,
+            last_surface: None,
+        }
     }
 }
 
 impl Egl {
     #[inline]
-    fn make_current(&mut self, surface: Option<&pi_egl::Surface>) {
-        let _ = self.instance.make_current(surface, Some(&self.context));
+    fn make_current(&mut self, surface: &pi_egl::Surface) {
+        #[cfg(not(feature = "single_thread"))]
+        {
+            // let now = pi_time::Instant::now();
+
+            let _ = self
+            .instance
+            .make_current(Some(surface), Some(&self.context));
+        
+            // log::warn!(
+            //     "============== not single_thread, pi_egl::make_current now call, time = {:?}",
+            //     now.elapsed()
+            // );
+        }
+
+        #[cfg(feature = "single_thread")]
+        {
+            let need_update = match &self.last_surface {
+                None => true,
+                Some(old) => old != surface,
+            };
+
+            if need_update {
+                self.last_surface = Some(surface.clone());
+
+                let now = pi_time::Instant::now();
+
+                let _ = self
+                    .instance
+                    .make_current(Some(surface), Some(&self.context));
+
+                log::warn!(
+                    "============== single_thread, pi_egl::make_current now call, time = {:?}",
+                    now.elapsed()
+                );
+            }
+        }
     }
 
     #[inline]
     fn unmake_current(&mut self) {
-        self.instance.make_current(None, None);
+        // 单线程 不解绑
+        #[cfg(not(feature = "single_thread"))]
+        {
+            self.instance.make_current(None, None);
+        }
     }
 
     #[inline]

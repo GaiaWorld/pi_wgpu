@@ -24,6 +24,9 @@ fn test() {
 }
 
 pub struct TriangleExample {
+    temp_buf: pi_wgpu::Buffer,
+    temp_data: Vec<u8>,
+
     vertex_buf: pi_wgpu::Buffer,
     pipeline: pi_wgpu::RenderPipeline,
 }
@@ -34,9 +37,20 @@ impl Example for TriangleExample {
 
         let vertex_buf = create_vb(&device);
 
+        let temp_data = vec![0u8; 11 * 1024];
+
+        let temp_buf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            usage: BufferUsages::VERTEX,
+            contents: temp_data.as_slice(),
+        });
+
         let pipeline: RenderPipeline = create_render_pipeline(&device, depth_format, config);
 
         TriangleExample {
+            temp_buf,
+            temp_data,
+
             vertex_buf,
             pipeline,
         }
@@ -45,9 +59,17 @@ impl Example for TriangleExample {
     fn render<'b, 'a: 'b>(
         &'a mut self,
         _device: &'a Device,
-        _queue: &'a pi_wgpu::Queue,
+        queue: &'a pi_wgpu::Queue,
         rpass: &'b mut pi_wgpu::RenderPass<'a>,
     ) {
+        // let count = 1000;
+        // let begin = pi_time::Instant::now();
+        // for _ in 0..count {
+        //     queue.write_buffer(&self.temp_buf, 0, &self.temp_data.as_slice());
+        // }
+        // let d = begin.elapsed();
+        // log::warn!("{} write_buffer time = {:?}", count, d);
+
         rpass.set_pipeline(&self.pipeline);
         rpass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         rpass.draw(0..3, 0..1);
