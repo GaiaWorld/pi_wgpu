@@ -229,7 +229,7 @@ impl Texture {
     pub fn write_data(
         state: &GLState,
         copy: super::super::ImageCopyTexture,
-        data: &[u8],
+        data1: &[u8],
         _data_layout: super::super::ImageDataLayout,
         size: super::super::Extent3d,
     ) {
@@ -253,12 +253,12 @@ impl Texture {
         let gl = lock.get_glow();
 
         unsafe {
-            gl.active_texture(glow::TEXTURE0);
+            // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
         }
 
         if !inner.format.is_compressed() {
-            let data = glow::PixelUnpackData::Slice(data);
+            let data = glow::PixelUnpackData::Slice(data1);
 
             match dst_target {
                 glow::TEXTURE_3D => {
@@ -296,6 +296,8 @@ impl Texture {
                     };
                 }
                 glow::TEXTURE_2D => {
+					unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+					unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
                     unsafe {
                         gl.tex_sub_image_2d(
                             dst_target,
@@ -328,7 +330,7 @@ impl Texture {
                 _ => unreachable!(),
             }
         } else {
-            let data = glow::CompressedPixelUnpackData::Slice(data);
+            let data = glow::CompressedPixelUnpackData::Slice(data1);
             match dst_target {
                 glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
                     unsafe {

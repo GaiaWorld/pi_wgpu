@@ -53,7 +53,6 @@ impl Adapter {
         _trace_path: Option<&std::path::Path>,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
         log::trace!("pi_wgpu::Adapter::request_device, desc = {:?}", desc);
-
         let open = self
             .inner
             .open(desc.features, &desc.limits)
