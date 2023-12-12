@@ -765,7 +765,7 @@ struct Egl {
 
 impl Default for Egl {
     fn default() -> Self {
-        let is_vsync = false;
+        let is_vsync = true;
 
         let instance =
             pi_egl::Instance::new(pi_egl::PowerPreference::HighPerformance, is_vsync).unwrap();
