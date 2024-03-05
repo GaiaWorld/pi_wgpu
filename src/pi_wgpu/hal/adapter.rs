@@ -15,10 +15,10 @@ impl Adapter {
     pub(crate) fn expose(
         context: AdapterContext,
     ) -> Option<super::super::ExposedAdapter<super::GL>> {
-        let info = context.info().clone();
+        let info = (*context.info()).clone();
         let features = context.features().clone();
-        let limits = context.limits().clone();
-        let downlevel = context.downlevel().clone();
+        let limits = (*context.limits()).clone();
+        let downlevel = (*context.downlevel()).clone();
 
         let adapter = super::Adapter { context };
 
@@ -60,8 +60,8 @@ impl Adapter {
                 adapter: self.context.clone(),
 
                 features,
-                limits: self.context.limits().clone(),
-                downlevel: self.context.downlevel().clone(),
+                limits: (*self.context.limits()).clone(),
+                downlevel: (*self.context.downlevel()).clone(),
             },
             queue: super::Queue {
                 state,

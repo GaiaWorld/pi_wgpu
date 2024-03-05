@@ -101,19 +101,19 @@ impl Adapter {
     /// the values that you are allowed to use.
     #[inline]
     pub fn limits(&self) -> Limits {
-        self.inner.context.limits().clone()
+        (*self.inner.context.limits()).clone()
     }
 
     /// Get info about the adapter itself.
     #[inline]
     pub fn get_info(&self) -> AdapterInfo {
-        self.inner.context.info().clone()
+        (*self.inner.context.info()).clone()
     }
 
     /// Get info about the adapter itself.
     #[inline]
     pub fn get_downlevel_capabilities(&self) -> DownlevelCapabilities {
-        self.inner.context.downlevel().clone()
+        (*self.inner.context.downlevel()).clone()
     }
 
     /// Returns the features supported for a given texture format by this adapter.
