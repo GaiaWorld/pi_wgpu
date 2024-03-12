@@ -1,5 +1,5 @@
 use pi_share::{Share, ShareCell};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{ HasWindowHandle, HasDisplayHandle};
 use thiserror::Error;
 
 use super::{
@@ -14,7 +14,7 @@ pub(crate) struct Surface {
 
 impl Surface {
     #[inline]
-    pub(crate) fn new<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub(crate) fn new<W: HasWindowHandle + HasDisplayHandle>(
         adapter: AdapterContext,
         handle: &W,
     ) -> Result<Self, super::InstanceError> {
@@ -112,7 +112,7 @@ pub(crate) struct SurfaceImpl {
 }
 
 impl SurfaceImpl {
-    fn new<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    fn new<W: HasWindowHandle + HasDisplayHandle>(
         adapter: AdapterContext,
         handle: &W,
     ) -> Result<Self, super::InstanceError> {

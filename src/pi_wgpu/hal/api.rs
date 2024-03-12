@@ -29,7 +29,7 @@ pub(crate) struct GL;
 impl Api for GL {
     type Instance = hal::Instance;
     type Surface = hal::Surface;
-    // type Adapter = hal::Adapter;
+    type Adapter = hal::Adapter;
     type Device = hal::Device;
     type Queue = hal::Queue;
     type CommandEncoder = hal::CommandEncoder;

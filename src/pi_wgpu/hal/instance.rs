@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, HasDisplayHandle};
 use thiserror::Error;
 
 use super::super::{hal::AdapterContext, wgt};
@@ -25,7 +25,7 @@ impl Instance {
             .collect()
     }
 
-    pub(crate) fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub(crate) fn create_surface<W: HasWindowHandle + HasDisplayHandle>(
         &self,
         handle: &W,
     ) -> Result<super::Surface, super::InstanceError> {

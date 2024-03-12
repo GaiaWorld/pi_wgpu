@@ -7,7 +7,7 @@ use super::{super::wgt, AdapterContext};
 #[derive(Debug)]
 pub(crate) struct Device {
     pub(crate) adapter: AdapterContext,
-    // pub(crate) state: super::GLState,
+    pub(crate) state: super::GLState,
 
     pub(crate) features: wgt::Features,
     pub(crate) limits: wgt::Limits,

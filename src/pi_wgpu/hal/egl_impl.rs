@@ -1,12 +1,11 @@
 use std::{
-    borrow::BorrowMut,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
 use glow::HasContext;
 use pi_share::{cell::Ref, Share, ShareCell};
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasWindowHandle, HasDisplayHandle};
 
 use super::{db, PrivateCapabilities};
 use crate::{
@@ -66,7 +65,7 @@ impl AdapterContext {
     }
 
     #[inline]
-    pub(crate) fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub(crate) fn create_surface<W: HasWindowHandle + HasDisplayHandle>(
         &self,
         handle: &W,
     ) -> Result<pi_egl::Surface, super::InstanceError> {

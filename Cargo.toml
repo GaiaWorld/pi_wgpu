@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.24"
+version = "0.1.25"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -32,7 +32,7 @@ twox-hash = "1.6"
 lazy_static = "1.4"
 parking_lot = "0.12"
 ordered-float = "3.9"
-raw-window-handle = "0.5"
+raw-window-handle = "0.6"
 codespan-reporting = "0.11"
 profiling = { version = "1", default-features = false }
 serde = { version = "1.0", optional = true, features = ["derive"] }

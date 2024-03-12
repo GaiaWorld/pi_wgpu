@@ -1,7 +1,7 @@
 use std::future::{ready, Future};
 
 use pi_share::Share;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, HasDisplayHandle};
 
 use super::super::{
     hal, wgt, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface,
@@ -179,7 +179,7 @@ impl Instance {
     /// - On macOS/Metal: will panic if not called on the main thread.
     /// - On web: will panic if the `raw_window_handle` does not properly refer to a
     ///   canvas element.
-    pub unsafe fn create_surface<W: HasRawWindowHandle + HasRawDisplayHandle>(
+    pub unsafe fn create_surface<W: HasWindowHandle + HasDisplayHandle>(
         &self,
         window: &W,
     ) -> Result<Surface, CreateSurfaceError> {
