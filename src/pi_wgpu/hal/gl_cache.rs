@@ -357,7 +357,7 @@ impl GLCache {
 
         let set = self
             .fbo_map
-            .drain_filter(|k, _fbo| {
+            .extract_if(|k, _fbo| {
                 if let super::GLTextureInfo::Renderbuffer(b) = &k.colors {
                     if *b == rb {
                         return true;
@@ -387,7 +387,7 @@ impl GLCache {
 
         let set = self
             .fbo_map
-            .drain_filter(|k, _| {
+            .extract_if(|k, _| {
                 if let super::GLTextureInfo::Texture(t) = &k.colors {
                     if *t == texture {
                         return true;
@@ -422,7 +422,7 @@ impl GLCache {
 
         let set: HashSet<glow::VertexArray> = if bind_target == glow::ARRAY_BUFFER {
             self.vao_map
-                .drain_filter(|k, vao| {
+                .extract_if(|k, vao| {
                     let mut r = false;
                     for v in k.vbs.iter() {
                         if let Some(vb) = v.as_ref() {
@@ -446,7 +446,7 @@ impl GLCache {
                 .collect::<HashSet<_>>()
         } else if bind_target == glow::ELEMENT_ARRAY_BUFFER {
             self.vao_map
-                .drain_filter(|k, vao| {
+                .extract_if(|k, vao| {
                     let mut r = false;
                     if let Some(ib) = &k.ib {
                         r = *ib == buffer;
