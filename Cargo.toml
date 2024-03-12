@@ -21,9 +21,9 @@ pi_egl = { version = "0.1", registry = "yn" }
 pi_share = "0.4"
 
 glow = "0.12"
-naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
+naga = { version = "0.19", features = ["clone", "glsl-in", "glsl-out"] }
 
-wgpu = { version = "0.16", default-features = false, optional = true }
+wgpu = { version = "0.19", default-features = false, optional = true }
 
 log = "0.4"
 bitflags = "2.4"
@@ -64,7 +64,7 @@ serde = { version = "1.0", features = ["derive"] }
 glow = { version = "0.12" }
 winit = { registry = "yn", version = "0.27" }
 pollster = "0.3"
-naga = { version = "0.12", features = ["clone", "glsl-in", "glsl-out"] }
+naga = { version = "0.19", features = ["clone", "glsl-in", "glsl-out"] }
 bytemuck = { version = "1.4", features = ["derive"] }
 glam = "0.24"
 
