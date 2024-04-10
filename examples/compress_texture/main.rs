@@ -3,7 +3,7 @@ mod framework;
 
 use bytemuck::{Pod, Zeroable};
 use framework::Example;
-use pi_wgpu::{util::DeviceExt, *};
+use pi_wgpu::{util::{DeviceExt, TextureDataOrder}, *};
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
 fn main() {
@@ -287,7 +287,7 @@ pub fn create_texture_from_ktx(
 		format,
 		usage: pi_wgpu::TextureUsages::TEXTURE_BINDING | pi_wgpu::TextureUsages::COPY_DST,
 		view_formats: &[],
-	}, data.as_slice());
+	}, TextureDataOrder::LayerMajor, data.as_slice());
 	let texture_view = texture.create_view(&pi_wgpu::TextureViewDescriptor::default());
 
 	Ok(texture_view)

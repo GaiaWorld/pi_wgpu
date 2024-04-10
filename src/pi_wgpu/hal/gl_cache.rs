@@ -316,7 +316,10 @@ impl GLCache {
 
                             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vb.raw));
 
-                            let offset = attrib.attrib_offset + vb.offset;
+                            let mut offset = attrib.attrib_offset + vb.offset;
+                            if attrib.is_buffer_instance {
+                                offset +=  geometry.first_instance as i32 * attrib.attrib_stride;
+                            }
 
                             match attrib.attrib_kind {
                                 super::VertexAttribKind::Float => {
@@ -481,6 +484,7 @@ pub(crate) struct GeometryState {
     pub(crate) attributes: AttributeState,
     pub(crate) vbs: Box<[Option<VBState>]>, // 长度 为 attributes.vb_count
     pub(crate) ib: Option<glow::Buffer>,
+    pub(crate) first_instance: u32,
 }
 
 #[derive(Debug)]

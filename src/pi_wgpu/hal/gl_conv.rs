@@ -207,6 +207,11 @@ pub(super) fn describe_texture_format(
         Tf::Bgra8Unorm => (glow::RGBA8, glow::BGRA, glow::UNSIGNED_BYTE), //TODO?
         Tf::Rgba8Uint => (glow::RGBA8UI, glow::RGBA_INTEGER, glow::UNSIGNED_BYTE),
         Tf::Rgba8Sint => (glow::RGBA8I, glow::RGBA_INTEGER, glow::BYTE),
+        Tf::Rgb10a2Uint => (
+            glow::RGB10_A2UI,
+            glow::RGBA_INTEGER,
+            glow::UNSIGNED_INT_2_10_10_10_REV,
+        ),
         Tf::Rgb10a2Unorm => (
             glow::RGB10_A2,
             glow::RGBA,
@@ -230,7 +235,7 @@ pub(super) fn describe_texture_format(
         Tf::Rgba32Float => (glow::RGBA32F, glow::RGBA, glow::FLOAT),
         Tf::Stencil8 => (
             glow::STENCIL_INDEX8,
-            glow::STENCIL_COMPONENTS,
+            glow::STENCIL_INDEX,
             glow::UNSIGNED_BYTE,
         ),
         Tf::Depth16Unorm => (
@@ -239,19 +244,22 @@ pub(super) fn describe_texture_format(
             glow::UNSIGNED_SHORT,
         ),
         Tf::Depth32Float => (glow::DEPTH_COMPONENT32F, glow::DEPTH_COMPONENT, glow::FLOAT),
-        Tf::Depth32FloatStencil8 => {
-            (glow::DEPTH32F_STENCIL8, glow::DEPTH_COMPONENT, glow::FLOAT)
-        }
+        Tf::Depth32FloatStencil8 => (
+            glow::DEPTH32F_STENCIL8,
+            glow::DEPTH_STENCIL,
+            glow::FLOAT_32_UNSIGNED_INT_24_8_REV,
+        ),
         Tf::Depth24Plus => (
             glow::DEPTH_COMPONENT24,
             glow::DEPTH_COMPONENT,
-            glow::UNSIGNED_NORMALIZED,
+            glow::UNSIGNED_INT,
         ),
         Tf::Depth24PlusStencil8 => (
             glow::DEPTH24_STENCIL8,
-            glow::DEPTH_COMPONENT,
-            glow::UNSIGNED_INT,
+            glow::DEPTH_STENCIL,
+            glow::UNSIGNED_INT_24_8,
         ),
+        Tf::NV12 => unreachable!(),
         Tf::Rgb9e5Ufloat => (glow::RGB9_E5, glow::RGB, glow::UNSIGNED_INT_5_9_9_9_REV),
         Tf::Bc1RgbaUnorm => (glow::COMPRESSED_RGBA_S3TC_DXT1_EXT, glow::RGBA, 0),
         Tf::Bc1RgbaUnormSrgb => (glow::COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT, glow::RGBA, 0),
@@ -279,12 +287,7 @@ pub(super) fn describe_texture_format(
             glow::RGBA,
             0,
         ),
-        Tf::Etc2Rgba8Unorm => (
-            //TODO: this is a lie, it's not sRGB
-            glow::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,
-            glow::RGBA,
-            0,
-        ),
+        Tf::Etc2Rgba8Unorm => (glow::COMPRESSED_RGBA8_ETC2_EAC, glow::RGBA, 0),
         Tf::Etc2Rgba8UnormSrgb => (glow::COMPRESSED_SRGB8_ALPHA8_ETC2_EAC, glow::RGBA, 0),
         Tf::EacR11Unorm => (glow::COMPRESSED_R11_EAC, glow::RED, 0),
         Tf::EacR11Snorm => (glow::COMPRESSED_SIGNED_R11_EAC, glow::RED, 0),
@@ -542,6 +545,12 @@ pub(super) fn map_texture_format(
                 }
             },
         },
+        Tf::Rgb10a2Uint => (
+            glow::RGB10_A2UI,
+            glow::RGBA_INTEGER,
+            glow::UNSIGNED_INT_2_10_10_10_REV,
+        ),
+        Tf::NV12 => unreachable!(),
     };
 
     super::TextureFormatDesc {

@@ -12,6 +12,34 @@ pub struct BufferInitDescriptor<'a> {
     pub usage: super::super::BufferUsages,
 }
 
+/// Order in which TextureData is laid out in memory.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
+pub enum TextureDataOrder {
+    /// The texture is laid out densely in memory as:
+    ///
+    /// ```text
+    /// Layer0Mip0 Layer0Mip1 Layer0Mip2
+    /// Layer1Mip0 Layer1Mip1 Layer1Mip2
+    /// Layer2Mip0 Layer2Mip1 Layer2Mip2
+    /// ````
+    ///
+    /// This is the layout used by dds files.
+    ///
+    /// This was the previous behavior of [`DeviceExt::create_texture_with_data`].
+    #[default]
+    LayerMajor,
+    /// The texture is laid out densely in memory as:
+    ///
+    /// ```text
+    /// Layer0Mip0 Layer1Mip0 Layer2Mip0
+    /// Layer0Mip1 Layer1Mip1 Layer2Mip1
+    /// Layer0Mip2 Layer1Mip2 Layer2Mip2
+    /// ```
+    ///
+    /// This is the layout used by ktx and ktx2 files.
+    MipMajor,
+}
+
 /// Utility methods not meant to be in the main API.
 pub trait DeviceExt {
     /// Creates a [Buffer](super::super::Buffer) with data to initialize it.
@@ -33,6 +61,7 @@ pub trait DeviceExt {
         &self,
         queue: &super::super::Queue,
         desc: &super::super::TextureDescriptor,
+        order: TextureDataOrder,
         data: &[u8],
     ) -> super::super::Texture;
 }
@@ -72,6 +101,7 @@ impl DeviceExt for super::super::Device {
         &self,
         queue: &crate::Queue,
         desc: &crate::TextureDescriptor,
+        order: TextureDataOrder,
         data: &[u8],
     ) -> crate::Texture {
         // Implicitly add the COPY_DST usage
@@ -86,9 +116,22 @@ impl DeviceExt for super::super::Device {
         let (block_width, block_height) = desc.format.block_dimensions();
         let layer_iterations = desc.array_layer_count();
 
+        let outer_iteration;
+        let inner_iteration;
+        match order {
+            TextureDataOrder::LayerMajor => {
+                outer_iteration = layer_iterations;
+                inner_iteration = desc.mip_level_count;
+            }
+            TextureDataOrder::MipMajor => {
+                outer_iteration = desc.mip_level_count;
+                inner_iteration = layer_iterations;
+            }
+        }
+
         let mut binary_offset = 0;
-        for layer in 0..layer_iterations {
-            for mip in 0..desc.mip_level_count {
+        for layer in 0..outer_iteration {
+            for mip in 0..inner_iteration {
                 let mut mip_size = desc.mip_level_size(mip).unwrap();
                 // copying layers separately
                 if desc.dimension != wgt::TextureDimension::D3 {

@@ -1,7 +1,7 @@
+use std::mem::transmute;
+
 use pi_wgpu::{
-    Color, CommandEncoderDescriptor, DeviceDescriptor, Features, Instance, Limits, LoadOp,
-    Operations, PowerPreference, PresentMode, RenderPassColorAttachment, RenderPassDescriptor,
-    RequestAdapterOptions, SurfaceConfiguration, TextureUsages, TextureViewDescriptor,
+    Color, CommandEncoderDescriptor, DeviceDescriptor, Features, Instance, Limits, LoadOp, Operations, PowerPreference, PresentMode, RenderPassColorAttachment, RenderPassDescriptor, RequestAdapterOptions, Surface, SurfaceConfiguration, TextureUsages, TextureViewDescriptor
 };
 use winit::{
     dpi::PhysicalSize,
@@ -49,7 +49,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let instance = Instance::default();
 
-    let surface = unsafe { instance.create_surface(&window) }.unwrap();
+    let surface = instance.create_surface(&window).unwrap();
+    let surface: Surface<'static> = unsafe { transmute(surface) };
 
     let adapter = instance
         .request_adapter(&RequestAdapterOptions {
@@ -66,9 +67,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .request_device(
             &DeviceDescriptor {
                 label: None,
-                features: Features::empty(),
+                required_features: Features::empty(),
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
+                required_limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
             },
             None,
         )
@@ -86,6 +87,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         present_mode: PresentMode::Fifo,
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
+        desired_maximum_frame_latency: 2,
     };
 
     surface.configure(&device, &config);
@@ -153,10 +155,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                                     b: 0.0,
                                     a: 1.0,
                                 }),
-                                store: true,
+                                store: pi_wgpu::StoreOp::Store,
                             },
                         })],
                         depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
                     });
                 }
 

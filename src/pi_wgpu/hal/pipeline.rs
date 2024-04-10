@@ -577,12 +577,23 @@ impl Program {
             let mut v = vec![];
 
             let bg = &layout.group_infos[i].entries;
+            
 
-            for binding in info.iter() {
+            for binding in info.iter() { 
                 let index = bg
                     .iter()
                     .position(|&x| x.binding as usize == binding.binding)
-                    .unwrap();
+                    ;
+                if let None = index {
+                    let mut r = Vec::new();
+                    for x in bg.iter() {
+                        r.push(x.binding);
+                    }
+                    println!("info==========={:?}, {:?}", bg, info);
+                }
+                
+
+                let index = index.unwrap();
 
                 v.push(index);
             }

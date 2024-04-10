@@ -70,6 +70,36 @@ impl CommandEncoder {
     }
 }
 
+/// Handle to a query set.
+///
+/// It can be created with [`Device::create_query_set`].
+///
+/// Corresponds to [WebGPU `GPUQuerySet`](https://gpuweb.github.io/gpuweb/#queryset).
+#[derive(Debug)]
+pub struct QuerySet {
+
+}
+
+
+/// Describes the timestamp writes of a render pass.
+///
+/// For use with [`RenderPassDescriptor`].
+/// At least one of `beginning_of_pass_write_index` and `end_of_pass_write_index` must be `Some`.
+///
+/// Corresponds to [WebGPU `GPURenderPassTimestampWrite`](
+/// https://gpuweb.github.io/gpuweb/#dictdef-gpurenderpasstimestampwrites).
+#[derive(Clone, Debug)]
+pub struct RenderPassTimestampWrites<'a> {
+    /// The query set to write to.
+    pub query_set: &'a QuerySet,
+    /// The index of the query set at which a start timestamp of this pass is written, if any.
+    pub beginning_of_pass_write_index: Option<u32>,
+    /// The index of the query set at which an end timestamp of this pass is written, if any.
+    pub end_of_pass_write_index: Option<u32>,
+}
+#[cfg(send_sync)]
+static_assertions::assert_impl_all!(RenderPassTimestampWrites<'_>: Send, Sync);
+
 /// Describes the attachments of a render pass.
 ///
 /// For use with [`CommandEncoder::begin_render_pass`].
@@ -87,6 +117,12 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
     pub color_attachments: &'desc [Option<RenderPassColorAttachment<'tex>>],
     /// The depth and stencil attachment of the render pass, if any.
     pub depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<'tex>>,
+    /// Defines which timestamp values will be written for this pass, and where to write them to.
+    ///
+    /// Requires [`Features::TIMESTAMP_QUERY`] to be enabled.
+    pub timestamp_writes: Option<RenderPassTimestampWrites<'desc>>,
+    /// Defines where the occlusion query results will be stored for this pass.
+    pub occlusion_query_set: Option<&'tex QuerySet>,
 }
 
 /// In-progress recording of a render pass.

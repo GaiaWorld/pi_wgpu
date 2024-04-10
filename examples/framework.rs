@@ -1,3 +1,5 @@
+use std::mem::transmute;
+
 use pi_wgpu::{
     Adapter, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features,
     Instance, Limits, LoadOp, Operations, PowerPreference, PresentMode, Queue, RenderPass,
@@ -147,17 +149,19 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                                     b: 0.0,
                                     a: 1.0,
                                 }),
-                                store: true,
+                                store: pi_wgpu::StoreOp::Store,
                             },
                         })],
                         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                             view: &depth_view,
                             depth_ops: Some(Operations {
                                 load: LoadOp::Clear(1.0),
-                                store: false,
+                                store: pi_wgpu::StoreOp::Discard,
                             }),
                             stencil_ops: None,
                         }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
                     });
 
                     example.render(
@@ -226,6 +230,7 @@ fn create_depth_view(
         present_mode: PresentMode::Fifo,
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
+        desired_maximum_frame_latency: 2,
     };
 
     let surface_view_format = config.format.add_srgb_suffix();
@@ -243,7 +248,7 @@ struct Engine {
     device: Device,
     queue: Queue,
 
-    surface: Surface,
+    surface: Surface<'static>,
     config: SurfaceConfiguration,
 
     tex: Texture,
@@ -257,9 +262,10 @@ impl Engine {
 
         let instance = Instance::default();
 
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = instance.create_surface(&window).unwrap();
+        let surface = unsafe { transmute(surface) };
 
-        println!("surface = {:?}", surface);
+        // println!("surface = {:?}", surface);
 
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
@@ -276,9 +282,9 @@ impl Engine {
             .request_device(
                 &DeviceDescriptor {
                     label: None,
-                    features: Features::empty(),
+                    required_features: Features::empty(),
                     // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
+                    required_limits: Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
                 },
                 None,
             )
@@ -322,7 +328,8 @@ impl Engine {
             return;
         }
 
-        let surface = unsafe { self.instance.create_surface(&window) }.unwrap();
+        let surface = self.instance.create_surface(&window).unwrap();
+        let surface: Surface<'static> = unsafe { transmute(surface) };
         let (config, depth_view, tex) = create_depth_view(
             &self.adapter,
             &self.device,

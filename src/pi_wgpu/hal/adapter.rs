@@ -142,7 +142,7 @@ impl Adapter {
         );
 
         let texture_float_linear =
-            private_caps_fn(super::PrivateCapabilities::TEXTURE_FLOAT_LINEAR, filterable);
+            feature_fn(wgt::Features::FLOAT32_FILTERABLE, filterable);
 
         match format {
             Tf::R8Unorm => filterable_renderable,
@@ -223,6 +223,8 @@ impl Adapter {
                 block: _,
                 channel: AstcChannel::Hdr,
             } => astc_hdr_features,
+            Tf::Rgb10a2Uint => renderable,
+            Tf::NV12 => empty,
         }
     }
 

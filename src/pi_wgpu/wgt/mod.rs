@@ -14,6 +14,8 @@
  use std::hash::{Hash, Hasher};
  use std::path::PathBuf;
  use std::{num::NonZeroU32, ops::Range};
+
+pub use super::hal::InstanceFlags;
  
  pub mod assertions;
  pub mod math;
@@ -201,565 +203,637 @@
  //TODO: make robust resource access configurable
  
  bitflags::bitflags! {
-     /// Features that are not guaranteed to be supported.
-     ///
-     /// These are either part of the webgpu standard, or are extension features supported by
-     /// wgpu when targeting native.
-     ///
-     /// If you want to use a feature, you need to first verify that the adapter supports
-     /// the feature. If the adapter does not support the feature, requesting a device with it enabled
-     /// will panic.
-     ///
-     /// Corresponds to [WebGPU `GPUFeatureName`](
-     /// https://gpuweb.github.io/gpuweb/#enumdef-gpufeaturename).
-     #[repr(transparent)]
-     #[derive(Default)]
-     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-     pub struct Features: u64 {
-         //
-         // ---- Start numbering at 1 << 0 ----
-         //
-         // WebGPU features:
-         //
- 
-         // API:
- 
-         /// By default, polygon depth is clipped to 0-1 range before/during rasterization.
-         /// Anything outside of that range is rejected, and respective fragments are not touched.
-         ///
-         /// With this extension, we can disabling clipping. That allows
-         /// shadow map occluders to be rendered into a tighter depth range.
-         ///
-         /// Supported platforms:
-         /// - desktops
-         /// - some mobile chips
-         ///
-         /// This is a web and native feature.
-         const DEPTH_CLIP_CONTROL = 1 << 0;
-         /// Enables use of Timestamp Queries. These queries tell the current gpu timestamp when
-         /// all work before the query is finished. Call [`CommandEncoder::write_timestamp`],
-         /// [`RenderPassEncoder::write_timestamp`], or [`ComputePassEncoder::write_timestamp`] to
-         /// write out a timestamp.
-         ///
-         /// They must be resolved using [`CommandEncoder::resolve_query_sets`] into a buffer,
-         /// then the result must be multiplied by the timestamp period [`Queue::get_timestamp_period`]
-         /// to get the timestamp in nanoseconds. Multiple timestamps can then be diffed to get the
-         /// time for operations between them to finish.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan
-         /// - DX12
-         ///
-         /// This is currently unimplemented on Metal.
-         ///
-         /// This is a web and native feature.
-         const TIMESTAMP_QUERY = 1 << 1;
-         /// Allows non-zero value for the "first instance" in indirect draw calls.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan (mostly)
-         /// - DX12
-         /// - Metal
-         ///
-         /// This is a web and native feature.
-         const INDIRECT_FIRST_INSTANCE = 1 << 2;
- 
-         // 3..8 available
- 
-         // Shader:
- 
-         /// Allows shaders to acquire the FP16 ability
-         ///
-         /// Note: this is not supported in naga yet，only through spir-v passthrough right now.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan
-         /// - Metal
-         ///
-         /// This is a web and native feature.
-         const SHADER_F16 = 1 << 8;
- 
-         // 9..14 available
- 
-         // Texture Formats:
- 
-         // The features starting with a ? are features that might become part of the spec or
-         // at the very least we can implement as native features; since they should cover all
-         // possible formats and capabilities across backends.
-         //
-         // ? const FORMATS_TIER_1 = 1 << 14; (https://github.com/gpuweb/gpuweb/issues/3837)
-         // ? const RW_STORAGE_TEXTURE_TIER_1 = 1 << 15; (https://github.com/gpuweb/gpuweb/issues/3838)
-         // TODO const BGRA8UNORM_STORAGE = 1 << 16;
-         // ? const NORM16_FILTERABLE = 1 << 17; (https://github.com/gpuweb/gpuweb/issues/3839)
-         // ? const NORM16_RESOLVE = 1 << 18; (https://github.com/gpuweb/gpuweb/issues/3839)
-         // TODO const FLOAT32_FILTERABLE = 1 << 19;
-         // ? const FLOAT32_BLENDABLE = 1 << 20; (https://github.com/gpuweb/gpuweb/issues/3556)
-         // ? const 32BIT_FORMAT_MULTISAMPLE = 1 << 21; (https://github.com/gpuweb/gpuweb/issues/3844)
-         // ? const 32BIT_FORMAT_RESOLVE = 1 << 22; (https://github.com/gpuweb/gpuweb/issues/3844)
- 
-         /// Allows for usage of textures of format [`TextureFormat::Rg11b10Float`] as a render target
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - DX12
-         /// - Metal
-         ///
-         /// This is a web and native feature.
-         const RG11B10UFLOAT_RENDERABLE = 1 << 23;
- 
-         /// Allows for explicit creation of textures of format [`TextureFormat::Depth32FloatStencil8`]
-         ///
-         /// Supported platforms:
-         /// - Vulkan (mostly)
-         /// - DX12
-         /// - Metal
-         ///
-         /// This is a web and native feature.
-         const DEPTH32FLOAT_STENCIL8 = 1 << 24;
-         /// Enables BCn family of compressed textures. All BCn textures use 4x4 pixel blocks
-         /// with 8 or 16 bytes per block.
-         ///
-         /// Compressed textures sacrifice some quality in exchange for significantly reduced
-         /// bandwidth usage.
-         ///
-         /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for BCn formats.
-         /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
-         ///
-         /// Supported Platforms:
-         /// - desktops
-         ///
-         /// This is a web and native feature.
-         const TEXTURE_COMPRESSION_BC = 1 << 25;
-         /// Enables ETC family of compressed textures. All ETC textures use 4x4 pixel blocks.
-         /// ETC2 RGB and RGBA1 are 8 bytes per block. RTC2 RGBA8 and EAC are 16 bytes per block.
-         ///
-         /// Compressed textures sacrifice some quality in exchange for significantly reduced
-         /// bandwidth usage.
-         ///
-         /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for ETC2 formats.
-         /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan on Intel
-         /// - Mobile (some)
-         ///
-         /// This is a web and native feature.
-         const TEXTURE_COMPRESSION_ETC2 = 1 << 26;
-         /// Enables ASTC family of compressed textures. ASTC textures use pixel blocks varying from 4x4 to 12x12.
-         /// Blocks are always 16 bytes.
-         ///
-         /// Compressed textures sacrifice some quality in exchange for significantly reduced
-         /// bandwidth usage.
-         ///
-         /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for ASTC formats.
-         /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan on Intel
-         /// - Mobile (some)
-         ///
-         /// This is a web and native feature.
-         const TEXTURE_COMPRESSION_ASTC = 1 << 27;
- 
-         // ? const TEXTURE_COMPRESSION_ASTC_HDR = 1 << 28; (https://github.com/gpuweb/gpuweb/issues/3856)
- 
-         // 29..32 should be available but are for now occupied by native only texture related features
-         // TEXTURE_FORMAT_16BIT_NORM & TEXTURE_COMPRESSION_ASTC_HDR will most likely become web features as well
-         // TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES might not be necessary if we have all the texture features implemented
- 
-         //
-         // ---- Restart Numbering for Native Features ---
-         //
-         // Native Features:
-         //
- 
-         // Texture Formats:
- 
-         /// Enables normalized `16-bit` texture formats.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - DX12
-         /// - Metal
-         ///
-         /// This is a native only feature.
-         const TEXTURE_FORMAT_16BIT_NORM = 1 << 29;
-         /// Enables ASTC HDR family of compressed textures.
-         ///
-         /// Compressed textures sacrifice some quality in exchange for significantly reduced
-         /// bandwidth usage.
-         ///
-         /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for BCn formats.
-         /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
-         ///
-         /// Supported Platforms:
-         /// - Metal
-         /// - Vulkan
-         /// - OpenGL
-         ///
-         /// This is a native only feature.
-         const TEXTURE_COMPRESSION_ASTC_HDR = 1 << 30;
-         /// Enables device specific texture format features.
-         ///
-         /// See `TextureFormatFeatures` for a listing of the features in question.
-         ///
-         /// By default only texture format properties as defined by the WebGPU specification are allowed.
-         /// Enabling this feature flag extends the features of each format to the ones supported by the current device.
-         /// Note that without this flag, read/write storage access is not allowed at all.
-         ///
-         /// This extension does not enable additional formats.
-         ///
-         /// This is a native only feature.
-         const TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES = 1 << 31;
- 
-         // API:
- 
-         /// Enables use of Pipeline Statistics Queries. These queries tell the count of various operations
-         /// performed between the start and stop call. Call [`RenderPassEncoder::begin_pipeline_statistics_query`] to start
-         /// a query, then call [`RenderPassEncoder::end_pipeline_statistics_query`] to stop one.
-         ///
-         /// They must be resolved using [`CommandEncoder::resolve_query_sets`] into a buffer.
-         /// The rules on how these resolve into buffers are detailed in the documentation for [`PipelineStatisticsTypes`].
-         ///
-         /// Supported Platforms:
-         /// - Vulkan
-         /// - DX12
-         ///
-         /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/pipeline-statistics-query.md) for the web.
-         const PIPELINE_STATISTICS_QUERY = 1 << 32;
-         /// Allows for timestamp queries inside render passes.
-         ///
-         /// Implies [`Features::TIMESTAMP_QUERY`] is supported.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - DX12
-         ///
-         /// This is currently unimplemented on Metal.
-         /// When implemented, it will be supported on Metal on AMD and Intel GPUs, but not Apple GPUs.
-         ///
-         /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/timestamp-query-inside-passes.md) for the web.
-         const TIMESTAMP_QUERY_INSIDE_PASSES = 1 << 33;
-         /// Webgpu only allows the MAP_READ and MAP_WRITE buffer usage to be matched with
-         /// COPY_DST and COPY_SRC respectively. This removes this requirement.
-         ///
-         /// This is only beneficial on systems that share memory between CPU and GPU. If enabled
-         /// on a system that doesn't, this can severely hinder performance. Only use if you understand
-         /// the consequences.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - DX12
-         /// - Metal
-         ///
-         /// This is a native only feature.
-         const MAPPABLE_PRIMARY_BUFFERS = 1 << 34;
-         /// Allows the user to create uniform arrays of textures in shaders:
-         ///
-         /// ex.
-         /// - `var textures: binding_array<texture_2d<f32>, 10>` (WGSL)
-         /// - `uniform texture2D textures[10]` (GLSL)
-         ///
-         /// If [`Features::STORAGE_RESOURCE_BINDING_ARRAY`] is supported as well as this, the user
-         /// may also create uniform arrays of storage textures.
-         ///
-         /// ex.
-         /// - `var textures: array<texture_storage_2d<f32, write>, 10>` (WGSL)
-         /// - `uniform image2D textures[10]` (GLSL)
-         ///
-         /// This capability allows them to exist and to be indexed by dynamically uniform
-         /// values.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Metal (with MSL 2.0+ on macOS 10.13+)
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const TEXTURE_BINDING_ARRAY = 1 << 35;
-         /// Allows the user to create arrays of buffers in shaders:
-         ///
-         /// ex.
-         /// - `var<uniform> buffer_array: array<MyBuffer, 10>` (WGSL)
-         /// - `uniform myBuffer { ... } buffer_array[10]` (GLSL)
-         ///
-         /// This capability allows them to exist and to be indexed by dynamically uniform
-         /// values.
-         ///
-         /// If [`Features::STORAGE_RESOURCE_BINDING_ARRAY`] is supported as well as this, the user
-         /// may also create arrays of storage buffers.
-         ///
-         /// ex.
-         /// - `var<storage> buffer_array: array<MyBuffer, 10>` (WGSL)
-         /// - `buffer myBuffer { ... } buffer_array[10]` (GLSL)
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const BUFFER_BINDING_ARRAY = 1 << 36;
-         /// Allows the user to create uniform arrays of storage buffers or textures in shaders,
-         /// if resp. [`Features::BUFFER_BINDING_ARRAY`] or [`Features::TEXTURE_BINDING_ARRAY`]
-         /// is supported.
-         ///
-         /// This capability allows them to exist and to be indexed by dynamically uniform
-         /// values.
-         ///
-         /// Supported platforms:
-         /// - Metal (with MSL 2.2+ on macOS 10.13+)
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const STORAGE_RESOURCE_BINDING_ARRAY = 1 << 37;
-         /// Allows shaders to index sampled texture and storage buffer resource arrays with dynamically non-uniform values:
-         ///
-         /// ex. `texture_array[vertex_data]`
-         ///
-         /// In order to use this capability, the corresponding GLSL extension must be enabled like so:
-         ///
-         /// `#extension GL_EXT_nonuniform_qualifier : require`
-         ///
-         /// and then used either as `nonuniformEXT` qualifier in variable declaration:
-         ///
-         /// ex. `layout(location = 0) nonuniformEXT flat in int vertex_data;`
-         ///
-         /// or as `nonuniformEXT` constructor:
-         ///
-         /// ex. `texture_array[nonuniformEXT(vertex_data)]`
-         ///
-         /// WGSL and HLSL do not need any extension.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Metal (with MSL 2.0+ on macOS 10.13+)
-         /// - Vulkan 1.2+ (or VK_EXT_descriptor_indexing)'s shaderSampledImageArrayNonUniformIndexing & shaderStorageBufferArrayNonUniformIndexing feature)
-         ///
-         /// This is a native only feature.
-         const SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING = 1 << 38;
-         /// Allows shaders to index uniform buffer and storage texture resource arrays with dynamically non-uniform values:
-         ///
-         /// ex. `texture_array[vertex_data]`
-         ///
-         /// In order to use this capability, the corresponding GLSL extension must be enabled like so:
-         ///
-         /// `#extension GL_EXT_nonuniform_qualifier : require`
-         ///
-         /// and then used either as `nonuniformEXT` qualifier in variable declaration:
-         ///
-         /// ex. `layout(location = 0) nonuniformEXT flat in int vertex_data;`
-         ///
-         /// or as `nonuniformEXT` constructor:
-         ///
-         /// ex. `texture_array[nonuniformEXT(vertex_data)]`
-         ///
-         /// WGSL and HLSL do not need any extension.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Metal (with MSL 2.0+ on macOS 10.13+)
-         /// - Vulkan 1.2+ (or VK_EXT_descriptor_indexing)'s shaderUniformBufferArrayNonUniformIndexing & shaderStorageTextureArrayNonUniformIndexing feature)
-         ///
-         /// This is a native only feature.
-         const UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING = 1 << 39;
-         /// Allows the user to create bind groups continaing arrays with less bindings than the BindGroupLayout.
-         ///
-         /// This is a native only feature.
-         const PARTIALLY_BOUND_BINDING_ARRAY = 1 << 40;
-         /// Allows the user to call [`RenderPass::multi_draw_indirect`] and [`RenderPass::multi_draw_indexed_indirect`].
-         ///
-         /// Allows multiple indirect calls to be dispatched from a single buffer.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         /// - Metal (Emulated on top of `draw_indirect` and `draw_indexed_indirect`)
-         ///
-         /// This is a native only feature.
-         ///
-         /// [`RenderPass::multi_draw_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect
-         /// [`RenderPass::multi_draw_indexed_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect
-         const MULTI_DRAW_INDIRECT = 1 << 41;
-         /// Allows the user to call [`RenderPass::multi_draw_indirect_count`] and [`RenderPass::multi_draw_indexed_indirect_count`].
-         ///
-         /// This allows the use of a buffer containing the actual number of draw calls.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan 1.2+ (or VK_KHR_draw_indirect_count)
-         ///
-         /// This is a native only feature.
-         ///
-         /// [`RenderPass::multi_draw_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect_count
-         /// [`RenderPass::multi_draw_indexed_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect_count
-         const MULTI_DRAW_INDIRECT_COUNT = 1 << 42;
-         /// Allows the use of push constants: small, fast bits of memory that can be updated
-         /// inside a [`RenderPass`].
-         ///
-         /// Allows the user to call [`RenderPass::set_push_constants`], provide a non-empty array
-         /// to [`PipelineLayoutDescriptor`], and provide a non-zero limit to [`Limits::max_push_constant_size`].
-         ///
-         /// A block of push constants can be declared with `layout(push_constant) uniform Name {..}` in shaders.
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         /// - Metal
-         /// - DX11 (emulated with uniforms)
-         /// - OpenGL (emulated with uniforms)
-         ///
-         /// This is a native only feature.
-         ///
-         /// [`RenderPass`]: ../wgpu/struct.RenderPass.html
-         /// [`PipelineLayoutDescriptor`]: ../wgpu/struct.PipelineLayoutDescriptor.html
-         /// [`RenderPass::set_push_constants`]: ../wgpu/struct.RenderPass.html#method.set_push_constants
-         const PUSH_CONSTANTS = 1 << 43;
-         /// Allows the use of [`AddressMode::ClampToBorder`] with a border color
-         /// of [`SamplerBorderColor::Zero`].
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         /// - Metal
-         /// - DX11
-         /// - OpenGL
-         ///
-         /// This is a native only feature.
-         const ADDRESS_MODE_CLAMP_TO_ZERO = 1 << 44;
-         /// Allows the use of [`AddressMode::ClampToBorder`] with a border color
-         /// other than [`SamplerBorderColor::Zero`].
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         /// - Metal (macOS 10.12+ only)
-         /// - DX11
-         /// - OpenGL
-         ///
-         /// This is a native only feature.
-         const ADDRESS_MODE_CLAMP_TO_BORDER = 1 << 45;
-         /// Allows the user to set [`PolygonMode::Line`] in [`PrimitiveState::polygon_mode`]
-         ///
-         /// This allows drawing polygons/triangles as lines (wireframe) instead of filled
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         /// - Metal
-         ///
-         /// This is a native only feature.
-         const POLYGON_MODE_LINE = 1 << 46;
-         /// Allows the user to set [`PolygonMode::Point`] in [`PrimitiveState::polygon_mode`]
-         ///
-         /// This allows only drawing the vertices of polygons/triangles instead of filled
-         ///
-         /// Supported platforms:
-         /// - DX12
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const POLYGON_MODE_POINT = 1 << 47;
-         /// Allows the user to set a overestimation-conservative-rasterization in [`PrimitiveState::conservative`]
-         ///
-         /// Processing of degenerate triangles/lines is hardware specific.
-         /// Only triangles are supported.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const CONSERVATIVE_RASTERIZATION = 1 << 48;
-         /// Enables bindings of writable storage buffers and textures visible to vertex shaders.
-         ///
-         /// Note: some (tiled-based) platforms do not support vertex shaders with any side-effects.
-         ///
-         /// Supported Platforms:
-         /// - All
-         ///
-         /// This is a native only feature.
-         const VERTEX_WRITABLE_STORAGE = 1 << 49;
-         /// Enables clear to zero for textures.
-         ///
-         /// Supported platforms:
-         /// - All
-         ///
-         /// This is a native only feature.
-         const CLEAR_TEXTURE = 1 << 50;
-         /// Enables creating shader modules from SPIR-V binary data (unsafe).
-         ///
-         /// SPIR-V data is not parsed or interpreted in any way; you can use
-         /// [`wgpu::make_spirv_raw!`] to check for alignment and magic number when converting from
-         /// raw bytes.
-         ///
-         /// Supported platforms:
-         /// - Vulkan, in case shader's requested capabilities and extensions agree with
-         /// Vulkan implementation.
-         ///
-         /// This is a native only feature.
-         const SPIRV_SHADER_PASSTHROUGH = 1 << 51;
-         /// Enables multiview render passes and `builtin(view_index)` in vertex shaders.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - OpenGL (web only)
-         ///
-         /// This is a native only feature.
-         const MULTIVIEW = 1 << 52;
-         /// Enables using 64-bit types for vertex attributes.
-         ///
-         /// Requires SHADER_FLOAT64.
-         ///
-         /// Supported Platforms: N/A
-         ///
-         /// This is a native only feature.
-         const VERTEX_ATTRIBUTE_64BIT = 1 << 53;
- 
-         // 54..59 available
- 
-         // Shader:
- 
-         /// Enables 64-bit floating point types in SPIR-V shaders.
-         ///
-         /// Note: even when supported by GPU hardware, 64-bit floating point operations are
-         /// frequently between 16 and 64 _times_ slower than equivalent operations on 32-bit floats.
-         ///
-         /// Supported Platforms:
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const SHADER_F64 = 1 << 59;
-         /// Allows shaders to use i16. Not currently supported in naga, only available through `spirv-passthrough`.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         ///
-         /// This is a native only feature.
-         const SHADER_I16 = 1 << 60;
-         /// Enables `builtin(primitive_index)` in fragment shaders.
-         ///
-         /// Note: enables geometry processing for pipelines using the builtin.
-         /// This may come with a significant performance impact on some hardware.
-         /// Other pipelines are not affected.
-         ///
-         /// Supported platforms:
-         /// - Vulkan
-         /// - DX11 (feature level 10+)
-         /// - DX12
-         /// - Metal (some)
-         /// - OpenGL (some)
-         ///
-         /// This is a native only feature.
-         const SHADER_PRIMITIVE_INDEX = 1 << 61;
-         /// Allows shaders to use the `early_depth_test` attribute.
-         ///
-         /// Supported platforms:
-         /// - GLES 3.1+
-         ///
-         /// This is a native only feature.
-         const SHADER_EARLY_DEPTH_TEST = 1 << 62;
- 
-         // 62..64 available
-     }
+    /// Features that are not guaranteed to be supported.
+    ///
+    /// These are either part of the webgpu standard, or are extension features supported by
+    /// wgpu when targeting native.
+    ///
+    /// If you want to use a feature, you need to first verify that the adapter supports
+    /// the feature. If the adapter does not support the feature, requesting a device with it enabled
+    /// will panic.
+    ///
+    /// Corresponds to [WebGPU `GPUFeatureName`](
+    /// https://gpuweb.github.io/gpuweb/#enumdef-gpufeaturename).
+    #[repr(transparent)]
+    #[derive(Default)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct Features: u64 {
+        //
+        // ---- Start numbering at 1 << 0 ----
+        //
+        // WebGPU features:
+        //
+
+        // API:
+
+        /// By default, polygon depth is clipped to 0-1 range before/during rasterization.
+        /// Anything outside of that range is rejected, and respective fragments are not touched.
+        ///
+        /// With this extension, we can disabling clipping. That allows
+        /// shadow map occluders to be rendered into a tighter depth range.
+        ///
+        /// Supported platforms:
+        /// - desktops
+        /// - some mobile chips
+        ///
+        /// This is a web and native feature.
+        const DEPTH_CLIP_CONTROL = 1 << 0;
+        /// Enables use of Timestamp Queries. These queries tell the current gpu timestamp when
+        /// all work before the query is finished.
+        ///
+        /// This feature allows the use of
+        /// - [`CommandEncoder::write_timestamp`]
+        /// - [`RenderPassDescriptor::timestamp_writes`]
+        /// - [`ComputePassDescriptor::timestamp_writes`]
+        /// to write out timestamps.
+        /// For timestamps within passes refer to [`Features::TIMESTAMP_QUERY_INSIDE_PASSES`]
+        ///
+        /// They must be resolved using [`CommandEncoder::resolve_query_sets`] into a buffer,
+        /// then the result must be multiplied by the timestamp period [`Queue::get_timestamp_period`]
+        /// to get the timestamp in nanoseconds. Multiple timestamps can then be diffed to get the
+        /// time for operations between them to finish.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a web and native feature.
+        const TIMESTAMP_QUERY = 1 << 1;
+        /// Allows non-zero value for the `first_instance` member in indirect draw calls.
+        ///
+        /// If this feature is not enabled, and the `first_instance` member is non-zero, the behavior may be:
+        /// - The draw call is ignored.
+        /// - The draw call is executed as if the `first_instance` is zero.
+        /// - The draw call is executed with the correct `first_instance` value.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan (mostly)
+        /// - DX12
+        /// - Metal on Apple3+ or Mac1+
+        /// - OpenGL (Desktop 4.2+ with ARB_shader_draw_parameters only)
+        ///
+        /// Not Supported:
+        /// - OpenGL ES / WebGL
+        ///
+        /// This is a web and native feature.
+        const INDIRECT_FIRST_INSTANCE = 1 << 2;
+
+        // 3..8 available
+
+        // Shader:
+
+        /// Allows shaders to acquire the FP16 ability
+        ///
+        /// Note: this is not supported in `naga` yet，only through `spirv-passthrough` right now.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - Metal
+        ///
+        /// This is a web and native feature.
+        const SHADER_F16 = 1 << 8;
+
+        // 9..14 available
+
+        // Texture Formats:
+
+        // The features starting with a ? are features that might become part of the spec or
+        // at the very least we can implement as native features; since they should cover all
+        // possible formats and capabilities across backends.
+        //
+        // ? const FORMATS_TIER_1 = 1 << 14; (https://github.com/gpuweb/gpuweb/issues/3837)
+        // ? const RW_STORAGE_TEXTURE_TIER_1 = 1 << 15; (https://github.com/gpuweb/gpuweb/issues/3838)
+
+        /// Allows the [`wgpu::TextureUsages::STORAGE_BINDING`] usage on textures with format [`TextureFormat::Bgra8unorm`]
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a web and native feature.
+        const BGRA8UNORM_STORAGE = 1 << 16;
+
+        // ? const NORM16_FILTERABLE = 1 << 17; (https://github.com/gpuweb/gpuweb/issues/3839)
+        // ? const NORM16_RESOLVE = 1 << 18; (https://github.com/gpuweb/gpuweb/issues/3839)
+
+        /// Allows textures with formats "r32float", "rg32float", and "rgba32float" to be filterable.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan (mainly on Desktop GPUs)
+        /// - DX12
+        /// - Metal on macOS or Apple9+ GPUs, optional on iOS/iPadOS with Apple7/8 GPUs
+        /// - GL with one of `GL_ARB_color_buffer_float`/`GL_EXT_color_buffer_float`/`OES_texture_float_linear`
+        ///
+        /// This is a web and native feature.
+        const FLOAT32_FILTERABLE = 1 << 19;
+
+        // ? const FLOAT32_BLENDABLE = 1 << 20; (https://github.com/gpuweb/gpuweb/issues/3556)
+        // ? const 32BIT_FORMAT_MULTISAMPLE = 1 << 21; (https://github.com/gpuweb/gpuweb/issues/3844)
+        // ? const 32BIT_FORMAT_RESOLVE = 1 << 22; (https://github.com/gpuweb/gpuweb/issues/3844)
+
+        /// Allows for usage of textures of format [`TextureFormat::Rg11b10Float`] as a render target
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a web and native feature.
+        const RG11B10UFLOAT_RENDERABLE = 1 << 23;
+
+        /// Allows for explicit creation of textures of format [`TextureFormat::Depth32FloatStencil8`]
+        ///
+        /// Supported platforms:
+        /// - Vulkan (mostly)
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a web and native feature.
+        const DEPTH32FLOAT_STENCIL8 = 1 << 24;
+        /// Enables BCn family of compressed textures. All BCn textures use 4x4 pixel blocks
+        /// with 8 or 16 bytes per block.
+        ///
+        /// Compressed textures sacrifice some quality in exchange for significantly reduced
+        /// bandwidth usage.
+        ///
+        /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for BCn formats.
+        /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
+        ///
+        /// Supported Platforms:
+        /// - desktops
+        ///
+        /// This is a web and native feature.
+        const TEXTURE_COMPRESSION_BC = 1 << 25;
+        /// Enables ETC family of compressed textures. All ETC textures use 4x4 pixel blocks.
+        /// ETC2 RGB and RGBA1 are 8 bytes per block. RTC2 RGBA8 and EAC are 16 bytes per block.
+        ///
+        /// Compressed textures sacrifice some quality in exchange for significantly reduced
+        /// bandwidth usage.
+        ///
+        /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for ETC2 formats.
+        /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan on Intel
+        /// - Mobile (some)
+        ///
+        /// This is a web and native feature.
+        const TEXTURE_COMPRESSION_ETC2 = 1 << 26;
+        /// Enables ASTC family of compressed textures. ASTC textures use pixel blocks varying from 4x4 to 12x12.
+        /// Blocks are always 16 bytes.
+        ///
+        /// Compressed textures sacrifice some quality in exchange for significantly reduced
+        /// bandwidth usage.
+        ///
+        /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for ASTC formats with Unorm/UnormSrgb channel type.
+        /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan on Intel
+        /// - Mobile (some)
+        ///
+        /// This is a web and native feature.
+        const TEXTURE_COMPRESSION_ASTC = 1 << 27;
+
+        // ? const TEXTURE_COMPRESSION_ASTC_HDR = 1 << 28; (https://github.com/gpuweb/gpuweb/issues/3856)
+
+        // 29..32 should be available but are for now occupied by native only texture related features
+        // TEXTURE_FORMAT_16BIT_NORM & TEXTURE_COMPRESSION_ASTC_HDR will most likely become web features as well
+        // TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES might not be necessary if we have all the texture features implemented
+
+        //
+        // ---- Restart Numbering for Native Features ---
+        //
+        // Native Features:
+        //
+
+        // Texture Formats:
+
+        /// Enables normalized `16-bit` texture formats.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const TEXTURE_FORMAT_16BIT_NORM = 1 << 29;
+        /// Enables ASTC HDR family of compressed textures.
+        ///
+        /// Compressed textures sacrifice some quality in exchange for significantly reduced
+        /// bandwidth usage.
+        ///
+        /// Support for this feature guarantees availability of [`TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING`] for ASTC formats with the HDR channel type.
+        /// [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] may enable additional usages.
+        ///
+        /// Supported Platforms:
+        /// - Metal
+        /// - Vulkan
+        /// - OpenGL
+        ///
+        /// This is a native only feature.
+        const TEXTURE_COMPRESSION_ASTC_HDR = 1 << 30;
+        /// Enables device specific texture format features.
+        ///
+        /// See `TextureFormatFeatures` for a listing of the features in question.
+        ///
+        /// By default only texture format properties as defined by the WebGPU specification are allowed.
+        /// Enabling this feature flag extends the features of each format to the ones supported by the current device.
+        /// Note that without this flag, read/write storage access is not allowed at all.
+        ///
+        /// This extension does not enable additional formats.
+        ///
+        /// This is a native only feature.
+        const TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES = 1 << 31;
+
+        // API:
+
+        /// Enables use of Pipeline Statistics Queries. These queries tell the count of various operations
+        /// performed between the start and stop call. Call [`RenderPassEncoder::begin_pipeline_statistics_query`] to start
+        /// a query, then call [`RenderPassEncoder::end_pipeline_statistics_query`] to stop one.
+        ///
+        /// They must be resolved using [`CommandEncoder::resolve_query_sets`] into a buffer.
+        /// The rules on how these resolve into buffers are detailed in the documentation for [`PipelineStatisticsTypes`].
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - DX12
+        ///
+        /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/pipeline-statistics-query.md) for the web.
+        const PIPELINE_STATISTICS_QUERY = 1 << 32;
+        /// Allows for timestamp queries inside render passes.
+        ///
+        /// Implies [`Features::TIMESTAMP_QUERY`] is supported.
+        ///
+        /// Additionally allows for timestamp queries to be used inside render & compute passes using:
+        /// - [`RenderPassEncoder::write_timestamp`]
+        /// - [`ComputePassEncoder::write_timestamp`]
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal (AMD & Intel, not Apple GPUs)
+        ///
+        /// This is generally not available on tile-based rasterization GPUs.
+        ///
+        /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/timestamp-query-inside-passes.md) for the web.
+        const TIMESTAMP_QUERY_INSIDE_PASSES = 1 << 33;
+        /// Webgpu only allows the MAP_READ and MAP_WRITE buffer usage to be matched with
+        /// COPY_DST and COPY_SRC respectively. This removes this requirement.
+        ///
+        /// This is only beneficial on systems that share memory between CPU and GPU. If enabled
+        /// on a system that doesn't, this can severely hinder performance. Only use if you understand
+        /// the consequences.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const MAPPABLE_PRIMARY_BUFFERS = 1 << 34;
+        /// Allows the user to create uniform arrays of textures in shaders:
+        ///
+        /// ex.
+        /// - `var textures: binding_array<texture_2d<f32>, 10>` (WGSL)
+        /// - `uniform texture2D textures[10]` (GLSL)
+        ///
+        /// If [`Features::STORAGE_RESOURCE_BINDING_ARRAY`] is supported as well as this, the user
+        /// may also create uniform arrays of storage textures.
+        ///
+        /// ex.
+        /// - `var textures: array<texture_storage_2d<f32, write>, 10>` (WGSL)
+        /// - `uniform image2D textures[10]` (GLSL)
+        ///
+        /// This capability allows them to exist and to be indexed by dynamically uniform
+        /// values.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Metal (with MSL 2.0+ on macOS 10.13+)
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const TEXTURE_BINDING_ARRAY = 1 << 35;
+        /// Allows the user to create arrays of buffers in shaders:
+        ///
+        /// ex.
+        /// - `var<uniform> buffer_array: array<MyBuffer, 10>` (WGSL)
+        /// - `uniform myBuffer { ... } buffer_array[10]` (GLSL)
+        ///
+        /// This capability allows them to exist and to be indexed by dynamically uniform
+        /// values.
+        ///
+        /// If [`Features::STORAGE_RESOURCE_BINDING_ARRAY`] is supported as well as this, the user
+        /// may also create arrays of storage buffers.
+        ///
+        /// ex.
+        /// - `var<storage> buffer_array: array<MyBuffer, 10>` (WGSL)
+        /// - `buffer myBuffer { ... } buffer_array[10]` (GLSL)
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const BUFFER_BINDING_ARRAY = 1 << 36;
+        /// Allows the user to create uniform arrays of storage buffers or textures in shaders,
+        /// if resp. [`Features::BUFFER_BINDING_ARRAY`] or [`Features::TEXTURE_BINDING_ARRAY`]
+        /// is supported.
+        ///
+        /// This capability allows them to exist and to be indexed by dynamically uniform
+        /// values.
+        ///
+        /// Supported platforms:
+        /// - Metal (with MSL 2.2+ on macOS 10.13+)
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const STORAGE_RESOURCE_BINDING_ARRAY = 1 << 37;
+        /// Allows shaders to index sampled texture and storage buffer resource arrays with dynamically non-uniform values:
+        ///
+        /// ex. `texture_array[vertex_data]`
+        ///
+        /// In order to use this capability, the corresponding GLSL extension must be enabled like so:
+        ///
+        /// `#extension GL_EXT_nonuniform_qualifier : require`
+        ///
+        /// and then used either as `nonuniformEXT` qualifier in variable declaration:
+        ///
+        /// ex. `layout(location = 0) nonuniformEXT flat in int vertex_data;`
+        ///
+        /// or as `nonuniformEXT` constructor:
+        ///
+        /// ex. `texture_array[nonuniformEXT(vertex_data)]`
+        ///
+        /// WGSL and HLSL do not need any extension.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Metal (with MSL 2.0+ on macOS 10.13+)
+        /// - Vulkan 1.2+ (or VK_EXT_descriptor_indexing)'s shaderSampledImageArrayNonUniformIndexing & shaderStorageBufferArrayNonUniformIndexing feature)
+        ///
+        /// This is a native only feature.
+        const SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING = 1 << 38;
+        /// Allows shaders to index uniform buffer and storage texture resource arrays with dynamically non-uniform values:
+        ///
+        /// ex. `texture_array[vertex_data]`
+        ///
+        /// In order to use this capability, the corresponding GLSL extension must be enabled like so:
+        ///
+        /// `#extension GL_EXT_nonuniform_qualifier : require`
+        ///
+        /// and then used either as `nonuniformEXT` qualifier in variable declaration:
+        ///
+        /// ex. `layout(location = 0) nonuniformEXT flat in int vertex_data;`
+        ///
+        /// or as `nonuniformEXT` constructor:
+        ///
+        /// ex. `texture_array[nonuniformEXT(vertex_data)]`
+        ///
+        /// WGSL and HLSL do not need any extension.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Metal (with MSL 2.0+ on macOS 10.13+)
+        /// - Vulkan 1.2+ (or VK_EXT_descriptor_indexing)'s shaderUniformBufferArrayNonUniformIndexing & shaderStorageTextureArrayNonUniformIndexing feature)
+        ///
+        /// This is a native only feature.
+        const UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING = 1 << 39;
+        /// Allows the user to create bind groups containing arrays with less bindings than the BindGroupLayout.
+        ///
+        /// This is a native only feature.
+        const PARTIALLY_BOUND_BINDING_ARRAY = 1 << 40;
+        /// Allows the user to call [`RenderPass::multi_draw_indirect`] and [`RenderPass::multi_draw_indexed_indirect`].
+        ///
+        /// Allows multiple indirect calls to be dispatched from a single buffer.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal on Apple3+ or Mac1+ (Emulated on top of `draw_indirect` and `draw_indexed_indirect`)
+        ///
+        /// This is a native only feature.
+        ///
+        /// [`RenderPass::multi_draw_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect
+        /// [`RenderPass::multi_draw_indexed_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect
+        const MULTI_DRAW_INDIRECT = 1 << 41;
+        /// Allows the user to call [`RenderPass::multi_draw_indirect_count`] and [`RenderPass::multi_draw_indexed_indirect_count`].
+        ///
+        /// This allows the use of a buffer containing the actual number of draw calls.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan 1.2+ (or VK_KHR_draw_indirect_count)
+        ///
+        /// This is a native only feature.
+        ///
+        /// [`RenderPass::multi_draw_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect_count
+        /// [`RenderPass::multi_draw_indexed_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect_count
+        const MULTI_DRAW_INDIRECT_COUNT = 1 << 42;
+        /// Allows the use of push constants: small, fast bits of memory that can be updated
+        /// inside a [`RenderPass`].
+        ///
+        /// Allows the user to call [`RenderPass::set_push_constants`], provide a non-empty array
+        /// to [`PipelineLayoutDescriptor`], and provide a non-zero limit to [`Limits::max_push_constant_size`].
+        ///
+        /// A block of push constants can be declared with `layout(push_constant) uniform Name {..}` in shaders.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal
+        /// - OpenGL (emulated with uniforms)
+        ///
+        /// This is a native only feature.
+        ///
+        /// [`RenderPass`]: ../wgpu/struct.RenderPass.html
+        /// [`PipelineLayoutDescriptor`]: ../wgpu/struct.PipelineLayoutDescriptor.html
+        /// [`RenderPass::set_push_constants`]: ../wgpu/struct.RenderPass.html#method.set_push_constants
+        const PUSH_CONSTANTS = 1 << 43;
+        /// Allows the use of [`AddressMode::ClampToBorder`] with a border color
+        /// of [`SamplerBorderColor::Zero`].
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal
+        /// - OpenGL
+        ///
+        /// This is a native only feature.
+        const ADDRESS_MODE_CLAMP_TO_ZERO = 1 << 44;
+        /// Allows the use of [`AddressMode::ClampToBorder`] with a border color
+        /// other than [`SamplerBorderColor::Zero`].
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal (macOS 10.12+ only)
+        /// - OpenGL
+        ///
+        /// This is a native only feature.
+        const ADDRESS_MODE_CLAMP_TO_BORDER = 1 << 45;
+        /// Allows the user to set [`PolygonMode::Line`] in [`PrimitiveState::polygon_mode`]
+        ///
+        /// This allows drawing polygons/triangles as lines (wireframe) instead of filled
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const POLYGON_MODE_LINE = 1 << 46;
+        /// Allows the user to set [`PolygonMode::Point`] in [`PrimitiveState::polygon_mode`]
+        ///
+        /// This allows only drawing the vertices of polygons/triangles instead of filled
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const POLYGON_MODE_POINT = 1 << 47;
+        /// Allows the user to set a overestimation-conservative-rasterization in [`PrimitiveState::conservative`]
+        ///
+        /// Processing of degenerate triangles/lines is hardware specific.
+        /// Only triangles are supported.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const CONSERVATIVE_RASTERIZATION = 1 << 48;
+        /// Enables bindings of writable storage buffers and textures visible to vertex shaders.
+        ///
+        /// Note: some (tiled-based) platforms do not support vertex shaders with any side-effects.
+        ///
+        /// Supported Platforms:
+        /// - All
+        ///
+        /// This is a native only feature.
+        const VERTEX_WRITABLE_STORAGE = 1 << 49;
+        /// Enables clear to zero for textures.
+        ///
+        /// Supported platforms:
+        /// - All
+        ///
+        /// This is a native only feature.
+        const CLEAR_TEXTURE = 1 << 50;
+        /// Enables creating shader modules from SPIR-V binary data (unsafe).
+        ///
+        /// SPIR-V data is not parsed or interpreted in any way; you can use
+        /// [`wgpu::make_spirv_raw!`] to check for alignment and magic number when converting from
+        /// raw bytes.
+        ///
+        /// Supported platforms:
+        /// - Vulkan, in case shader's requested capabilities and extensions agree with
+        /// Vulkan implementation.
+        ///
+        /// This is a native only feature.
+        const SPIRV_SHADER_PASSTHROUGH = 1 << 51;
+        /// Enables multiview render passes and `builtin(view_index)` in vertex shaders.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - OpenGL (web only)
+        ///
+        /// This is a native only feature.
+        const MULTIVIEW = 1 << 52;
+        /// Enables using 64-bit types for vertex attributes.
+        ///
+        /// Requires SHADER_FLOAT64.
+        ///
+        /// Supported Platforms: N/A
+        ///
+        /// This is a native only feature.
+        const VERTEX_ATTRIBUTE_64BIT = 1 << 53;
+        /// Allows vertex shaders to have outputs which are not consumed
+        /// by the fragment shader.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - Metal
+        /// - OpenGL
+        const SHADER_UNUSED_VERTEX_OUTPUT = 1 << 54;
+        /// Allows for creation of textures of format [`TextureFormat::NV12`]
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const TEXTURE_FORMAT_NV12 = 1 << 55;
+        /// Allows for the creation of ray-tracing acceleration structures.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        ///
+        /// This is a native-only feature.
+        const RAY_TRACING_ACCELERATION_STRUCTURE = 1 << 56;
+
+        // 57 available
+
+        // Shader:
+
+        /// Allows for the creation of ray-tracing queries within shaders.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        ///
+        /// This is a native-only feature.
+        const RAY_QUERY = 1 << 58;
+        /// Enables 64-bit floating point types in SPIR-V shaders.
+        ///
+        /// Note: even when supported by GPU hardware, 64-bit floating point operations are
+        /// frequently between 16 and 64 _times_ slower than equivalent operations on 32-bit floats.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const SHADER_F64 = 1 << 59;
+        /// Allows shaders to use i16. Not currently supported in `naga`, only available through `spirv-passthrough`.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        ///
+        /// This is a native only feature.
+        const SHADER_I16 = 1 << 60;
+        /// Enables `builtin(primitive_index)` in fragment shaders.
+        ///
+        /// Note: enables geometry processing for pipelines using the builtin.
+        /// This may come with a significant performance impact on some hardware.
+        /// Other pipelines are not affected.
+        ///
+        /// Supported platforms:
+        /// - Vulkan
+        /// - DX12
+        /// - Metal (some)
+        /// - OpenGL (some)
+        ///
+        /// This is a native only feature.
+        const SHADER_PRIMITIVE_INDEX = 1 << 61;
+        /// Allows shaders to use the `early_depth_test` attribute.
+        ///
+        /// Supported platforms:
+        /// - GLES 3.1+
+        ///
+        /// This is a native only feature.
+        const SHADER_EARLY_DEPTH_TEST = 1 << 62;
+        /// Allows two outputs from a shader to be used for blending.
+        /// Note that dual-source blending doesn't support multiple render targets.
+        ///
+        /// For more info see the OpenGL ES extension GL_EXT_blend_func_extended.
+        ///
+        /// Supported platforms:
+        /// - OpenGL ES (with GL_EXT_blend_func_extended)
+        /// - Metal (with MSL 1.2+)
+        /// - Vulkan (with dualSrcBlend)
+        /// - DX12
+        const DUAL_SOURCE_BLENDING = 1 << 63;
+    }
  }
  
  impl_bitflags!(Features);
@@ -809,176 +883,184 @@
  ///
  /// [`downlevel_defaults()`]: Limits::downlevel_defaults
  #[repr(C)]
- #[derive(Clone, Debug, PartialEq, Eq, Hash)]
- #[cfg_attr(feature = "trace", derive(Serialize))]
- #[cfg_attr(feature = "replay", derive(Deserialize))]
- #[cfg_attr(feature = "serde", serde(rename_all = "camelCase", default))]
- pub struct Limits {
-     /// Maximum allowed value for the `size.width` of a texture created with `TextureDimension::D1`.
-     /// Defaults to 8192. Higher is "better".
-     #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension1D"))]
-     pub max_texture_dimension_1d: u32,
-     /// Maximum allowed value for the `size.width` and `size.height` of a texture created with `TextureDimension::D2`.
-     /// Defaults to 8192. Higher is "better".
-     #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension2D"))]
-     pub max_texture_dimension_2d: u32,
-     /// Maximum allowed value for the `size.width`, `size.height`, and `size.depth_or_array_layers`
-     /// of a texture created with `TextureDimension::D3`.
-     /// Defaults to 2048. Higher is "better".
-     #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension3D"))]
-     pub max_texture_dimension_3d: u32,
-     /// Maximum allowed value for the `size.depth_or_array_layers` of a texture created with `TextureDimension::D2`.
-     /// Defaults to 256. Higher is "better".
-     pub max_texture_array_layers: u32,
-     /// Amount of bind groups that can be attached to a pipeline at the same time. Defaults to 4. Higher is "better".
-     pub max_bind_groups: u32,
-     /// Maximum binding index allowed in `create_bind_group_layout`. Defaults to 640.
-     pub max_bindings_per_bind_group: u32,
-     /// Amount of uniform buffer bindings that can be dynamic in a single pipeline. Defaults to 8. Higher is "better".
-     pub max_dynamic_uniform_buffers_per_pipeline_layout: u32,
-     /// Amount of storage buffer bindings that can be dynamic in a single pipeline. Defaults to 4. Higher is "better".
-     pub max_dynamic_storage_buffers_per_pipeline_layout: u32,
-     /// Amount of sampled textures visible in a single shader stage. Defaults to 16. Higher is "better".
-     pub max_sampled_textures_per_shader_stage: u32,
-     /// Amount of samplers visible in a single shader stage. Defaults to 16. Higher is "better".
-     pub max_samplers_per_shader_stage: u32,
-     /// Amount of storage buffers visible in a single shader stage. Defaults to 8. Higher is "better".
-     pub max_storage_buffers_per_shader_stage: u32,
-     /// Amount of storage textures visible in a single shader stage. Defaults to 4. Higher is "better".
-     pub max_storage_textures_per_shader_stage: u32,
-     /// Amount of uniform buffers visible in a single shader stage. Defaults to 12. Higher is "better".
-     pub max_uniform_buffers_per_shader_stage: u32,
-     /// Maximum size in bytes of a binding to a uniform buffer. Defaults to 64 KB. Higher is "better".
-     pub max_uniform_buffer_binding_size: u32,
-     /// Maximum size in bytes of a binding to a storage buffer. Defaults to 128 MB. Higher is "better".
-     pub max_storage_buffer_binding_size: u32,
-     /// Maximum length of `VertexState::buffers` when creating a `RenderPipeline`.
-     /// Defaults to 8. Higher is "better".
-     pub max_vertex_buffers: u32,
-     /// A limit above which buffer allocations are guaranteed to fail.
-     ///
-     /// Buffer allocations below the maximum buffer size may not succeed depending on available memory,
-     /// fragmentation and other factors.
-     pub max_buffer_size: u64,
-     /// Maximum length of `VertexBufferLayout::attributes`, summed over all `VertexState::buffers`,
-     /// when creating a `RenderPipeline`.
-     /// Defaults to 16. Higher is "better".
-     pub max_vertex_attributes: u32,
-     /// Maximum value for `VertexBufferLayout::array_stride` when creating a `RenderPipeline`.
-     /// Defaults to 2048. Higher is "better".
-     pub max_vertex_buffer_array_stride: u32,
-     /// Required `BufferBindingType::Uniform` alignment for `BufferBinding::offset`
-     /// when creating a `BindGroup`, or for `set_bind_group` `dynamicOffsets`.
-     /// Defaults to 256. Lower is "better".
-     pub min_uniform_buffer_offset_alignment: u32,
-     /// Required `BufferBindingType::Storage` alignment for `BufferBinding::offset`
-     /// when creating a `BindGroup`, or for `set_bind_group` `dynamicOffsets`.
-     /// Defaults to 256. Lower is "better".
-     pub min_storage_buffer_offset_alignment: u32,
-     /// Maximum allowed number of components (scalars) of input or output locations for
-     /// inter-stage communication (vertex outputs to fragment inputs). Defaults to 60.
-     pub max_inter_stage_shader_components: u32,
-     /// Maximum number of bytes used for workgroup memory in a compute entry point. Defaults to
-     /// 16352.
-     pub max_compute_workgroup_storage_size: u32,
-     /// Maximum value of the product of the `workgroup_size` dimensions for a compute entry-point.
-     /// Defaults to 256.
-     pub max_compute_invocations_per_workgroup: u32,
-     /// The maximum value of the workgroup_size X dimension for a compute stage `ShaderModule` entry-point.
-     /// Defaults to 256.
-     pub max_compute_workgroup_size_x: u32,
-     /// The maximum value of the workgroup_size Y dimension for a compute stage `ShaderModule` entry-point.
-     /// Defaults to 256.
-     pub max_compute_workgroup_size_y: u32,
-     /// The maximum value of the workgroup_size Z dimension for a compute stage `ShaderModule` entry-point.
-     /// Defaults to 64.
-     pub max_compute_workgroup_size_z: u32,
-     /// The maximum value for each dimension of a `ComputePass::dispatch(x, y, z)` operation.
-     /// Defaults to 65535.
-     pub max_compute_workgroups_per_dimension: u32,
-     /// Amount of storage available for push constants in bytes. Defaults to 0. Higher is "better".
-     /// Requesting more than 0 during device creation requires [`Features::PUSH_CONSTANTS`] to be enabled.
-     ///
-     /// Expect the size to be:
-     /// - Vulkan: 128-256 bytes
-     /// - DX12: 256 bytes
-     /// - Metal: 4096 bytes
-     /// - DX11 & OpenGL don't natively support push constants, and are emulated with uniforms,
-     ///   so this number is less useful but likely 256.
-     pub max_push_constant_size: u32,
- }
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", default))]
+pub struct Limits {
+    /// Maximum allowed value for the `size.width` of a texture created with `TextureDimension::D1`.
+    /// Defaults to 8192. Higher is "better".
+    #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension1D"))]
+    pub max_texture_dimension_1d: u32,
+    /// Maximum allowed value for the `size.width` and `size.height` of a texture created with `TextureDimension::D2`.
+    /// Defaults to 8192. Higher is "better".
+    #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension2D"))]
+    pub max_texture_dimension_2d: u32,
+    /// Maximum allowed value for the `size.width`, `size.height`, and `size.depth_or_array_layers`
+    /// of a texture created with `TextureDimension::D3`.
+    /// Defaults to 2048. Higher is "better".
+    #[cfg_attr(feature = "serde", serde(rename = "maxTextureDimension3D"))]
+    pub max_texture_dimension_3d: u32,
+    /// Maximum allowed value for the `size.depth_or_array_layers` of a texture created with `TextureDimension::D2`.
+    /// Defaults to 256. Higher is "better".
+    pub max_texture_array_layers: u32,
+    /// Amount of bind groups that can be attached to a pipeline at the same time. Defaults to 4. Higher is "better".
+    pub max_bind_groups: u32,
+    /// Maximum binding index allowed in `create_bind_group_layout`. Defaults to 1000. Higher is "better".
+    pub max_bindings_per_bind_group: u32,
+    /// Amount of uniform buffer bindings that can be dynamic in a single pipeline. Defaults to 8. Higher is "better".
+    pub max_dynamic_uniform_buffers_per_pipeline_layout: u32,
+    /// Amount of storage buffer bindings that can be dynamic in a single pipeline. Defaults to 4. Higher is "better".
+    pub max_dynamic_storage_buffers_per_pipeline_layout: u32,
+    /// Amount of sampled textures visible in a single shader stage. Defaults to 16. Higher is "better".
+    pub max_sampled_textures_per_shader_stage: u32,
+    /// Amount of samplers visible in a single shader stage. Defaults to 16. Higher is "better".
+    pub max_samplers_per_shader_stage: u32,
+    /// Amount of storage buffers visible in a single shader stage. Defaults to 8. Higher is "better".
+    pub max_storage_buffers_per_shader_stage: u32,
+    /// Amount of storage textures visible in a single shader stage. Defaults to 4. Higher is "better".
+    pub max_storage_textures_per_shader_stage: u32,
+    /// Amount of uniform buffers visible in a single shader stage. Defaults to 12. Higher is "better".
+    pub max_uniform_buffers_per_shader_stage: u32,
+    /// Maximum size in bytes of a binding to a uniform buffer. Defaults to 64 KiB. Higher is "better".
+    pub max_uniform_buffer_binding_size: u32,
+    /// Maximum size in bytes of a binding to a storage buffer. Defaults to 128 MiB. Higher is "better".
+    pub max_storage_buffer_binding_size: u32,
+    /// Maximum length of `VertexState::buffers` when creating a `RenderPipeline`.
+    /// Defaults to 8. Higher is "better".
+    pub max_vertex_buffers: u32,
+    /// A limit above which buffer allocations are guaranteed to fail.
+    /// Defaults to 256 MiB. Higher is "better".
+    ///
+    /// Buffer allocations below the maximum buffer size may not succeed depending on available memory,
+    /// fragmentation and other factors.
+    pub max_buffer_size: u64,
+    /// Maximum length of `VertexBufferLayout::attributes`, summed over all `VertexState::buffers`,
+    /// when creating a `RenderPipeline`.
+    /// Defaults to 16. Higher is "better".
+    pub max_vertex_attributes: u32,
+    /// Maximum value for `VertexBufferLayout::array_stride` when creating a `RenderPipeline`.
+    /// Defaults to 2048. Higher is "better".
+    pub max_vertex_buffer_array_stride: u32,
+    /// Required `BufferBindingType::Uniform` alignment for `BufferBinding::offset`
+    /// when creating a `BindGroup`, or for `set_bind_group` `dynamicOffsets`.
+    /// Defaults to 256. Lower is "better".
+    pub min_uniform_buffer_offset_alignment: u32,
+    /// Required `BufferBindingType::Storage` alignment for `BufferBinding::offset`
+    /// when creating a `BindGroup`, or for `set_bind_group` `dynamicOffsets`.
+    /// Defaults to 256. Lower is "better".
+    pub min_storage_buffer_offset_alignment: u32,
+    /// Maximum allowed number of components (scalars) of input or output locations for
+    /// inter-stage communication (vertex outputs to fragment inputs). Defaults to 60.
+    /// Higher is "better".
+    pub max_inter_stage_shader_components: u32,
+    /// Maximum number of bytes used for workgroup memory in a compute entry point. Defaults to
+    /// 16352. Higher is "better".
+    pub max_compute_workgroup_storage_size: u32,
+    /// Maximum value of the product of the `workgroup_size` dimensions for a compute entry-point.
+    /// Defaults to 256. Higher is "better".
+    pub max_compute_invocations_per_workgroup: u32,
+    /// The maximum value of the workgroup_size X dimension for a compute stage `ShaderModule` entry-point.
+    /// Defaults to 256. Higher is "better".
+    pub max_compute_workgroup_size_x: u32,
+    /// The maximum value of the workgroup_size Y dimension for a compute stage `ShaderModule` entry-point.
+    /// Defaults to 256. Higher is "better".
+    pub max_compute_workgroup_size_y: u32,
+    /// The maximum value of the workgroup_size Z dimension for a compute stage `ShaderModule` entry-point.
+    /// Defaults to 64. Higher is "better".
+    pub max_compute_workgroup_size_z: u32,
+    /// The maximum value for each dimension of a `ComputePass::dispatch(x, y, z)` operation.
+    /// Defaults to 65535. Higher is "better".
+    pub max_compute_workgroups_per_dimension: u32,
+    /// Amount of storage available for push constants in bytes. Defaults to 0. Higher is "better".
+    /// Requesting more than 0 during device creation requires [`Features::PUSH_CONSTANTS`] to be enabled.
+    ///
+    /// Expect the size to be:
+    /// - Vulkan: 128-256 bytes
+    /// - DX12: 256 bytes
+    /// - Metal: 4096 bytes
+    /// - OpenGL doesn't natively support push constants, and are emulated with uniforms,
+    ///   so this number is less useful but likely 256.
+    pub max_push_constant_size: u32,
+
+    /// Maximum number of live non-sampler bindings.
+    ///
+    /// This limit only affects the d3d12 backend. Using a large number will allow the device
+    /// to create many bind groups at the cost of a large up-front allocation at device creation.
+    pub max_non_sampler_bindings: u32,
+}
  
- impl Default for Limits {
-     fn default() -> Self {
-         Self {
-             max_texture_dimension_1d: 8192,
-             max_texture_dimension_2d: 8192,
-             max_texture_dimension_3d: 2048,
-             max_texture_array_layers: 256,
-             max_bind_groups: 4,
-             max_bindings_per_bind_group: 640,
-             max_dynamic_uniform_buffers_per_pipeline_layout: 8,
-             max_dynamic_storage_buffers_per_pipeline_layout: 4,
-             max_sampled_textures_per_shader_stage: 16,
-             max_samplers_per_shader_stage: 16,
-             max_storage_buffers_per_shader_stage: 8,
-             max_storage_textures_per_shader_stage: 4,
-             max_uniform_buffers_per_shader_stage: 12,
-             max_uniform_buffer_binding_size: 64 << 10,
-             max_storage_buffer_binding_size: 128 << 20,
-             max_vertex_buffers: 8,
-             max_buffer_size: 1 << 28,
-             max_vertex_attributes: 16,
-             max_vertex_buffer_array_stride: 2048,
-             min_uniform_buffer_offset_alignment: 256,
-             min_storage_buffer_offset_alignment: 256,
-             max_inter_stage_shader_components: 60,
-             max_compute_workgroup_storage_size: 16384,
-             max_compute_invocations_per_workgroup: 256,
-             max_compute_workgroup_size_x: 256,
-             max_compute_workgroup_size_y: 256,
-             max_compute_workgroup_size_z: 64,
-             max_compute_workgroups_per_dimension: 65535,
-             max_push_constant_size: 0,
-         }
-     }
- }
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_texture_dimension_1d: 8192,
+            max_texture_dimension_2d: 8192,
+            max_texture_dimension_3d: 2048,
+            max_texture_array_layers: 256,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 1000,
+            max_dynamic_uniform_buffers_per_pipeline_layout: 8,
+            max_dynamic_storage_buffers_per_pipeline_layout: 4,
+            max_sampled_textures_per_shader_stage: 16,
+            max_samplers_per_shader_stage: 16,
+            max_storage_buffers_per_shader_stage: 8,
+            max_storage_textures_per_shader_stage: 4,
+            max_uniform_buffers_per_shader_stage: 12,
+            max_uniform_buffer_binding_size: 64 << 10,
+            max_storage_buffer_binding_size: 128 << 20,
+            max_vertex_buffers: 8,
+            max_buffer_size: 256 << 20,
+            max_vertex_attributes: 16,
+            max_vertex_buffer_array_stride: 2048,
+            min_uniform_buffer_offset_alignment: 256,
+            min_storage_buffer_offset_alignment: 256,
+            max_inter_stage_shader_components: 60,
+            max_compute_workgroup_storage_size: 16384,
+            max_compute_invocations_per_workgroup: 256,
+            max_compute_workgroup_size_x: 256,
+            max_compute_workgroup_size_y: 256,
+            max_compute_workgroup_size_z: 64,
+            max_compute_workgroups_per_dimension: 65535,
+            max_push_constant_size: 0,
+            max_non_sampler_bindings: 1_000_000,
+        }
+    }
+}
  
  impl Limits {
-     /// These default limits are guaranteed to be compatible with GLES-3.1, and D3D11
-     pub fn downlevel_defaults() -> Self {
-         Self {
-             max_texture_dimension_1d: 2048,
-             max_texture_dimension_2d: 2048,
-             max_texture_dimension_3d: 256,
-             max_texture_array_layers: 256,
-             max_bind_groups: 4,
-             max_bindings_per_bind_group: 640,
-             max_dynamic_uniform_buffers_per_pipeline_layout: 8,
-             max_dynamic_storage_buffers_per_pipeline_layout: 4,
-             max_sampled_textures_per_shader_stage: 16,
-             max_samplers_per_shader_stage: 16,
-             max_storage_buffers_per_shader_stage: 4,
-             max_storage_textures_per_shader_stage: 4,
-             max_uniform_buffers_per_shader_stage: 12,
-             max_uniform_buffer_binding_size: 16 << 10,
-             max_storage_buffer_binding_size: 128 << 20,
-             max_vertex_buffers: 8,
-             max_vertex_attributes: 16,
-             max_vertex_buffer_array_stride: 2048,
-             max_push_constant_size: 0,
-             min_uniform_buffer_offset_alignment: 256,
-             min_storage_buffer_offset_alignment: 256,
-             max_inter_stage_shader_components: 60,
-             max_compute_workgroup_storage_size: 16352,
-             max_compute_invocations_per_workgroup: 256,
-             max_compute_workgroup_size_x: 256,
-             max_compute_workgroup_size_y: 256,
-             max_compute_workgroup_size_z: 64,
-             max_compute_workgroups_per_dimension: 65535,
-             max_buffer_size: 1 << 28,
-         }
-     }
+    pub fn downlevel_defaults() -> Self {
+        Self {
+            max_texture_dimension_1d: 2048,
+            max_texture_dimension_2d: 2048,
+            max_texture_dimension_3d: 256,
+            max_texture_array_layers: 256,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 1000,
+            max_dynamic_uniform_buffers_per_pipeline_layout: 8,
+            max_dynamic_storage_buffers_per_pipeline_layout: 4,
+            max_sampled_textures_per_shader_stage: 16,
+            max_samplers_per_shader_stage: 16,
+            max_storage_buffers_per_shader_stage: 4,
+            max_storage_textures_per_shader_stage: 4,
+            max_uniform_buffers_per_shader_stage: 12,
+            max_uniform_buffer_binding_size: 16 << 10,
+            max_storage_buffer_binding_size: 128 << 20,
+            max_vertex_buffers: 8,
+            max_vertex_attributes: 16,
+            max_vertex_buffer_array_stride: 2048,
+            max_push_constant_size: 0,
+            min_uniform_buffer_offset_alignment: 256,
+            min_storage_buffer_offset_alignment: 256,
+            max_inter_stage_shader_components: 60,
+            max_compute_workgroup_storage_size: 16352,
+            max_compute_invocations_per_workgroup: 256,
+            max_compute_workgroup_size_x: 256,
+            max_compute_workgroup_size_y: 256,
+            max_compute_workgroup_size_z: 64,
+            max_compute_workgroups_per_dimension: 65535,
+            max_buffer_size: 256 << 20,
+            max_non_sampler_bindings: 1_000_000,
+        }
+    }
  
      /// These default limits are guaranteed to be compatible with GLES-3.0, and D3D11, and WebGL2
      pub fn downlevel_webgl2_defaults() -> Self {
@@ -1329,24 +1411,30 @@
  #[cfg_attr(feature = "trace", derive(Serialize))]
  #[cfg_attr(feature = "replay", derive(Deserialize))]
  pub struct DeviceDescriptor<L> {
-     /// Debug label for the device.
-     pub label: L,
-     /// Features that the device should support. If any feature is not supported by
-     /// the adapter, creating a device will panic.
-     pub features: Features,
-     /// Limits that the device should support. If any limit is "better" than the limit exposed by
-     /// the adapter, creating a device will panic.
-     pub limits: Limits,
+    /// Debug label for the device.
+    pub label: L,
+     /// Specifies the features that are required by the device request.
+    /// The request will fail if the adapter cannot provide these features.
+    ///
+    /// Exactly the specified set of features, and no more or less,
+    /// will be allowed in validation of API calls on the resulting device.
+    pub required_features: Features,
+    /// Specifies the limits that are required by the device request.
+    /// The request will fail if the adapter cannot provide these limits.
+    ///
+    /// Exactly the specified limits, and no better or worse,
+    /// will be allowed in validation of API calls on the resulting device.
+    pub required_limits: Limits,
  }
  
  impl<L> DeviceDescriptor<L> {
      /// Takes a closure and maps the label of the device descriptor into another.
      pub fn map_label<K>(&self, fun: impl FnOnce(&L) -> K) -> DeviceDescriptor<K> {
-         DeviceDescriptor {
-             label: fun(&self.label),
-             features: self.features,
-             limits: self.limits.clone(),
-         }
+        DeviceDescriptor {
+            label: fun(&self.label),
+            required_features: self.required_features,
+            required_limits: self.required_limits.clone(),
+        }
      }
  }
  
@@ -1896,298 +1984,317 @@
  }
  
  /// Underlying texture data format.
- ///
- /// If there is a conversion in the format (such as srgb -> linear), the conversion listed here is for
- /// loading from texture in a shader. When writing to the texture, the opposite conversion takes place.
- ///
- /// Corresponds to [WebGPU `GPUTextureFormat`](
- /// https://gpuweb.github.io/gpuweb/#enumdef-gputextureformat).
- #[repr(C)]
- #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
- pub enum TextureFormat {
-     // Normal 8 bit formats
-     /// Red channel only. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
-     R8Unorm,
-     /// Red channel only. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
-     R8Snorm,
-     /// Red channel only. 8 bit integer per channel. Unsigned in shader.
-     R8Uint,
-     /// Red channel only. 8 bit integer per channel. Signed in shader.
-     R8Sint,
- 
-     // Normal 16 bit formats
-     /// Red channel only. 16 bit integer per channel. Unsigned in shader.
-     R16Uint,
-     /// Red channel only. 16 bit integer per channel. Signed in shader.
-     R16Sint,
-     /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     R16Unorm,
-     /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     R16Snorm,
-     /// Red channel only. 16 bit float per channel. Float in shader.
-     R16Float,
-     /// Red and green channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
-     Rg8Unorm,
-     /// Red and green channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
-     Rg8Snorm,
-     /// Red and green channels. 8 bit integer per channel. Unsigned in shader.
-     Rg8Uint,
-     /// Red and green channels. 8 bit integer per channel. Signed in shader.
-     Rg8Sint,
- 
-     // Normal 32 bit formats
-     /// Red channel only. 32 bit integer per channel. Unsigned in shader.
-     R32Uint,
-     /// Red channel only. 32 bit integer per channel. Signed in shader.
-     R32Sint,
-     /// Red channel only. 32 bit float per channel. Float in shader.
-     R32Float,
-     /// Red and green channels. 16 bit integer per channel. Unsigned in shader.
-     Rg16Uint,
-     /// Red and green channels. 16 bit integer per channel. Signed in shader.
-     Rg16Sint,
-     /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     Rg16Unorm,
-     /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     Rg16Snorm,
-     /// Red and green channels. 16 bit float per channel. Float in shader.
-     Rg16Float,
-     /// Red, green, blue, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
-     Rgba8Unorm,
-     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
-     Rgba8UnormSrgb,
-     /// Red, green, blue, and alpha channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
-     Rgba8Snorm,
-     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Unsigned in shader.
-     Rgba8Uint,
-     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Signed in shader.
-     Rgba8Sint,
-     /// Blue, green, red, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
-     Bgra8Unorm,
-     /// Blue, green, red, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
-     Bgra8UnormSrgb,
- 
-     // Packed 32 bit formats
-     /// Packed unsigned float with 9 bits mantisa for each RGB component, then a common 5 bits exponent
-     Rgb9e5Ufloat,
-     /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. [0, 1023] ([0, 3] for alpha) converted to/from float [0, 1] in shader.
-     Rgb10a2Unorm,
-     /// Red, green, and blue channels. 11 bit float with no sign bit for RG channels. 10 bit float with no sign bit for blue channel. Float in shader.
-     Rg11b10Float,
- 
-     // Normal 64 bit formats
-     /// Red and green channels. 32 bit integer per channel. Unsigned in shader.
-     Rg32Uint,
-     /// Red and green channels. 32 bit integer per channel. Signed in shader.
-     Rg32Sint,
-     /// Red and green channels. 32 bit float per channel. Float in shader.
-     Rg32Float,
-     /// Red, green, blue, and alpha channels. 16 bit integer per channel. Unsigned in shader.
-     Rgba16Uint,
-     /// Red, green, blue, and alpha channels. 16 bit integer per channel. Signed in shader.
-     Rgba16Sint,
-     /// Red, green, blue, and alpha channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     Rgba16Unorm,
-     /// Red, green, blue, and alpha. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
-     Rgba16Snorm,
-     /// Red, green, blue, and alpha channels. 16 bit float per channel. Float in shader.
-     Rgba16Float,
- 
-     // Normal 128 bit formats
-     /// Red, green, blue, and alpha channels. 32 bit integer per channel. Unsigned in shader.
-     Rgba32Uint,
-     /// Red, green, blue, and alpha channels. 32 bit integer per channel. Signed in shader.
-     Rgba32Sint,
-     /// Red, green, blue, and alpha channels. 32 bit float per channel. Float in shader.
-     Rgba32Float,
- 
-     // Depth and stencil formats
-     /// Stencil format with 8 bit integer stencil.
-     Stencil8,
-     /// Special depth format with 16 bit integer depth.
-     Depth16Unorm,
-     /// Special depth format with at least 24 bit integer depth.
-     Depth24Plus,
-     /// Special depth/stencil format with at least 24 bit integer depth and 8 bits integer stencil.
-     Depth24PlusStencil8,
-     /// Special depth format with 32 bit floating point depth.
-     Depth32Float,
-     /// Special depth/stencil format with 32 bit floating point depth and 8 bits integer stencil.
-     Depth32FloatStencil8,
- 
-     // Compressed textures usable with `TEXTURE_COMPRESSION_BC` feature.
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 4 color + alpha pallet. 5 bit R + 6 bit G + 5 bit B + 1 bit alpha.
-     /// [0, 63] ([0, 1] for alpha) converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as DXT1.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc1RgbaUnorm,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 4 color + alpha pallet. 5 bit R + 6 bit G + 5 bit B + 1 bit alpha.
-     /// Srgb-color [0, 63] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// Also known as DXT1.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc1RgbaUnormSrgb,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
-     /// [0, 63] ([0, 15] for alpha) converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as DXT3.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc2RgbaUnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
-     /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// Also known as DXT3.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc2RgbaUnormSrgb,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
-     /// [0, 63] ([0, 255] for alpha) converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as DXT5.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc3RgbaUnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
-     /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// Also known as DXT5.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc3RgbaUnormSrgb,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as RGTC1.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc4RUnorm,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
-     /// [-127, 127] converted to/from float [-1, 1] in shader.
-     ///
-     /// Also known as RGTC1.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc4RSnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as RGTC2.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc5RgUnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
-     /// [-127, 127] converted to/from float [-1, 1] in shader.
-     ///
-     /// Also known as RGTC2.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc5RgSnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit unsigned float RGB. Float in shader.
-     ///
-     /// Also known as BPTC (float).
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc6hRgbUfloat,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit signed float RGB. Float in shader.
-     ///
-     /// Also known as BPTC (float).
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc6hRgbFloat,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// Also known as BPTC (unorm).
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc7RgbaUnorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
-     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// Also known as BPTC (unorm).
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
-     Bc7RgbaUnormSrgb,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgb8Unorm,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
-     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgb8UnormSrgb,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
-     /// [0, 255] ([0, 1] for alpha) converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgb8A1Unorm,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
-     /// Srgb-color [0, 255] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgb8A1UnormSrgb,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgba8Unorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
-     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     Etc2Rgba8UnormSrgb,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     EacR11Unorm,
-     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
-     /// [-127, 127] converted to/from float [-1, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     EacR11Snorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
-     /// [0, 255] converted to/from float [0, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     EacRg11Unorm,
-     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
-     /// [-127, 127] converted to/from float [-1, 1] in shader.
-     ///
-     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
-     EacRg11Snorm,
-     /// block compressed texture. 16 bytes per block.
-     ///
-     /// Features [`TEXTURE_COMPRESSION_ASTC`] or [`TEXTURE_COMPRESSION_ASTC_HDR`]
-     /// must be enabled to use this texture format.
-     ///
-     /// [`TEXTURE_COMPRESSION_ASTC`]: Features::TEXTURE_COMPRESSION_ASTC
-     /// [`TEXTURE_COMPRESSION_ASTC_HDR`]: Features::TEXTURE_COMPRESSION_ASTC_HDR
-     Astc {
-         /// compressed block dimensions
-         block: AstcBlock,
-         /// ASTC RGBA channel
-         channel: AstcChannel,
-     },
- }
+///
+/// If there is a conversion in the format (such as srgb -> linear), the conversion listed here is for
+/// loading from texture in a shader. When writing to the texture, the opposite conversion takes place.
+///
+/// Corresponds to [WebGPU `GPUTextureFormat`](
+/// https://gpuweb.github.io/gpuweb/#enumdef-gputextureformat).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub enum TextureFormat {
+    // Normal 8 bit formats
+    /// Red channel only. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    R8Unorm,
+    /// Red channel only. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    R8Snorm,
+    /// Red channel only. 8 bit integer per channel. Unsigned in shader.
+    R8Uint,
+    /// Red channel only. 8 bit integer per channel. Signed in shader.
+    R8Sint,
+
+    // Normal 16 bit formats
+    /// Red channel only. 16 bit integer per channel. Unsigned in shader.
+    R16Uint,
+    /// Red channel only. 16 bit integer per channel. Signed in shader.
+    R16Sint,
+    /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    R16Unorm,
+    /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    R16Snorm,
+    /// Red channel only. 16 bit float per channel. Float in shader.
+    R16Float,
+    /// Red and green channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Rg8Unorm,
+    /// Red and green channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    Rg8Snorm,
+    /// Red and green channels. 8 bit integer per channel. Unsigned in shader.
+    Rg8Uint,
+    /// Red and green channels. 8 bit integer per channel. Signed in shader.
+    Rg8Sint,
+
+    // Normal 32 bit formats
+    /// Red channel only. 32 bit integer per channel. Unsigned in shader.
+    R32Uint,
+    /// Red channel only. 32 bit integer per channel. Signed in shader.
+    R32Sint,
+    /// Red channel only. 32 bit float per channel. Float in shader.
+    R32Float,
+    /// Red and green channels. 16 bit integer per channel. Unsigned in shader.
+    Rg16Uint,
+    /// Red and green channels. 16 bit integer per channel. Signed in shader.
+    Rg16Sint,
+    /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    Rg16Unorm,
+    /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    Rg16Snorm,
+    /// Red and green channels. 16 bit float per channel. Float in shader.
+    Rg16Float,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Rgba8Unorm,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    Rgba8UnormSrgb,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    Rgba8Snorm,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Unsigned in shader.
+    Rgba8Uint,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Signed in shader.
+    Rgba8Sint,
+    /// Blue, green, red, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Bgra8Unorm,
+    /// Blue, green, red, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    Bgra8UnormSrgb,
+
+    // Packed 32 bit formats
+    /// Packed unsigned float with 9 bits mantisa for each RGB component, then a common 5 bits exponent
+    Rgb9e5Ufloat,
+    /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. Unsigned in shader.
+    Rgb10a2Uint,
+    /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. [0, 1023] ([0, 3] for alpha) converted to/from float [0, 1] in shader.
+    Rgb10a2Unorm,
+    /// Red, green, and blue channels. 11 bit float with no sign bit for RG channels. 10 bit float with no sign bit for blue channel. Float in shader.
+    Rg11b10Float,
+
+    // Normal 64 bit formats
+    /// Red and green channels. 32 bit integer per channel. Unsigned in shader.
+    Rg32Uint,
+    /// Red and green channels. 32 bit integer per channel. Signed in shader.
+    Rg32Sint,
+    /// Red and green channels. 32 bit float per channel. Float in shader.
+    Rg32Float,
+    /// Red, green, blue, and alpha channels. 16 bit integer per channel. Unsigned in shader.
+    Rgba16Uint,
+    /// Red, green, blue, and alpha channels. 16 bit integer per channel. Signed in shader.
+    Rgba16Sint,
+    /// Red, green, blue, and alpha channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    Rgba16Unorm,
+    /// Red, green, blue, and alpha. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    Rgba16Snorm,
+    /// Red, green, blue, and alpha channels. 16 bit float per channel. Float in shader.
+    Rgba16Float,
+
+    // Normal 128 bit formats
+    /// Red, green, blue, and alpha channels. 32 bit integer per channel. Unsigned in shader.
+    Rgba32Uint,
+    /// Red, green, blue, and alpha channels. 32 bit integer per channel. Signed in shader.
+    Rgba32Sint,
+    /// Red, green, blue, and alpha channels. 32 bit float per channel. Float in shader.
+    Rgba32Float,
+
+    // Depth and stencil formats
+    /// Stencil format with 8 bit integer stencil.
+    Stencil8,
+    /// Special depth format with 16 bit integer depth.
+    Depth16Unorm,
+    /// Special depth format with at least 24 bit integer depth.
+    Depth24Plus,
+    /// Special depth/stencil format with at least 24 bit integer depth and 8 bits integer stencil.
+    Depth24PlusStencil8,
+    /// Special depth format with 32 bit floating point depth.
+    Depth32Float,
+    /// Special depth/stencil format with 32 bit floating point depth and 8 bits integer stencil.
+    ///
+    /// [`Features::DEPTH32FLOAT_STENCIL8`] must be enabled to use this texture format.
+    Depth32FloatStencil8,
+
+    /// YUV 4:2:0 chroma subsampled format.
+    ///
+    /// Contains two planes:
+    /// - 0: Single 8 bit channel luminance.
+    /// - 1: Dual 8 bit channel chrominance at half width and half height.
+    ///
+    /// Valid view formats for luminance are [`TextureFormat::R8Unorm`].
+    ///
+    /// Valid view formats for chrominance are [`TextureFormat::Rg8Unorm`].
+    ///
+    /// Width and height must be even.
+    ///
+    /// [`Features::TEXTURE_FORMAT_NV12`] must be enabled to use this texture format.
+    NV12,
+
+    // Compressed textures usable with `TEXTURE_COMPRESSION_BC` feature.
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 4 color + alpha pallet. 5 bit R + 6 bit G + 5 bit B + 1 bit alpha.
+    /// [0, 63] ([0, 1] for alpha) converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as DXT1.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc1RgbaUnorm,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 4 color + alpha pallet. 5 bit R + 6 bit G + 5 bit B + 1 bit alpha.
+    /// Srgb-color [0, 63] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// Also known as DXT1.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc1RgbaUnormSrgb,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
+    /// [0, 63] ([0, 15] for alpha) converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as DXT3.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc2RgbaUnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
+    /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// Also known as DXT3.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc2RgbaUnormSrgb,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
+    /// [0, 63] ([0, 255] for alpha) converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as DXT5.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc3RgbaUnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
+    /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// Also known as DXT5.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc3RgbaUnormSrgb,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as RGTC1.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc4RUnorm,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
+    /// [-127, 127] converted to/from float [-1, 1] in shader.
+    ///
+    /// Also known as RGTC1.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc4RSnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as RGTC2.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc5RgUnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
+    /// [-127, 127] converted to/from float [-1, 1] in shader.
+    ///
+    /// Also known as RGTC2.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc5RgSnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit unsigned float RGB. Float in shader.
+    ///
+    /// Also known as BPTC (float).
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc6hRgbUfloat,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit signed float RGB. Float in shader.
+    ///
+    /// Also known as BPTC (float).
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc6hRgbFloat,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// Also known as BPTC (unorm).
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc7RgbaUnorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
+    /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// Also known as BPTC (unorm).
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    Bc7RgbaUnormSrgb,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgb8Unorm,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
+    /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgb8UnormSrgb,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
+    /// [0, 255] ([0, 1] for alpha) converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgb8A1Unorm,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
+    /// Srgb-color [0, 255] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgb8A1UnormSrgb,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgba8Unorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
+    /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    Etc2Rgba8UnormSrgb,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    EacR11Unorm,
+    /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
+    /// [-127, 127] converted to/from float [-1, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    EacR11Snorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
+    /// [0, 255] converted to/from float [0, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    EacRg11Unorm,
+    /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
+    /// [-127, 127] converted to/from float [-1, 1] in shader.
+    ///
+    /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    EacRg11Snorm,
+    /// block compressed texture. 16 bytes per block.
+    ///
+    /// Features [`TEXTURE_COMPRESSION_ASTC`] or [`TEXTURE_COMPRESSION_ASTC_HDR`]
+    /// must be enabled to use this texture format.
+    ///
+    /// [`TEXTURE_COMPRESSION_ASTC`]: Features::TEXTURE_COMPRESSION_ASTC
+    /// [`TEXTURE_COMPRESSION_ASTC_HDR`]: Features::TEXTURE_COMPRESSION_ASTC_HDR
+    Astc {
+        /// compressed block dimensions
+        block: AstcBlock,
+        /// ASTC RGBA channel
+        channel: AstcChannel,
+    },
+}
  
  #[cfg(any(feature = "serde", test))]
  impl<'de> Deserialize<'de> for TextureFormat {
@@ -2433,631 +2540,819 @@
                  s = format!("astc-{block}-{channel}");
                  &s
              }
+            TextureFormat::Rgb10a2Uint => "rgb10a2uint",
+            TextureFormat::NV12 => "nv12",
          };
          serializer.serialize_str(name)
      }
  }
  
  impl TextureFormat {
-     /// Returns the aspect-specific format of the original format
-     ///
-     /// see <https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureaspect>
-     pub fn aspect_specific_format(&self, aspect: TextureAspect) -> Option<Self> {
-         match (*self, aspect) {
-             (Self::Stencil8, TextureAspect::StencilOnly) => Some(*self),
-             (
-                 Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float,
-                 TextureAspect::DepthOnly,
-             ) => Some(*self),
-             (
-                 Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8,
-                 TextureAspect::StencilOnly,
-             ) => Some(Self::Stencil8),
-             (Self::Depth24PlusStencil8, TextureAspect::DepthOnly) => Some(Self::Depth24Plus),
-             (Self::Depth32FloatStencil8, TextureAspect::DepthOnly) => Some(Self::Depth32Float),
-             (format, TextureAspect::All) => Some(format),
-             _ => None,
-         }
-     }
- 
-     /// Returns `true` if `self` is a depth or stencil component of the given
-     /// combined depth-stencil format
-     pub fn is_depth_stencil_component(&self, combined_format: Self) -> bool {
-         match (combined_format, *self) {
-             (Self::Depth24PlusStencil8, Self::Depth24Plus | Self::Stencil8)
-             | (Self::Depth32FloatStencil8, Self::Depth32Float | Self::Stencil8) => true,
-             _ => false,
-         }
-     }
- 
-     /// Returns `true` if the format is a depth and/or stencil format
-     ///
-     /// see <https://gpuweb.github.io/gpuweb/#depth-formats>
-     pub fn is_depth_stencil_format(&self) -> bool {
-         match *self {
-             Self::Stencil8
-             | Self::Depth16Unorm
-             | Self::Depth24Plus
-             | Self::Depth24PlusStencil8
-             | Self::Depth32Float
-             | Self::Depth32FloatStencil8 => true,
-             _ => false,
-         }
-     }
- 
-     /// Returns `true` if the format is a combined depth-stencil format
-     ///
-     /// see <https://gpuweb.github.io/gpuweb/#combined-depth-stencil-format>
-     pub fn is_combined_depth_stencil_format(&self) -> bool {
-         match *self {
-             Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => true,
-             _ => false,
-         }
-     }
- 
-     /// Returns `true` if the format has a color aspect
-     pub fn has_color_aspect(&self) -> bool {
-         !self.is_depth_stencil_format()
-     }
- 
-     /// Returns `true` if the format has a depth aspect
-     pub fn has_depth_aspect(&self) -> bool {
-         match *self {
-             Self::Depth16Unorm
-             | Self::Depth24Plus
-             | Self::Depth24PlusStencil8
-             | Self::Depth32Float
-             | Self::Depth32FloatStencil8 => true,
-             _ => false,
-         }
-     }
- 
-     /// Returns `true` if the format has a stencil aspect
-     pub fn has_stencil_aspect(&self) -> bool {
-         match *self {
-             Self::Stencil8 | Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => true,
-             _ => false,
-         }
-     }
- 
-     /// Returns the dimension of a block of texels.
-     pub fn block_dimensions(&self) -> (u32, u32) {
-         match *self {
-             Self::R8Unorm
-             | Self::R8Snorm
-             | Self::R8Uint
-             | Self::R8Sint
-             | Self::R16Uint
-             | Self::R16Sint
-             | Self::R16Unorm
-             | Self::R16Snorm
-             | Self::R16Float
-             | Self::Rg8Unorm
-             | Self::Rg8Snorm
-             | Self::Rg8Uint
-             | Self::Rg8Sint
-             | Self::R32Uint
-             | Self::R32Sint
-             | Self::R32Float
-             | Self::Rg16Uint
-             | Self::Rg16Sint
-             | Self::Rg16Unorm
-             | Self::Rg16Snorm
-             | Self::Rg16Float
-             | Self::Rgba8Unorm
-             | Self::Rgba8UnormSrgb
-             | Self::Rgba8Snorm
-             | Self::Rgba8Uint
-             | Self::Rgba8Sint
-             | Self::Bgra8Unorm
-             | Self::Bgra8UnormSrgb
-             | Self::Rgb9e5Ufloat
-             | Self::Rgb10a2Unorm
-             | Self::Rg11b10Float
-             | Self::Rg32Uint
-             | Self::Rg32Sint
-             | Self::Rg32Float
-             | Self::Rgba16Uint
-             | Self::Rgba16Sint
-             | Self::Rgba16Unorm
-             | Self::Rgba16Snorm
-             | Self::Rgba16Float
-             | Self::Rgba32Uint
-             | Self::Rgba32Sint
-             | Self::Rgba32Float
-             | Self::Stencil8
-             | Self::Depth16Unorm
-             | Self::Depth24Plus
-             | Self::Depth24PlusStencil8
-             | Self::Depth32Float
-             | Self::Depth32FloatStencil8 => (1, 1),
- 
-             Self::Bc1RgbaUnorm
-             | Self::Bc1RgbaUnormSrgb
-             | Self::Bc2RgbaUnorm
-             | Self::Bc2RgbaUnormSrgb
-             | Self::Bc3RgbaUnorm
-             | Self::Bc3RgbaUnormSrgb
-             | Self::Bc4RUnorm
-             | Self::Bc4RSnorm
-             | Self::Bc5RgUnorm
-             | Self::Bc5RgSnorm
-             | Self::Bc6hRgbUfloat
-             | Self::Bc6hRgbFloat
-             | Self::Bc7RgbaUnorm
-             | Self::Bc7RgbaUnormSrgb => (4, 4),
- 
-             Self::Etc2Rgb8Unorm
-             | Self::Etc2Rgb8UnormSrgb
-             | Self::Etc2Rgb8A1Unorm
-             | Self::Etc2Rgb8A1UnormSrgb
-             | Self::Etc2Rgba8Unorm
-             | Self::Etc2Rgba8UnormSrgb
-             | Self::EacR11Unorm
-             | Self::EacR11Snorm
-             | Self::EacRg11Unorm
-             | Self::EacRg11Snorm => (4, 4),
- 
-             Self::Astc { block, .. } => match block {
-                 AstcBlock::B4x4 => (4, 4),
-                 AstcBlock::B5x4 => (5, 4),
-                 AstcBlock::B5x5 => (5, 5),
-                 AstcBlock::B6x5 => (6, 5),
-                 AstcBlock::B6x6 => (6, 6),
-                 AstcBlock::B8x5 => (8, 5),
-                 AstcBlock::B8x6 => (8, 6),
-                 AstcBlock::B8x8 => (8, 8),
-                 AstcBlock::B10x5 => (10, 5),
-                 AstcBlock::B10x6 => (10, 6),
-                 AstcBlock::B10x8 => (10, 8),
-                 AstcBlock::B10x10 => (10, 10),
-                 AstcBlock::B12x10 => (12, 10),
-                 AstcBlock::B12x12 => (12, 12),
-             },
-         }
-     }
- 
-     /// Returns `true` for compressed formats.
-     pub fn is_compressed(&self) -> bool {
-         self.block_dimensions() != (1, 1)
-     }
- 
-     /// Returns the required features (if any) in order to use the texture.
-     pub fn required_features(&self) -> Features {
-         match *self {
-             Self::R8Unorm
-             | Self::R8Snorm
-             | Self::R8Uint
-             | Self::R8Sint
-             | Self::R16Uint
-             | Self::R16Sint
-             | Self::R16Float
-             | Self::Rg8Unorm
-             | Self::Rg8Snorm
-             | Self::Rg8Uint
-             | Self::Rg8Sint
-             | Self::R32Uint
-             | Self::R32Sint
-             | Self::R32Float
-             | Self::Rg16Uint
-             | Self::Rg16Sint
-             | Self::Rg16Float
-             | Self::Rgba8Unorm
-             | Self::Rgba8UnormSrgb
-             | Self::Rgba8Snorm
-             | Self::Rgba8Uint
-             | Self::Rgba8Sint
-             | Self::Bgra8Unorm
-             | Self::Bgra8UnormSrgb
-             | Self::Rgb9e5Ufloat
-             | Self::Rgb10a2Unorm
-             | Self::Rg11b10Float
-             | Self::Rg32Uint
-             | Self::Rg32Sint
-             | Self::Rg32Float
-             | Self::Rgba16Uint
-             | Self::Rgba16Sint
-             | Self::Rgba16Float
-             | Self::Rgba32Uint
-             | Self::Rgba32Sint
-             | Self::Rgba32Float
-             | Self::Stencil8
-             | Self::Depth16Unorm
-             | Self::Depth24Plus
-             | Self::Depth24PlusStencil8
-             | Self::Depth32Float => Features::empty(),
- 
-             Self::Depth32FloatStencil8 => Features::DEPTH32FLOAT_STENCIL8,
- 
-             Self::R16Unorm
-             | Self::R16Snorm
-             | Self::Rg16Unorm
-             | Self::Rg16Snorm
-             | Self::Rgba16Unorm
-             | Self::Rgba16Snorm => Features::TEXTURE_FORMAT_16BIT_NORM,
- 
-             Self::Bc1RgbaUnorm
-             | Self::Bc1RgbaUnormSrgb
-             | Self::Bc2RgbaUnorm
-             | Self::Bc2RgbaUnormSrgb
-             | Self::Bc3RgbaUnorm
-             | Self::Bc3RgbaUnormSrgb
-             | Self::Bc4RUnorm
-             | Self::Bc4RSnorm
-             | Self::Bc5RgUnorm
-             | Self::Bc5RgSnorm
-             | Self::Bc6hRgbUfloat
-             | Self::Bc6hRgbFloat
-             | Self::Bc7RgbaUnorm
-             | Self::Bc7RgbaUnormSrgb => Features::TEXTURE_COMPRESSION_BC,
- 
-             Self::Etc2Rgb8Unorm
-             | Self::Etc2Rgb8UnormSrgb
-             | Self::Etc2Rgb8A1Unorm
-             | Self::Etc2Rgb8A1UnormSrgb
-             | Self::Etc2Rgba8Unorm
-             | Self::Etc2Rgba8UnormSrgb
-             | Self::EacR11Unorm
-             | Self::EacR11Snorm
-             | Self::EacRg11Unorm
-             | Self::EacRg11Snorm => Features::TEXTURE_COMPRESSION_ETC2,
- 
-             Self::Astc { channel, .. } => match channel {
-                 AstcChannel::Hdr => Features::TEXTURE_COMPRESSION_ASTC_HDR,
-                 AstcChannel::Unorm | AstcChannel::UnormSrgb => Features::TEXTURE_COMPRESSION_ASTC,
-             },
-         }
-     }
- 
-     /// Returns the format features guaranteed by the WebGPU spec.
-     ///
-     /// Additional features are available if `Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` is enabled.
-     pub fn guaranteed_format_features(&self, device_features: Features) -> TextureFormatFeatures {
-         // Multisampling
-         let noaa = TextureFormatFeatureFlags::empty();
-         let msaa = TextureFormatFeatureFlags::MULTISAMPLE_X4;
-         let msaa_resolve = msaa | TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE;
- 
-         // Flags
-         let basic =
-             TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
-         let attachment = basic | TextureUsages::RENDER_ATTACHMENT;
-         let storage = basic | TextureUsages::STORAGE_BINDING;
-         let all_flags = TextureUsages::all();
-         let rg11b10f = if device_features.contains(Features::RG11B10UFLOAT_RENDERABLE) {
-             attachment
-         } else {
-             basic
-         };
- 
-         #[rustfmt::skip] // lets make a nice table
-         let (
-             mut flags,
-             allowed_usages,
-         ) = match *self {
-             Self::R8Unorm =>              (msaa_resolve, attachment),
-             Self::R8Snorm =>              (        noaa,      basic),
-             Self::R8Uint =>               (        msaa, attachment),
-             Self::R8Sint =>               (        msaa, attachment),
-             Self::R16Uint =>              (        msaa, attachment),
-             Self::R16Sint =>              (        msaa, attachment),
-             Self::R16Float =>             (msaa_resolve, attachment),
-             Self::Rg8Unorm =>             (msaa_resolve, attachment),
-             Self::Rg8Snorm =>             (        noaa,      basic),
-             Self::Rg8Uint =>              (        msaa, attachment),
-             Self::Rg8Sint =>              (        msaa, attachment),
-             Self::R32Uint =>              (        noaa,  all_flags),
-             Self::R32Sint =>              (        noaa,  all_flags),
-             Self::R32Float =>             (        msaa,  all_flags),
-             Self::Rg16Uint =>             (        msaa, attachment),
-             Self::Rg16Sint =>             (        msaa, attachment),
-             Self::Rg16Float =>            (msaa_resolve, attachment),
-             Self::Rgba8Unorm =>           (msaa_resolve,  all_flags),
-             Self::Rgba8UnormSrgb =>       (msaa_resolve, attachment),
-             Self::Rgba8Snorm =>           (        noaa,    storage),
-             Self::Rgba8Uint =>            (        msaa,  all_flags),
-             Self::Rgba8Sint =>            (        msaa,  all_flags),
-             Self::Bgra8Unorm =>           (msaa_resolve, attachment),
-             Self::Bgra8UnormSrgb =>       (msaa_resolve, attachment),
-             Self::Rgb10a2Unorm =>         (msaa_resolve, attachment),
-             Self::Rg11b10Float =>         (        msaa,   rg11b10f),
-             Self::Rg32Uint =>             (        noaa,  all_flags),
-             Self::Rg32Sint =>             (        noaa,  all_flags),
-             Self::Rg32Float =>            (        noaa,  all_flags),
-             Self::Rgba16Uint =>           (        msaa,  all_flags),
-             Self::Rgba16Sint =>           (        msaa,  all_flags),
-             Self::Rgba16Float =>          (msaa_resolve,  all_flags),
-             Self::Rgba32Uint =>           (        noaa,  all_flags),
-             Self::Rgba32Sint =>           (        noaa,  all_flags),
-             Self::Rgba32Float =>          (        noaa,  all_flags),
- 
-             Self::Stencil8 =>             (        msaa, attachment),
-             Self::Depth16Unorm =>         (        msaa, attachment),
-             Self::Depth24Plus =>          (        msaa, attachment),
-             Self::Depth24PlusStencil8 =>  (        msaa, attachment),
-             Self::Depth32Float =>         (        msaa, attachment),
-             Self::Depth32FloatStencil8 => (        msaa, attachment),
- 
-             Self::R16Unorm =>             (        msaa,    storage),
-             Self::R16Snorm =>             (        msaa,    storage),
-             Self::Rg16Unorm =>            (        msaa,    storage),
-             Self::Rg16Snorm =>            (        msaa,    storage),
-             Self::Rgba16Unorm =>          (        msaa,    storage),
-             Self::Rgba16Snorm =>          (        msaa,    storage),
- 
-             Self::Rgb9e5Ufloat =>         (        noaa,      basic),
- 
-             Self::Bc1RgbaUnorm =>         (        noaa,      basic),
-             Self::Bc1RgbaUnormSrgb =>     (        noaa,      basic),
-             Self::Bc2RgbaUnorm =>         (        noaa,      basic),
-             Self::Bc2RgbaUnormSrgb =>     (        noaa,      basic),
-             Self::Bc3RgbaUnorm =>         (        noaa,      basic),
-             Self::Bc3RgbaUnormSrgb =>     (        noaa,      basic),
-             Self::Bc4RUnorm =>            (        noaa,      basic),
-             Self::Bc4RSnorm =>            (        noaa,      basic),
-             Self::Bc5RgUnorm =>           (        noaa,      basic),
-             Self::Bc5RgSnorm =>           (        noaa,      basic),
-             Self::Bc6hRgbUfloat =>        (        noaa,      basic),
-             Self::Bc6hRgbFloat =>         (        noaa,      basic),
-             Self::Bc7RgbaUnorm =>         (        noaa,      basic),
-             Self::Bc7RgbaUnormSrgb =>     (        noaa,      basic),
- 
-             Self::Etc2Rgb8Unorm =>        (        noaa,      basic),
-             Self::Etc2Rgb8UnormSrgb =>    (        noaa,      basic),
-             Self::Etc2Rgb8A1Unorm =>      (        noaa,      basic),
-             Self::Etc2Rgb8A1UnormSrgb =>  (        noaa,      basic),
-             Self::Etc2Rgba8Unorm =>       (        noaa,      basic),
-             Self::Etc2Rgba8UnormSrgb =>   (        noaa,      basic),
-             Self::EacR11Unorm =>          (        noaa,      basic),
-             Self::EacR11Snorm =>          (        noaa,      basic),
-             Self::EacRg11Unorm =>         (        noaa,      basic),
-             Self::EacRg11Snorm =>         (        noaa,      basic),
- 
-             Self::Astc { .. } =>          (        noaa,      basic),
-         };
- 
-         let is_filterable =
-             self.sample_type(None) == Some(TextureSampleType::Float { filterable: true });
-         flags.set(TextureFormatFeatureFlags::FILTERABLE, is_filterable);
-         flags.set(TextureFormatFeatureFlags::BLENDABLE, is_filterable);
- 
-         TextureFormatFeatures {
-             allowed_usages,
-             flags,
-         }
-     }
- 
-     /// Returns the sample type compatible with this format and aspect
-     ///
-     /// Returns `None` only if the format is combined depth-stencil
-     /// and `TextureAspect::All` or no `aspect` was provided
-     pub fn sample_type(&self, aspect: Option<TextureAspect>) -> Option<TextureSampleType> {
-         let float = TextureSampleType::Float { filterable: true };
-         let unfilterable_float = TextureSampleType::Float { filterable: false };
-         let depth = TextureSampleType::Depth;
-         let uint = TextureSampleType::Uint;
-         let sint = TextureSampleType::Sint;
- 
-         match *self {
-             Self::R8Unorm
-             | Self::R8Snorm
-             | Self::Rg8Unorm
-             | Self::Rg8Snorm
-             | Self::Rgba8Unorm
-             | Self::Rgba8UnormSrgb
-             | Self::Rgba8Snorm
-             | Self::Bgra8Unorm
-             | Self::Bgra8UnormSrgb
-             | Self::R16Float
-             | Self::Rg16Float
-             | Self::Rgba16Float
-             | Self::Rgb10a2Unorm
-             | Self::Rg11b10Float => Some(float),
- 
-             Self::R32Float | Self::Rg32Float | Self::Rgba32Float => Some(unfilterable_float),
- 
-             Self::R8Uint
-             | Self::Rg8Uint
-             | Self::Rgba8Uint
-             | Self::R16Uint
-             | Self::Rg16Uint
-             | Self::Rgba16Uint
-             | Self::R32Uint
-             | Self::Rg32Uint
-             | Self::Rgba32Uint => Some(uint),
- 
-             Self::R8Sint
-             | Self::Rg8Sint
-             | Self::Rgba8Sint
-             | Self::R16Sint
-             | Self::Rg16Sint
-             | Self::Rgba16Sint
-             | Self::R32Sint
-             | Self::Rg32Sint
-             | Self::Rgba32Sint => Some(sint),
- 
-             Self::Stencil8 => Some(uint),
-             Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float => Some(depth),
-             Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => match aspect {
-                 None | Some(TextureAspect::All) => None,
-                 Some(TextureAspect::DepthOnly) => Some(depth),
-                 Some(TextureAspect::StencilOnly) => Some(uint),
-             },
- 
-             Self::R16Unorm
-             | Self::R16Snorm
-             | Self::Rg16Unorm
-             | Self::Rg16Snorm
-             | Self::Rgba16Unorm
-             | Self::Rgba16Snorm => Some(float),
- 
-             Self::Rgb9e5Ufloat => Some(float),
- 
-             Self::Bc1RgbaUnorm
-             | Self::Bc1RgbaUnormSrgb
-             | Self::Bc2RgbaUnorm
-             | Self::Bc2RgbaUnormSrgb
-             | Self::Bc3RgbaUnorm
-             | Self::Bc3RgbaUnormSrgb
-             | Self::Bc4RUnorm
-             | Self::Bc4RSnorm
-             | Self::Bc5RgUnorm
-             | Self::Bc5RgSnorm
-             | Self::Bc6hRgbUfloat
-             | Self::Bc6hRgbFloat
-             | Self::Bc7RgbaUnorm
-             | Self::Bc7RgbaUnormSrgb => Some(float),
- 
-             Self::Etc2Rgb8Unorm
-             | Self::Etc2Rgb8UnormSrgb
-             | Self::Etc2Rgb8A1Unorm
-             | Self::Etc2Rgb8A1UnormSrgb
-             | Self::Etc2Rgba8Unorm
-             | Self::Etc2Rgba8UnormSrgb
-             | Self::EacR11Unorm
-             | Self::EacR11Snorm
-             | Self::EacRg11Unorm
-             | Self::EacRg11Snorm => Some(float),
- 
-             Self::Astc { .. } => Some(float),
-         }
-     }
- 
-     /// Returns the [texel block size](https://gpuweb.github.io/gpuweb/#texel-block-size)
-     /// of this format.
-     ///
-     /// Returns `None` if any of the following are true:
-     ///  - the format is combined depth-stencil and no `aspect` was provided
-     ///  - the format is `Depth24Plus`
-     ///  - the format is `Depth24PlusStencil8` and `aspect` is depth.
-     pub fn block_size(&self, aspect: Option<TextureAspect>) -> Option<u32> {
-         match *self {
-             Self::R8Unorm | Self::R8Snorm | Self::R8Uint | Self::R8Sint => Some(1),
- 
-             Self::Rg8Unorm | Self::Rg8Snorm | Self::Rg8Uint | Self::Rg8Sint => Some(2),
-             Self::R16Unorm | Self::R16Snorm | Self::R16Uint | Self::R16Sint | Self::R16Float => {
-                 Some(2)
-             }
- 
-             Self::Rgba8Unorm
-             | Self::Rgba8UnormSrgb
-             | Self::Rgba8Snorm
-             | Self::Rgba8Uint
-             | Self::Rgba8Sint
-             | Self::Bgra8Unorm
-             | Self::Bgra8UnormSrgb => Some(4),
-             Self::Rg16Unorm
-             | Self::Rg16Snorm
-             | Self::Rg16Uint
-             | Self::Rg16Sint
-             | Self::Rg16Float => Some(4),
-             Self::R32Uint | Self::R32Sint | Self::R32Float => Some(4),
-             Self::Rgb9e5Ufloat | Self::Rgb10a2Unorm | Self::Rg11b10Float => Some(4),
- 
-             Self::Rgba16Unorm
-             | Self::Rgba16Snorm
-             | Self::Rgba16Uint
-             | Self::Rgba16Sint
-             | Self::Rgba16Float => Some(8),
-             Self::Rg32Uint | Self::Rg32Sint | Self::Rg32Float => Some(8),
- 
-             Self::Rgba32Uint | Self::Rgba32Sint | Self::Rgba32Float => Some(16),
- 
-             Self::Stencil8 => Some(1),
-             Self::Depth16Unorm => Some(2),
-             Self::Depth32Float => Some(4),
-             Self::Depth24Plus => None,
-             Self::Depth24PlusStencil8 => match aspect {
-                 None | Some(TextureAspect::All) => None,
-                 Some(TextureAspect::DepthOnly) => None,
-                 Some(TextureAspect::StencilOnly) => Some(1),
-             },
-             Self::Depth32FloatStencil8 => match aspect {
-                 None | Some(TextureAspect::All) => None,
-                 Some(TextureAspect::DepthOnly) => Some(4),
-                 Some(TextureAspect::StencilOnly) => Some(1),
-             },
- 
-             Self::Bc1RgbaUnorm | Self::Bc1RgbaUnormSrgb | Self::Bc4RUnorm | Self::Bc4RSnorm => {
-                 Some(8)
-             }
-             Self::Bc2RgbaUnorm
-             | Self::Bc2RgbaUnormSrgb
-             | Self::Bc3RgbaUnorm
-             | Self::Bc3RgbaUnormSrgb
-             | Self::Bc5RgUnorm
-             | Self::Bc5RgSnorm
-             | Self::Bc6hRgbUfloat
-             | Self::Bc6hRgbFloat
-             | Self::Bc7RgbaUnorm
-             | Self::Bc7RgbaUnormSrgb => Some(16),
- 
-             Self::Etc2Rgb8Unorm
-             | Self::Etc2Rgb8UnormSrgb
-             | Self::Etc2Rgb8A1Unorm
-             | Self::Etc2Rgb8A1UnormSrgb
-             | Self::EacR11Unorm
-             | Self::EacR11Snorm => Some(8),
-             Self::Etc2Rgba8Unorm
-             | Self::Etc2Rgba8UnormSrgb
-             | Self::EacRg11Unorm
-             | Self::EacRg11Snorm => Some(16),
- 
-             Self::Astc { .. } => Some(16),
-         }
-     }
- 
-     /// Strips the `Srgb` suffix from the given texture format.
-     pub fn remove_srgb_suffix(&self) -> TextureFormat {
-         match *self {
-             Self::Rgba8UnormSrgb => Self::Rgba8Unorm,
-             Self::Bgra8UnormSrgb => Self::Bgra8Unorm,
-             Self::Bc1RgbaUnormSrgb => Self::Bc1RgbaUnorm,
-             Self::Bc2RgbaUnormSrgb => Self::Bc2RgbaUnorm,
-             Self::Bc3RgbaUnormSrgb => Self::Bc3RgbaUnorm,
-             Self::Bc7RgbaUnormSrgb => Self::Bc7RgbaUnorm,
-             Self::Etc2Rgb8UnormSrgb => Self::Etc2Rgb8Unorm,
-             Self::Etc2Rgb8A1UnormSrgb => Self::Etc2Rgb8A1Unorm,
-             Self::Etc2Rgba8UnormSrgb => Self::Etc2Rgba8Unorm,
-             Self::Astc {
-                 block,
-                 channel: AstcChannel::UnormSrgb,
-             } => Self::Astc {
-                 block,
-                 channel: AstcChannel::Unorm,
-             },
-             _ => *self,
-         }
-     }
- 
-     /// Adds an `Srgb` suffix to the given texture format, if the format supports it.
-     pub fn add_srgb_suffix(&self) -> TextureFormat {
-         match *self {
-             Self::Rgba8Unorm => Self::Rgba8UnormSrgb,
-             Self::Bgra8Unorm => Self::Bgra8UnormSrgb,
-             Self::Bc1RgbaUnorm => Self::Bc1RgbaUnormSrgb,
-             Self::Bc2RgbaUnorm => Self::Bc2RgbaUnormSrgb,
-             Self::Bc3RgbaUnorm => Self::Bc3RgbaUnormSrgb,
-             Self::Bc7RgbaUnorm => Self::Bc7RgbaUnormSrgb,
-             Self::Etc2Rgb8Unorm => Self::Etc2Rgb8UnormSrgb,
-             Self::Etc2Rgb8A1Unorm => Self::Etc2Rgb8A1UnormSrgb,
-             Self::Etc2Rgba8Unorm => Self::Etc2Rgba8UnormSrgb,
-             Self::Astc {
-                 block,
-                 channel: AstcChannel::Unorm,
-             } => Self::Astc {
-                 block,
-                 channel: AstcChannel::UnormSrgb,
-             },
-             _ => *self,
-         }
-     }
- 
-     /// Returns `true` for srgb formats.
-     pub fn is_srgb(&self) -> bool {
-         *self != self.remove_srgb_suffix()
-     }
- }
+    /// Returns the aspect-specific format of the original format
+    ///
+    /// see <https://gpuweb.github.io/gpuweb/#abstract-opdef-resolving-gputextureaspect>
+    pub fn aspect_specific_format(&self, aspect: TextureAspect) -> Option<Self> {
+        match (*self, aspect) {
+            (Self::Stencil8, TextureAspect::StencilOnly) => Some(*self),
+            (
+                Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float,
+                TextureAspect::DepthOnly,
+            ) => Some(*self),
+            (
+                Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8,
+                TextureAspect::StencilOnly,
+            ) => Some(Self::Stencil8),
+            (Self::Depth24PlusStencil8, TextureAspect::DepthOnly) => Some(Self::Depth24Plus),
+            (Self::Depth32FloatStencil8, TextureAspect::DepthOnly) => Some(Self::Depth32Float),
+            (Self::NV12, TextureAspect::Plane0) => Some(Self::R8Unorm),
+            (Self::NV12, TextureAspect::Plane1) => Some(Self::Rg8Unorm),
+            // views to multi-planar formats must specify the plane
+            (format, TextureAspect::All) if !format.is_multi_planar_format() => Some(format),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if `self` is a depth or stencil component of the given
+    /// combined depth-stencil format
+    pub fn is_depth_stencil_component(&self, combined_format: Self) -> bool {
+        match (combined_format, *self) {
+            (Self::Depth24PlusStencil8, Self::Depth24Plus | Self::Stencil8)
+            | (Self::Depth32FloatStencil8, Self::Depth32Float | Self::Stencil8) => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the format is a depth and/or stencil format
+    ///
+    /// see <https://gpuweb.github.io/gpuweb/#depth-formats>
+    pub fn is_depth_stencil_format(&self) -> bool {
+        match *self {
+            Self::Stencil8
+            | Self::Depth16Unorm
+            | Self::Depth24Plus
+            | Self::Depth24PlusStencil8
+            | Self::Depth32Float
+            | Self::Depth32FloatStencil8 => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the format is a combined depth-stencil format
+    ///
+    /// see <https://gpuweb.github.io/gpuweb/#combined-depth-stencil-format>
+    pub fn is_combined_depth_stencil_format(&self) -> bool {
+        match *self {
+            Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the format is a multi-planar format
+    pub fn is_multi_planar_format(&self) -> bool {
+        self.planes().is_some()
+    }
+
+    /// Returns the number of planes a multi-planar format has.
+    pub fn planes(&self) -> Option<u32> {
+        match *self {
+            Self::NV12 => Some(2),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the format has a color aspect
+    pub fn has_color_aspect(&self) -> bool {
+        !self.is_depth_stencil_format()
+    }
+
+    /// Returns `true` if the format has a depth aspect
+    pub fn has_depth_aspect(&self) -> bool {
+        match *self {
+            Self::Depth16Unorm
+            | Self::Depth24Plus
+            | Self::Depth24PlusStencil8
+            | Self::Depth32Float
+            | Self::Depth32FloatStencil8 => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the format has a stencil aspect
+    pub fn has_stencil_aspect(&self) -> bool {
+        match *self {
+            Self::Stencil8 | Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => true,
+            _ => false,
+        }
+    }
+
+    /// Returns the size multiple requirement for a texture using this format.
+    pub fn size_multiple_requirement(&self) -> (u32, u32) {
+        match *self {
+            Self::NV12 => (2, 2),
+            _ => self.block_dimensions(),
+        }
+    }
+
+    /// Returns the dimension of a [block](https://gpuweb.github.io/gpuweb/#texel-block) of texels.
+    ///
+    /// Uncompressed formats have a block dimension of `(1, 1)`.
+    pub fn block_dimensions(&self) -> (u32, u32) {
+        match *self {
+            Self::R8Unorm
+            | Self::R8Snorm
+            | Self::R8Uint
+            | Self::R8Sint
+            | Self::R16Uint
+            | Self::R16Sint
+            | Self::R16Unorm
+            | Self::R16Snorm
+            | Self::R16Float
+            | Self::Rg8Unorm
+            | Self::Rg8Snorm
+            | Self::Rg8Uint
+            | Self::Rg8Sint
+            | Self::R32Uint
+            | Self::R32Sint
+            | Self::R32Float
+            | Self::Rg16Uint
+            | Self::Rg16Sint
+            | Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rg16Float
+            | Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Rgba8Uint
+            | Self::Rgba8Sint
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb
+            | Self::Rgb9e5Ufloat
+            | Self::Rgb10a2Uint
+            | Self::Rgb10a2Unorm
+            | Self::Rg11b10Float
+            | Self::Rg32Uint
+            | Self::Rg32Sint
+            | Self::Rg32Float
+            | Self::Rgba16Uint
+            | Self::Rgba16Sint
+            | Self::Rgba16Unorm
+            | Self::Rgba16Snorm
+            | Self::Rgba16Float
+            | Self::Rgba32Uint
+            | Self::Rgba32Sint
+            | Self::Rgba32Float
+            | Self::Stencil8
+            | Self::Depth16Unorm
+            | Self::Depth24Plus
+            | Self::Depth24PlusStencil8
+            | Self::Depth32Float
+            | Self::Depth32FloatStencil8
+            | Self::NV12 => (1, 1),
+
+            Self::Bc1RgbaUnorm
+            | Self::Bc1RgbaUnormSrgb
+            | Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc4RUnorm
+            | Self::Bc4RSnorm
+            | Self::Bc5RgUnorm
+            | Self::Bc5RgSnorm
+            | Self::Bc6hRgbUfloat
+            | Self::Bc6hRgbFloat
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => (4, 4),
+
+            Self::Etc2Rgb8Unorm
+            | Self::Etc2Rgb8UnormSrgb
+            | Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb
+            | Self::EacR11Unorm
+            | Self::EacR11Snorm
+            | Self::EacRg11Unorm
+            | Self::EacRg11Snorm => (4, 4),
+
+            Self::Astc { block, .. } => match block {
+                AstcBlock::B4x4 => (4, 4),
+                AstcBlock::B5x4 => (5, 4),
+                AstcBlock::B5x5 => (5, 5),
+                AstcBlock::B6x5 => (6, 5),
+                AstcBlock::B6x6 => (6, 6),
+                AstcBlock::B8x5 => (8, 5),
+                AstcBlock::B8x6 => (8, 6),
+                AstcBlock::B8x8 => (8, 8),
+                AstcBlock::B10x5 => (10, 5),
+                AstcBlock::B10x6 => (10, 6),
+                AstcBlock::B10x8 => (10, 8),
+                AstcBlock::B10x10 => (10, 10),
+                AstcBlock::B12x10 => (12, 10),
+                AstcBlock::B12x12 => (12, 12),
+            },
+        }
+    }
+
+    /// Returns `true` for compressed formats.
+    pub fn is_compressed(&self) -> bool {
+        self.block_dimensions() != (1, 1)
+    }
+
+    /// Returns the required features (if any) in order to use the texture.
+    pub fn required_features(&self) -> Features {
+        match *self {
+            Self::R8Unorm
+            | Self::R8Snorm
+            | Self::R8Uint
+            | Self::R8Sint
+            | Self::R16Uint
+            | Self::R16Sint
+            | Self::R16Float
+            | Self::Rg8Unorm
+            | Self::Rg8Snorm
+            | Self::Rg8Uint
+            | Self::Rg8Sint
+            | Self::R32Uint
+            | Self::R32Sint
+            | Self::R32Float
+            | Self::Rg16Uint
+            | Self::Rg16Sint
+            | Self::Rg16Float
+            | Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Rgba8Uint
+            | Self::Rgba8Sint
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb
+            | Self::Rgb9e5Ufloat
+            | Self::Rgb10a2Uint
+            | Self::Rgb10a2Unorm
+            | Self::Rg11b10Float
+            | Self::Rg32Uint
+            | Self::Rg32Sint
+            | Self::Rg32Float
+            | Self::Rgba16Uint
+            | Self::Rgba16Sint
+            | Self::Rgba16Float
+            | Self::Rgba32Uint
+            | Self::Rgba32Sint
+            | Self::Rgba32Float
+            | Self::Stencil8
+            | Self::Depth16Unorm
+            | Self::Depth24Plus
+            | Self::Depth24PlusStencil8
+            | Self::Depth32Float => Features::empty(),
+
+            Self::Depth32FloatStencil8 => Features::DEPTH32FLOAT_STENCIL8,
+
+            Self::NV12 => Features::TEXTURE_FORMAT_NV12,
+
+            Self::R16Unorm
+            | Self::R16Snorm
+            | Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rgba16Unorm
+            | Self::Rgba16Snorm => Features::TEXTURE_FORMAT_16BIT_NORM,
+
+            Self::Bc1RgbaUnorm
+            | Self::Bc1RgbaUnormSrgb
+            | Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc4RUnorm
+            | Self::Bc4RSnorm
+            | Self::Bc5RgUnorm
+            | Self::Bc5RgSnorm
+            | Self::Bc6hRgbUfloat
+            | Self::Bc6hRgbFloat
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => Features::TEXTURE_COMPRESSION_BC,
+
+            Self::Etc2Rgb8Unorm
+            | Self::Etc2Rgb8UnormSrgb
+            | Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb
+            | Self::EacR11Unorm
+            | Self::EacR11Snorm
+            | Self::EacRg11Unorm
+            | Self::EacRg11Snorm => Features::TEXTURE_COMPRESSION_ETC2,
+
+            Self::Astc { channel, .. } => match channel {
+                AstcChannel::Hdr => Features::TEXTURE_COMPRESSION_ASTC_HDR,
+                AstcChannel::Unorm | AstcChannel::UnormSrgb => Features::TEXTURE_COMPRESSION_ASTC,
+            },
+        }
+    }
+
+    /// Returns the format features guaranteed by the WebGPU spec.
+    ///
+    /// Additional features are available if `Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES` is enabled.
+    pub fn guaranteed_format_features(&self, device_features: Features) -> TextureFormatFeatures {
+        // Multisampling
+        let noaa = TextureFormatFeatureFlags::empty();
+        let msaa = TextureFormatFeatureFlags::MULTISAMPLE_X4;
+        let msaa_resolve = msaa | TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE;
+
+        // Flags
+        let basic =
+            TextureUsages::COPY_SRC | TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
+        let attachment = basic | TextureUsages::RENDER_ATTACHMENT;
+        let storage = basic | TextureUsages::STORAGE_BINDING;
+        let binding = TextureUsages::TEXTURE_BINDING;
+        let all_flags = TextureUsages::all();
+        let rg11b10f = if device_features.contains(Features::RG11B10UFLOAT_RENDERABLE) {
+            attachment
+        } else {
+            basic
+        };
+        let bgra8unorm = if device_features.contains(Features::BGRA8UNORM_STORAGE) {
+            attachment | TextureUsages::STORAGE_BINDING
+        } else {
+            attachment
+        };
+
+        #[rustfmt::skip] // lets make a nice table
+        let (
+            mut flags,
+            allowed_usages,
+        ) = match *self {
+            Self::R8Unorm =>              (msaa_resolve, attachment),
+            Self::R8Snorm =>              (        noaa,      basic),
+            Self::R8Uint =>               (        msaa, attachment),
+            Self::R8Sint =>               (        msaa, attachment),
+            Self::R16Uint =>              (        msaa, attachment),
+            Self::R16Sint =>              (        msaa, attachment),
+            Self::R16Float =>             (msaa_resolve, attachment),
+            Self::Rg8Unorm =>             (msaa_resolve, attachment),
+            Self::Rg8Snorm =>             (        noaa,      basic),
+            Self::Rg8Uint =>              (        msaa, attachment),
+            Self::Rg8Sint =>              (        msaa, attachment),
+            Self::R32Uint =>              (        noaa,  all_flags),
+            Self::R32Sint =>              (        noaa,  all_flags),
+            Self::R32Float =>             (        msaa,  all_flags),
+            Self::Rg16Uint =>             (        msaa, attachment),
+            Self::Rg16Sint =>             (        msaa, attachment),
+            Self::Rg16Float =>            (msaa_resolve, attachment),
+            Self::Rgba8Unorm =>           (msaa_resolve,  all_flags),
+            Self::Rgba8UnormSrgb =>       (msaa_resolve, attachment),
+            Self::Rgba8Snorm =>           (        noaa,    storage),
+            Self::Rgba8Uint =>            (        msaa,  all_flags),
+            Self::Rgba8Sint =>            (        msaa,  all_flags),
+            Self::Bgra8Unorm =>           (msaa_resolve, bgra8unorm),
+            Self::Bgra8UnormSrgb =>       (msaa_resolve, attachment),
+            Self::Rgb10a2Uint =>          (        msaa, attachment),
+            Self::Rgb10a2Unorm =>         (msaa_resolve, attachment),
+            Self::Rg11b10Float =>         (        msaa,   rg11b10f),
+            Self::Rg32Uint =>             (        noaa,  all_flags),
+            Self::Rg32Sint =>             (        noaa,  all_flags),
+            Self::Rg32Float =>            (        noaa,  all_flags),
+            Self::Rgba16Uint =>           (        msaa,  all_flags),
+            Self::Rgba16Sint =>           (        msaa,  all_flags),
+            Self::Rgba16Float =>          (msaa_resolve,  all_flags),
+            Self::Rgba32Uint =>           (        noaa,  all_flags),
+            Self::Rgba32Sint =>           (        noaa,  all_flags),
+            Self::Rgba32Float =>          (        noaa,  all_flags),
+
+            Self::Stencil8 =>             (        msaa, attachment),
+            Self::Depth16Unorm =>         (        msaa, attachment),
+            Self::Depth24Plus =>          (        msaa, attachment),
+            Self::Depth24PlusStencil8 =>  (        msaa, attachment),
+            Self::Depth32Float =>         (        msaa, attachment),
+            Self::Depth32FloatStencil8 => (        msaa, attachment),
+
+            // We only support sampling nv12 textures until we implement transfer plane data.
+            Self::NV12 =>                 (        noaa,    binding),
+
+            Self::R16Unorm =>             (        msaa,    storage),
+            Self::R16Snorm =>             (        msaa,    storage),
+            Self::Rg16Unorm =>            (        msaa,    storage),
+            Self::Rg16Snorm =>            (        msaa,    storage),
+            Self::Rgba16Unorm =>          (        msaa,    storage),
+            Self::Rgba16Snorm =>          (        msaa,    storage),
+
+            Self::Rgb9e5Ufloat =>         (        noaa,      basic),
+
+            Self::Bc1RgbaUnorm =>         (        noaa,      basic),
+            Self::Bc1RgbaUnormSrgb =>     (        noaa,      basic),
+            Self::Bc2RgbaUnorm =>         (        noaa,      basic),
+            Self::Bc2RgbaUnormSrgb =>     (        noaa,      basic),
+            Self::Bc3RgbaUnorm =>         (        noaa,      basic),
+            Self::Bc3RgbaUnormSrgb =>     (        noaa,      basic),
+            Self::Bc4RUnorm =>            (        noaa,      basic),
+            Self::Bc4RSnorm =>            (        noaa,      basic),
+            Self::Bc5RgUnorm =>           (        noaa,      basic),
+            Self::Bc5RgSnorm =>           (        noaa,      basic),
+            Self::Bc6hRgbUfloat =>        (        noaa,      basic),
+            Self::Bc6hRgbFloat =>         (        noaa,      basic),
+            Self::Bc7RgbaUnorm =>         (        noaa,      basic),
+            Self::Bc7RgbaUnormSrgb =>     (        noaa,      basic),
+
+            Self::Etc2Rgb8Unorm =>        (        noaa,      basic),
+            Self::Etc2Rgb8UnormSrgb =>    (        noaa,      basic),
+            Self::Etc2Rgb8A1Unorm =>      (        noaa,      basic),
+            Self::Etc2Rgb8A1UnormSrgb =>  (        noaa,      basic),
+            Self::Etc2Rgba8Unorm =>       (        noaa,      basic),
+            Self::Etc2Rgba8UnormSrgb =>   (        noaa,      basic),
+            Self::EacR11Unorm =>          (        noaa,      basic),
+            Self::EacR11Snorm =>          (        noaa,      basic),
+            Self::EacRg11Unorm =>         (        noaa,      basic),
+            Self::EacRg11Snorm =>         (        noaa,      basic),
+
+            Self::Astc { .. } =>          (        noaa,      basic),
+        };
+
+        // Get whether the format is filterable, taking features into account
+        let sample_type1 = self.sample_type(None, Some(device_features));
+        let is_filterable = sample_type1 == Some(TextureSampleType::Float { filterable: true });
+
+        // Features that enable filtering don't affect blendability
+        let sample_type2 = self.sample_type(None, None);
+        let is_blendable = sample_type2 == Some(TextureSampleType::Float { filterable: true });
+
+        flags.set(TextureFormatFeatureFlags::FILTERABLE, is_filterable);
+        flags.set(TextureFormatFeatureFlags::BLENDABLE, is_blendable);
+
+        TextureFormatFeatures {
+            allowed_usages,
+            flags,
+        }
+    }
+
+    /// Returns the sample type compatible with this format and aspect.
+    ///
+    /// Returns `None` only if this is a combined depth-stencil format or a multi-planar format
+    /// and `TextureAspect::All` or no `aspect` was provided.
+    pub fn sample_type(
+        &self,
+        aspect: Option<TextureAspect>,
+        device_features: Option<Features>,
+    ) -> Option<TextureSampleType> {
+        let float = TextureSampleType::Float { filterable: true };
+        let unfilterable_float = TextureSampleType::Float { filterable: false };
+        let float32_sample_type = TextureSampleType::Float {
+            filterable: device_features
+                .unwrap_or(Features::empty())
+                .contains(Features::FLOAT32_FILTERABLE),
+        };
+        let depth = TextureSampleType::Depth;
+        let uint = TextureSampleType::Uint;
+        let sint = TextureSampleType::Sint;
+
+        match *self {
+            Self::R8Unorm
+            | Self::R8Snorm
+            | Self::Rg8Unorm
+            | Self::Rg8Snorm
+            | Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb
+            | Self::R16Float
+            | Self::Rg16Float
+            | Self::Rgba16Float
+            | Self::Rgb10a2Unorm
+            | Self::Rg11b10Float => Some(float),
+
+            Self::R32Float | Self::Rg32Float | Self::Rgba32Float => Some(float32_sample_type),
+
+            Self::R8Uint
+            | Self::Rg8Uint
+            | Self::Rgba8Uint
+            | Self::R16Uint
+            | Self::Rg16Uint
+            | Self::Rgba16Uint
+            | Self::R32Uint
+            | Self::Rg32Uint
+            | Self::Rgba32Uint
+            | Self::Rgb10a2Uint => Some(uint),
+
+            Self::R8Sint
+            | Self::Rg8Sint
+            | Self::Rgba8Sint
+            | Self::R16Sint
+            | Self::Rg16Sint
+            | Self::Rgba16Sint
+            | Self::R32Sint
+            | Self::Rg32Sint
+            | Self::Rgba32Sint => Some(sint),
+
+            Self::Stencil8 => Some(uint),
+            Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float => Some(depth),
+            Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => match aspect {
+                Some(TextureAspect::DepthOnly) => Some(depth),
+                Some(TextureAspect::StencilOnly) => Some(uint),
+                _ => None,
+            },
+
+            Self::NV12 => match aspect {
+                Some(TextureAspect::Plane0) | Some(TextureAspect::Plane1) => {
+                    Some(unfilterable_float)
+                }
+                _ => None,
+            },
+
+            Self::R16Unorm
+            | Self::R16Snorm
+            | Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rgba16Unorm
+            | Self::Rgba16Snorm => Some(float),
+
+            Self::Rgb9e5Ufloat => Some(float),
+
+            Self::Bc1RgbaUnorm
+            | Self::Bc1RgbaUnormSrgb
+            | Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc4RUnorm
+            | Self::Bc4RSnorm
+            | Self::Bc5RgUnorm
+            | Self::Bc5RgSnorm
+            | Self::Bc6hRgbUfloat
+            | Self::Bc6hRgbFloat
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => Some(float),
+
+            Self::Etc2Rgb8Unorm
+            | Self::Etc2Rgb8UnormSrgb
+            | Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb
+            | Self::EacR11Unorm
+            | Self::EacR11Snorm
+            | Self::EacRg11Unorm
+            | Self::EacRg11Snorm => Some(float),
+
+            Self::Astc { .. } => Some(float),
+        }
+    }
+
+    /// The number of bytes one [texel block](https://gpuweb.github.io/gpuweb/#texel-block) occupies during an image copy, if applicable.
+    ///
+    /// Known as the [texel block copy footprint](https://gpuweb.github.io/gpuweb/#texel-block-copy-footprint).
+    ///
+    /// Note that for uncompressed formats this is the same as the size of a single texel,
+    /// since uncompressed formats have a block size of 1x1.
+    ///
+    /// Returns `None` if any of the following are true:
+    ///  - the format is a combined depth-stencil and no `aspect` was provided
+    ///  - the format is a multi-planar format and no `aspect` was provided
+    ///  - the format is `Depth24Plus`
+    ///  - the format is `Depth24PlusStencil8` and `aspect` is depth.
+    #[deprecated(since = "0.19.0", note = "Use `block_copy_size` instead.")]
+    pub fn block_size(&self, aspect: Option<TextureAspect>) -> Option<u32> {
+        self.block_copy_size(aspect)
+    }
+
+    /// The number of bytes one [texel block](https://gpuweb.github.io/gpuweb/#texel-block) occupies during an image copy, if applicable.
+    ///
+    /// Known as the [texel block copy footprint](https://gpuweb.github.io/gpuweb/#texel-block-copy-footprint).
+    ///
+    /// Note that for uncompressed formats this is the same as the size of a single texel,
+    /// since uncompressed formats have a block size of 1x1.
+    ///
+    /// Returns `None` if any of the following are true:
+    ///  - the format is a combined depth-stencil and no `aspect` was provided
+    ///  - the format is a multi-planar format and no `aspect` was provided
+    ///  - the format is `Depth24Plus`
+    ///  - the format is `Depth24PlusStencil8` and `aspect` is depth.
+    pub fn block_copy_size(&self, aspect: Option<TextureAspect>) -> Option<u32> {
+        match *self {
+            Self::R8Unorm | Self::R8Snorm | Self::R8Uint | Self::R8Sint => Some(1),
+
+            Self::Rg8Unorm | Self::Rg8Snorm | Self::Rg8Uint | Self::Rg8Sint => Some(2),
+            Self::R16Unorm | Self::R16Snorm | Self::R16Uint | Self::R16Sint | Self::R16Float => {
+                Some(2)
+            }
+
+            Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Rgba8Uint
+            | Self::Rgba8Sint
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb => Some(4),
+            Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rg16Uint
+            | Self::Rg16Sint
+            | Self::Rg16Float => Some(4),
+            Self::R32Uint | Self::R32Sint | Self::R32Float => Some(4),
+            Self::Rgb9e5Ufloat | Self::Rgb10a2Uint | Self::Rgb10a2Unorm | Self::Rg11b10Float => {
+                Some(4)
+            }
+
+            Self::Rgba16Unorm
+            | Self::Rgba16Snorm
+            | Self::Rgba16Uint
+            | Self::Rgba16Sint
+            | Self::Rgba16Float => Some(8),
+            Self::Rg32Uint | Self::Rg32Sint | Self::Rg32Float => Some(8),
+
+            Self::Rgba32Uint | Self::Rgba32Sint | Self::Rgba32Float => Some(16),
+
+            Self::Stencil8 => Some(1),
+            Self::Depth16Unorm => Some(2),
+            Self::Depth32Float => Some(4),
+            Self::Depth24Plus => None,
+            Self::Depth24PlusStencil8 => match aspect {
+                Some(TextureAspect::DepthOnly) => None,
+                Some(TextureAspect::StencilOnly) => Some(1),
+                _ => None,
+            },
+            Self::Depth32FloatStencil8 => match aspect {
+                Some(TextureAspect::DepthOnly) => Some(4),
+                Some(TextureAspect::StencilOnly) => Some(1),
+                _ => None,
+            },
+
+            Self::NV12 => match aspect {
+                Some(TextureAspect::Plane0) => Some(1),
+                Some(TextureAspect::Plane1) => Some(2),
+                _ => None,
+            },
+
+            Self::Bc1RgbaUnorm | Self::Bc1RgbaUnormSrgb | Self::Bc4RUnorm | Self::Bc4RSnorm => {
+                Some(8)
+            }
+            Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc5RgUnorm
+            | Self::Bc5RgSnorm
+            | Self::Bc6hRgbUfloat
+            | Self::Bc6hRgbFloat
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => Some(16),
+
+            Self::Etc2Rgb8Unorm
+            | Self::Etc2Rgb8UnormSrgb
+            | Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::EacR11Unorm
+            | Self::EacR11Snorm => Some(8),
+            Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb
+            | Self::EacRg11Unorm
+            | Self::EacRg11Snorm => Some(16),
+
+            Self::Astc { .. } => Some(16),
+        }
+    }
+
+    /// Returns the number of components this format has.
+    pub fn components(&self) -> u8 {
+        self.components_with_aspect(TextureAspect::All)
+    }
+
+    /// Returns the number of components this format has taking into account the `aspect`.
+    ///
+    /// The `aspect` is only relevant for combined depth-stencil formats and multi-planar formats.
+    pub fn components_with_aspect(&self, aspect: TextureAspect) -> u8 {
+        match *self {
+            Self::R8Unorm
+            | Self::R8Snorm
+            | Self::R8Uint
+            | Self::R8Sint
+            | Self::R16Unorm
+            | Self::R16Snorm
+            | Self::R16Uint
+            | Self::R16Sint
+            | Self::R16Float
+            | Self::R32Uint
+            | Self::R32Sint
+            | Self::R32Float => 1,
+
+            Self::Rg8Unorm
+            | Self::Rg8Snorm
+            | Self::Rg8Uint
+            | Self::Rg8Sint
+            | Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rg16Uint
+            | Self::Rg16Sint
+            | Self::Rg16Float
+            | Self::Rg32Uint
+            | Self::Rg32Sint
+            | Self::Rg32Float => 2,
+
+            Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Rgba8Uint
+            | Self::Rgba8Sint
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb
+            | Self::Rgba16Unorm
+            | Self::Rgba16Snorm
+            | Self::Rgba16Uint
+            | Self::Rgba16Sint
+            | Self::Rgba16Float
+            | Self::Rgba32Uint
+            | Self::Rgba32Sint
+            | Self::Rgba32Float => 4,
+
+            Self::Rgb9e5Ufloat | Self::Rg11b10Float => 3,
+            Self::Rgb10a2Uint | Self::Rgb10a2Unorm => 4,
+
+            Self::Stencil8 | Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float => 1,
+
+            Self::Depth24PlusStencil8 | Self::Depth32FloatStencil8 => match aspect {
+                TextureAspect::DepthOnly | TextureAspect::StencilOnly => 1,
+                _ => 2,
+            },
+
+            Self::NV12 => match aspect {
+                TextureAspect::Plane0 => 1,
+                TextureAspect::Plane1 => 2,
+                _ => 3,
+            },
+
+            Self::Bc4RUnorm | Self::Bc4RSnorm => 1,
+            Self::Bc5RgUnorm | Self::Bc5RgSnorm => 2,
+            Self::Bc6hRgbUfloat | Self::Bc6hRgbFloat => 3,
+            Self::Bc1RgbaUnorm
+            | Self::Bc1RgbaUnormSrgb
+            | Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => 4,
+
+            Self::EacR11Unorm | Self::EacR11Snorm => 1,
+            Self::EacRg11Unorm | Self::EacRg11Snorm => 2,
+            Self::Etc2Rgb8Unorm | Self::Etc2Rgb8UnormSrgb => 3,
+            Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb => 4,
+
+            Self::Astc { .. } => 4,
+        }
+    }
+
+    /// Strips the `Srgb` suffix from the given texture format.
+    pub fn remove_srgb_suffix(&self) -> TextureFormat {
+        match *self {
+            Self::Rgba8UnormSrgb => Self::Rgba8Unorm,
+            Self::Bgra8UnormSrgb => Self::Bgra8Unorm,
+            Self::Bc1RgbaUnormSrgb => Self::Bc1RgbaUnorm,
+            Self::Bc2RgbaUnormSrgb => Self::Bc2RgbaUnorm,
+            Self::Bc3RgbaUnormSrgb => Self::Bc3RgbaUnorm,
+            Self::Bc7RgbaUnormSrgb => Self::Bc7RgbaUnorm,
+            Self::Etc2Rgb8UnormSrgb => Self::Etc2Rgb8Unorm,
+            Self::Etc2Rgb8A1UnormSrgb => Self::Etc2Rgb8A1Unorm,
+            Self::Etc2Rgba8UnormSrgb => Self::Etc2Rgba8Unorm,
+            Self::Astc {
+                block,
+                channel: AstcChannel::UnormSrgb,
+            } => Self::Astc {
+                block,
+                channel: AstcChannel::Unorm,
+            },
+            _ => *self,
+        }
+    }
+
+    /// Adds an `Srgb` suffix to the given texture format, if the format supports it.
+    pub fn add_srgb_suffix(&self) -> TextureFormat {
+        match *self {
+            Self::Rgba8Unorm => Self::Rgba8UnormSrgb,
+            Self::Bgra8Unorm => Self::Bgra8UnormSrgb,
+            Self::Bc1RgbaUnorm => Self::Bc1RgbaUnormSrgb,
+            Self::Bc2RgbaUnorm => Self::Bc2RgbaUnormSrgb,
+            Self::Bc3RgbaUnorm => Self::Bc3RgbaUnormSrgb,
+            Self::Bc7RgbaUnorm => Self::Bc7RgbaUnormSrgb,
+            Self::Etc2Rgb8Unorm => Self::Etc2Rgb8UnormSrgb,
+            Self::Etc2Rgb8A1Unorm => Self::Etc2Rgb8A1UnormSrgb,
+            Self::Etc2Rgba8Unorm => Self::Etc2Rgba8UnormSrgb,
+            Self::Astc {
+                block,
+                channel: AstcChannel::Unorm,
+            } => Self::Astc {
+                block,
+                channel: AstcChannel::UnormSrgb,
+            },
+            _ => *self,
+        }
+    }
+
+    /// Returns `true` for srgb formats.
+    pub fn is_srgb(&self) -> bool {
+        *self != self.remove_srgb_suffix()
+    }
+}
  
  #[test]
  fn texture_format_serialize() {
@@ -4499,6 +4794,26 @@
      /// AutoNoVsync will gracefully do a designed sets of fallbacks if their primary modes are
      /// unsupported.
      pub present_mode: PresentMode,
+     /// Desired maximum number of frames that the presentation engine should queue in advance.
+    ///
+    /// This is a hint to the backend implementation and will always be clamped to the supported range.
+    /// As a consequence, either the maximum frame latency is set directly on the swap chain,
+    /// or waits on present are scheduled to avoid exceeding the maximum frame latency if supported,
+    /// or the swap chain size is set to (max-latency + 1).
+    ///
+    /// Defaults to 2 when created via `wgpu::Surface::get_default_config`.
+    ///
+    /// Typical values range from 3 to 1, but higher values are possible:
+    /// * Choose 2 or higher for potentially smoother frame display, as it allows to be at least one frame
+    /// to be queued up. This typically avoids starving the GPU's work queue.
+    /// Higher values are useful for achieving a constant flow of frames to the display under varying load.
+    /// * Choose 1 for low latency from frame recording to frame display.
+    /// ⚠️ If the backend does not support waiting on present, this will cause the CPU to wait for the GPU
+    /// to finish all work related to the previous frame when calling `wgpu::Surface::get_current_texture`,
+    /// causing CPU-GPU serialization (i.e. when `wgpu::Surface::get_current_texture` returns, the GPU might be idle).
+    /// It is currently not possible to query this. See <https://github.com/gfx-rs/wgpu/issues/2869>.
+    /// * A value of 0 is generally not supported and always clamped to a higher value.
+    pub desired_maximum_frame_latency: u32,
      /// Specifies how the alpha channel of the textures should be handled during compositing.
      pub alpha_mode: CompositeAlphaMode,
      /// Specifies what view formats will be allowed when calling create_view() on texture returned by get_current_texture().
@@ -4518,6 +4833,7 @@
              width: self.width,
              height: self.height,
              present_mode: self.present_mode,
+             desired_maximum_frame_latency: self.desired_maximum_frame_latency,
              alpha_mode: self.alpha_mode,
              view_formats: fun(self.view_formats.clone()),
          }
@@ -5054,25 +5370,30 @@
      }
  }
  
- /// Kind of data the texture holds.
- ///
- /// Corresponds to [WebGPU `GPUTextureAspect`](
- /// https://gpuweb.github.io/gpuweb/#enumdef-gputextureaspect).
- #[repr(C)]
- #[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
- #[cfg_attr(feature = "trace", derive(Serialize))]
- #[cfg_attr(feature = "replay", derive(Deserialize))]
- #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
- pub enum TextureAspect {
-     /// Depth, Stencil, and Color.
-     #[default]
-     All,
-     /// Stencil.
-     StencilOnly,
-     /// Depth.
-     DepthOnly,
- }
- 
+/// Kind of data the texture holds.
+///
+/// Corresponds to [WebGPU `GPUTextureAspect`](
+/// https://gpuweb.github.io/gpuweb/#enumdef-gputextureaspect).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "trace", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum TextureAspect {
+    /// Depth, Stencil, and Color.
+    #[default]
+    All,
+    /// Stencil.
+    StencilOnly,
+    /// Depth.
+    DepthOnly,
+    /// Plane 0.
+    Plane0,
+    /// Plane 1.
+    Plane1,
+    /// Plane 2.
+    Plane2,
+}
  /// How edges should be handled in texture addressing.
  ///
  /// Corresponds to [WebGPU `GPUAddressMode`](
@@ -6153,22 +6474,48 @@
          dxc_path: Option<PathBuf>,
      },
  }
+
+/// Selects which OpenGL ES 3 minor version to request.
+///
+/// When using ANGLE as an OpenGL ES/EGL implementation, explicitly requesting `Version1` can provide a non-conformant ES 3.1 on APIs like D3D11.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum Gles3MinorVersion {
+    /// No explicit minor version is requested, the driver automatically picks the highest available.
+    #[default]
+    Automatic,
+
+    /// Request an ES 3.0 context.
+    Version0,
+
+    /// Request an ES 3.1 context.
+    Version1,
+
+    /// Request an ES 3.2 context.
+    Version2,
+}
  
  /// Options for creating an instance.
  #[derive(Debug)]
  pub struct InstanceDescriptor {
-     /// Which `Backends` to enable.
-     pub backends: Backends,
-     /// Which DX12 shader compiler to use.
-     pub dx12_shader_compiler: Dx12Compiler,
- }
- 
- impl Default for InstanceDescriptor {
-     fn default() -> Self {
-         Self {
-             backends: Backends::all(),
-             dx12_shader_compiler: Dx12Compiler::default(),
-         }
-     }
- }
+    /// Which `Backends` to enable.
+    pub backends: Backends,
+    /// Flags to tune the behavior of the instance.
+    pub flags: InstanceFlags,
+    /// Which DX12 shader compiler to use.
+    pub dx12_shader_compiler: Dx12Compiler,
+    /// Which OpenGL ES 3 minor version to request.
+    pub gles_minor_version: Gles3MinorVersion,
+}
+
+impl Default for InstanceDescriptor {
+    fn default() -> Self {
+        Self {
+            backends: Backends::all(),
+            flags: InstanceFlags::default(),
+            dx12_shader_compiler: Dx12Compiler::default(),
+            gles_minor_version: Gles3MinorVersion::default(),
+        }
+    }
+}
+
  

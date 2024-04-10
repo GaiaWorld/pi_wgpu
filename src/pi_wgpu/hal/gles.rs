@@ -88,16 +88,26 @@ bitflags::bitflags! {
         /// Indicates that buffers used as `GL_ELEMENT_ARRAY_BUFFER` may be created / initialized / used
         /// as other targets, if not present they must not be mixed with other targets.
         const INDEX_BUFFER_ROLE_CHANGE = 1 << 5;
-        /// Indicates that the device supports disabling draw buffers
-        const CAN_DISABLE_DRAW_BUFFER = 1 << 6;
         /// Supports `glGetBufferSubData`
         const GET_BUFFER_SUB_DATA = 1 << 7;
         /// Supports `f16` color buffers
         const COLOR_BUFFER_HALF_FLOAT = 1 << 8;
         /// Supports `f11/f10` and `f32` color buffers
         const COLOR_BUFFER_FLOAT = 1 << 9;
-        /// Supports linear flitering `f32` textures.
-        const TEXTURE_FLOAT_LINEAR = 1 << 10;
+        /// Supports query buffer objects.
+        const QUERY_BUFFERS = 1 << 11;
+        /// Supports 64 bit queries via `glGetQueryObjectui64v`
+        const QUERY_64BIT = 1 << 12;
+        /// Supports `glTexStorage2D`, etc.
+        const TEXTURE_STORAGE = 1 << 13;
+        /// Supports `push_debug_group`, `pop_debug_group` and `debug_message_insert`.
+        const DEBUG_FNS = 1 << 14;
+        /// Supports framebuffer invalidation.
+        const INVALIDATE_FRAMEBUFFER = 1 << 15;
+        /// Indicates support for `glDrawElementsInstancedBaseVertexBaseInstance` and `ARB_shader_draw_parameters`
+        ///
+        /// When this is true, instance offset emulation via vertex buffer rebinding and a shader uniform will be disabled.
+        const FULLY_FEATURED_INSTANCING = 1 << 16;
     }
 }
 

@@ -27,6 +27,8 @@ pub use wgt::{
     TextureUsages, TextureViewDimension, VertexAttribute, VertexFormat, VertexStepMode,
     COPY_BUFFER_ALIGNMENT, COPY_BYTES_PER_ROW_ALIGNMENT, MAP_ALIGNMENT, PUSH_CONSTANT_ALIGNMENT,
     QUERY_RESOLVE_BUFFER_ALIGNMENT, QUERY_SET_MAX_QUERIES, QUERY_SIZE, VERTEX_STRIDE_ALIGNMENT,
+    InstanceFlags, Gles3MinorVersion,
+    
 };
 
 use std::any::Any;
@@ -47,18 +49,43 @@ pub struct Operations<V> {
     /// How data should be read through this attachment.
     pub load: LoadOp<V>,
     /// Whether data will be written to through this attachment.
-    pub store: bool,
+    ///
+    /// Note that resolve textures (if specified) are always written to,
+    /// regardless of this setting.
+    pub store: StoreOp,
+}
+
+/// Operation to perform to the output attachment at the end of a render pass.
+///
+/// Corresponds to [WebGPU `GPUStoreOp`](https://gpuweb.github.io/gpuweb/#enumdef-gpustoreop).
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "trace", derive(serde::Serialize))]
+#[cfg_attr(feature = "replay", derive(serde::Deserialize))]
+pub enum StoreOp {
+    /// Stores the resulting value of the render pass for this attachment.
+    #[default]
+    Store,
+    /// Discards the resulting value of the render pass for this attachment.
+    ///
+    /// The attachment will be treated as uninitialized afterwards.
+    /// (If only either Depth or Stencil texture-aspects is set to `Discard`,
+    /// the respective other texture-aspect will be preserved.)
+    ///
+    /// This can be significantly faster on tile-based render hardware.
+    ///
+    /// Prefer this if the attachment is not read by subsequent passes.
+    Discard,
 }
 
 impl<V: Default> Default for Operations<V> {
+    #[inline]
     fn default() -> Self {
         Self {
-            load: Default::default(),
-            store: true,
+            load: LoadOp::<V>::default(),
+            store: StoreOp::default(),
         }
     }
 }
-
 /// Operation to perform to the output attachment at the start of a render pass.
 ///
 /// The render target must be cleared at least once before its content is loaded.

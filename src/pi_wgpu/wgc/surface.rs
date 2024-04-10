@@ -1,4 +1,68 @@
+use std::marker::PhantomData;
+
 use super::super::{hal, wgt, Adapter, Device, SurfaceCapabilities, Texture, TextureFormat};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+
+#[non_exhaustive]
+pub enum SurfaceTarget<'window> {
+    /// Window handle producer.
+    ///
+    /// If the specified display and window handle are not supported by any of the backends, then the surface
+    /// will not be supported by any adapters.
+    ///
+    /// # Errors
+    ///
+    /// - On WebGL2: surface creation returns an error if the browser does not support WebGL2,
+    ///   or declines to provide GPU access (such as due to a resource shortage).
+    ///
+    /// # Panics
+    ///
+    /// - On macOS/Metal: will panic if not called on the main thread.
+    /// - On web: will panic if the `raw_window_handle` does not properly refer to a
+    ///   canvas element.
+    Window(Box<dyn WindowHandle + 'window>),
+
+    /// Surface from a `web_sys::HtmlCanvasElement`.
+    ///
+    /// The `canvas` argument must be a valid `<canvas>` element to
+    /// create a surface upon.
+    ///
+    /// # Errors
+    ///
+    /// - On WebGL2: surface creation will return an error if the browser does not support WebGL2,
+    ///   or declines to provide GPU access (such as due to a resource shortage).
+    #[cfg(any(webgpu, webgl))]
+    Canvas(web_sys::HtmlCanvasElement),
+
+    /// Surface from a `web_sys::OffscreenCanvas`.
+    ///
+    /// The `canvas` argument must be a valid `OffscreenCanvas` object
+    /// to create a surface upon.
+    ///
+    /// # Errors
+    ///
+    /// - On WebGL2: surface creation will return an error if the browser does not support WebGL2,
+    ///   or declines to provide GPU access (such as due to a resource shortage).
+    #[cfg(any(webgpu, webgl))]
+    OffscreenCanvas(web_sys::OffscreenCanvas),
+}
+
+unsafe impl<'a> Send for SurfaceTarget<'a> {}
+unsafe impl<'a> Sync for SurfaceTarget<'a> {}
+
+
+pub trait WindowHandle: HasWindowHandle + HasDisplayHandle {}
+impl<T> WindowHandle for T where T: HasWindowHandle + HasDisplayHandle {}
+
+
+impl<'a, T> From<T> for SurfaceTarget<'a>
+where
+    T: WindowHandle + 'a,
+{
+    fn from(window: T) -> Self {
+        Self::Window(Box::new(window))
+    }
+}
 
 /// Handle to a presentable surface.
 ///
@@ -8,12 +72,18 @@ use super::super::{hal, wgt, Adapter, Device, SurfaceCapabilities, Texture, Text
 /// This type is unique to the Rust API of `wgpu`. In the WebGPU specification,
 /// [`GPUCanvasContext`](https://gpuweb.github.io/gpuweb/#canvas-context)
 /// serves a similar role.
-#[derive(Debug)]
-pub struct Surface {
+pub struct Surface<'w> {
     pub(crate) inner: hal::Surface,
+    pub(crate) window: SurfaceTarget<'w>,
 }
 
-impl Surface {
+impl std::fmt::Debug for Surface<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Surface").field("inner", &self.inner).finish()
+    }
+}
+
+impl<'w> Surface<'w> {
     /// Returns the capabilities of the surface when used with the given adapter.
     ///
     /// Returns specified values (see [`SurfaceCapabilities`]) if surface is incompatible with the adapter.

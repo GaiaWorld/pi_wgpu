@@ -472,10 +472,12 @@ impl SwapChain {
                     resolve_target: None,
                     ops: super::super::Operations {
                         load: super::super::LoadOp::Load,
-                        store: true,
+                        store: crate::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
         rp.set_pipeline(&self.rp);
         rp.set_bind_group(0, &self.bg, &[]);

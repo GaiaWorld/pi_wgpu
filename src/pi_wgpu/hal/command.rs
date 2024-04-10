@@ -17,7 +17,7 @@
 //!
 
 use super::super::wgt;
-use super::{AdapterContext, AdapterContextLock, GLState};
+use super::{AdapterContext, AdapterContextLock, GLState, PrivateCapabilities};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CommandBuffer;
@@ -26,6 +26,7 @@ pub(crate) struct CommandBuffer;
 pub(crate) struct CommandEncoder {
     state: GLState,
     adapter: AdapterContext,
+    private_caps: PrivateCapabilities,
 }
 
 impl CommandEncoder {
@@ -37,6 +38,7 @@ impl CommandEncoder {
         Ok(Self {
             state,
             adapter: adapter.clone(),
+            private_caps: adapter.imp.borrow().as_ref().unwrap().private_caps.clone(),
         })
     }
 }
@@ -142,13 +144,11 @@ impl CommandEncoder {
         gl: &glow::Context,
         start_vertex: u32,
         vertex_count: u32,
-        start_instance: u32,
+        first_instance: u32,
         instance_count: u32,
     ) {
-        debug_assert!(start_instance == 0);
-
         self.state
-            .draw(gl, start_vertex, vertex_count, instance_count);
+            .draw(gl, self.private_caps, start_vertex, vertex_count, first_instance, instance_count, );
     }
 
     #[inline]
@@ -161,13 +161,14 @@ impl CommandEncoder {
         start_instance: u32,
         instance_count: u32,
     ) {
-        debug_assert!(start_instance == 0);
+        // debug_assert!(start_instance == 0);
         debug_assert!(base_vertex == 0);
 
         self.state.draw_indexed(
             gl,
             start_index as i32,
             index_count as i32,
+            start_instance,
             instance_count as i32,
         );
     }

@@ -14,7 +14,7 @@ use super::super::{
 ///
 /// Corresponds to [WebGPU `GPURequestAdapterOptions`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpurequestadapteroptions).
-pub type RequestAdapterOptions<'a> = RequestAdapterOptionsBase<&'a Surface>;
+pub type RequestAdapterOptions<'a, 'w> = RequestAdapterOptionsBase<&'a Surface<'w>>;
 
 /// Handle to a physical graphics and/or compute device.
 ///
@@ -55,7 +55,7 @@ impl Adapter {
         log::trace!("pi_wgpu::Adapter::request_device, desc = {:?}", desc);
         let open = self
             .inner
-            .open(desc.features, &desc.limits)
+            .open(desc.required_features, &desc.required_limits)
             .map_err(|err| match err {
                 DeviceError::Lost => RequestDeviceError,
                 DeviceError::OutOfMemory => RequestDeviceError,
@@ -194,6 +194,8 @@ pub struct InvalidAdapter;
 pub enum RequestAdapterError {
     #[error("no suitable adapter found")]
     NotFound,
-    #[error("surface {0:?} is invalid")]
-    InvalidSurface(Surface),
+    #[error("surface is invalid")]
+    InvalidSurface,
+    // #[error("surface {0:?} is invalid")]
+    // InvalidSurface(Surface),
 }

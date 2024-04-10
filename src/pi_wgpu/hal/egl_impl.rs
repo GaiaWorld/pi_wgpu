@@ -19,15 +19,15 @@ pub(crate) struct AdapterContext {
     lock_: ReentrantMutexWrap<()>,
     reentrant_count: Share<AtomicUsize>,
     egl: Share<ShareCell<Egl>>,
-    imp: Share<ShareCell<Option<AdapterContextImpl>>>,
+    pub(crate) imp: Share<ShareCell<Option<AdapterContextImpl>>>,
 }
 
 #[derive(Debug)]
 pub(crate) struct AdapterContextImpl {
     surface: pi_egl::Surface,
 
-    private_caps: PrivateCapabilities,
-    features: wgt::Features,
+    pub(crate) private_caps: PrivateCapabilities,
+    pub(crate) features: wgt::Features,
     limits: wgt::Limits,
     downlevel: wgt::DownlevelCapabilities,
 
@@ -452,7 +452,6 @@ impl AdapterContextImpl {
         private_caps.set(super::PrivateCapabilities::MEMORY_BARRIERS, false);
         private_caps.set(super::PrivateCapabilities::VERTEX_BUFFER_LAYOUT, false);
         private_caps.set(super::PrivateCapabilities::INDEX_BUFFER_ROLE_CHANGE, false);
-        private_caps.set(super::PrivateCapabilities::CAN_DISABLE_DRAW_BUFFER, false);
         private_caps.set(super::PrivateCapabilities::GET_BUFFER_SUB_DATA, false);
         let color_buffer_float = extensions.contains("GL_EXT_color_buffer_float")
             || extensions.contains("EXT_color_buffer_float");
@@ -467,10 +466,6 @@ impl AdapterContextImpl {
         private_caps.set(
             super::PrivateCapabilities::COLOR_BUFFER_FLOAT,
             false, // color_buffer_float,
-        );
-        private_caps.set(
-            super::PrivateCapabilities::TEXTURE_FLOAT_LINEAR,
-            false, // extensions.contains("OES_texture_float_linear"),
         );
 
         let max_texture_size = unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) } as u32;
@@ -540,6 +535,7 @@ impl AdapterContextImpl {
             max_compute_workgroup_size_z: 0,
             max_compute_workgroups_per_dimension,
             max_buffer_size: i32::MAX as u64,
+            max_non_sampler_bindings: std::u32::MAX,
         };
 
         let downlevel_defaults = wgt::DownlevelLimits {};

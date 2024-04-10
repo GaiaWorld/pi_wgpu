@@ -2,7 +2,9 @@
 //! 全局 缓冲表，见 GLCache
 //!
 
-use glow::HasContext;
+use std::collections::HashMap;
+
+use glow::{HasContext, NativeUniformLocation};
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,
@@ -11,9 +13,7 @@ use naga::{
 use pi_share::{Share, ShareCell, ShareWeak};
 
 use super::{
-    super::{hal, wgt, BufferSize, ColorWrites},
-    gl_cache::GLCache,
-    gl_conv as conv, PiBindingType, ShaderID, VertexAttribKind,
+    super::{hal, wgt, BufferSize, ColorWrites}, gl_cache::GLCache, gl_conv as conv, PiBindingType, PrivateCapabilities, ShaderID, VertexAttribKind
 };
 
 #[derive(Clone)]
@@ -585,9 +585,12 @@ impl GLState {
     pub(crate) fn draw(
         &self,
         gl: &glow::Context,
+        private_caps: PrivateCapabilities,
         start_vertex: u32,
         vertex_count: u32,
-        instance_count: u32,
+        first_instance: u32,
+        instance_count: u32, 
+        // first_instance_location: &Option<NativeUniformLocation>
     ) {
         profiling::scope!("hal::GLState::draw");
 
@@ -599,7 +602,7 @@ impl GLState {
         {
             let imp = &mut self.imp.as_ref().borrow_mut();
 
-            imp.draw(gl, start_vertex, vertex_count, instance_count);
+            imp.draw(gl, private_caps, start_vertex, vertex_count, first_instance, instance_count);
         }
 
         // log::trace!(
@@ -614,6 +617,7 @@ impl GLState {
         gl: &glow::Context,
         start_index: i32,
         index_count: i32,
+        first_instance: u32,
         instance_count: i32,
     ) {
         profiling::scope!("hal::GLState::draw_indexed");
@@ -626,7 +630,7 @@ impl GLState {
         {
             let imp = &mut self.imp.as_ref().borrow_mut();
 
-            imp.draw_indexed(gl, start_index, index_count, instance_count);
+            imp.draw_indexed(gl, start_index, index_count, first_instance, instance_count);
         }
 
         // log::trace!(
@@ -786,7 +790,10 @@ pub(crate) struct GLStateImpl {
             Option<glow::Sampler>,        // glow::Sampler
         )],
     >,
+
+    group_dirty: usize,
 }
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UBOState {
@@ -864,6 +871,7 @@ impl GLStateImpl {
 
             ubos: ubos.into_boxed_slice(),
             textures: textures.into_boxed_slice(),
+            group_dirty: 0,
         }
     }
 
@@ -1055,6 +1063,7 @@ impl GLStateImpl {
         };
 
         self.bind_group_set[index as usize] = Some(bg);
+        self.group_dirty |= 1 << index;
     }
 
     #[inline]
@@ -1110,26 +1119,56 @@ impl GLStateImpl {
     fn draw(
         &mut self,
         gl: &glow::Context,
-        start_vertex: u32,
+        private_caps: PrivateCapabilities,
+        first_vertex: u32,
         vertex_count: u32,
+        first_instance: u32,
         instance_count: u32,
     ) {
-        self.before_draw(gl);
+        self.before_draw(gl, first_instance);
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
-        if instance_count == 1 {
-            unsafe { gl.draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32) };
-        } else {
+        // let supports_full_instancing = private_caps.contains(PrivateCapabilities::FULLY_FEATURED_INSTANCING);
+        // let topology = rp.topology;
+
+        // if instance_count == 1 {
+        //     unsafe { gl.draw_arrays(rp.topology, start_vertex as i32, vertex_count as i32) };
+        // } else {
             unsafe {
                 gl.draw_arrays_instanced(
                     rp.topology,
-                    start_vertex as i32,
+                    first_vertex as i32,
                     vertex_count as i32,
                     instance_count as i32,
                 )
             };
-        }
+        // }
+
+        // if supports_full_instancing {
+        //     unsafe {
+        //         gl.draw_arrays_instanced_base_instance(
+        //             topology,
+        //             first_vertex as i32,
+        //             vertex_count as i32,
+        //             instance_count as i32,
+        //             first_instance,
+        //         )
+        //     }
+        // } else {
+
+        //     // Don't use `gl.draw_arrays` for `instance_count == 1`.
+        //     // Angle has a bug where it doesn't consider the instance divisor when `DYNAMIC_DRAW` is used in `draw_arrays`.
+        //     // See https://github.com/gfx-rs/wgpu/issues/3578
+        //     unsafe {
+        //         gl.draw_arrays_instanced(
+        //             topology,
+        //             first_vertex as i32,
+        //             vertex_count as i32,
+        //             instance_count as i32,
+        //         )
+        //     }
+        // };
 
         self.after_draw(gl);
     }
@@ -1139,9 +1178,10 @@ impl GLStateImpl {
         gl: &glow::Context,
         start_index: i32,
         index_count: i32,
+        first_instance: u32,
         instance_count: i32,
     ) {
-        self.before_draw(gl);
+        self.before_draw(gl, first_instance);
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
 
@@ -1466,45 +1506,65 @@ impl GLStateImpl {
             });
         }
 
+        // println!("texture_mapping====");
+        // for (name, mapping) in reflection_info.texture_mapping.iter() {
+        //     println!("texture_mapping1===={:?}, {:?}", name, (
+        //         mapping.sampler.is_some(), 
+        //         mapping.sampler.map(|r| {&module.global_variables[r].binding}),
+        //         &module.global_variables[mapping.texture].binding,
+        //     ));
+        // }
+        let mut temp = HashMap::new();
+
         // Sampler / Texture
         for (name, mapping) in reflection_info.texture_mapping {
             assert!(mapping.sampler.is_some());
-
-            let sampler_handle = mapping.sampler.unwrap();
-            let sampler_var = &module.global_variables[sampler_handle];
-            let sampler_br = sampler_var.binding.as_ref().unwrap();
-
-            let pi_br = super::PiResourceBinding {
-                group: sampler_br.group,
-                binding: sampler_br.binding,
-            };
-            let glow_binding = self.cache.update_sampler(pi_br);
-
-            if sampler_br.group as i32 > max_set {
-                max_set = sampler_br.group as i32;
-            }
-            let set = &mut r[sampler_br.group as usize];
-            set.push(super::PiBindEntry {
-                binding: sampler_br.binding as usize,
-                ty: PiBindingType::Sampler,
-
-                glsl_name: name.clone(),
-                glow_binding,
-            });
 
             let tex_var = &module.global_variables[mapping.texture];
             let tex_br = tex_var.binding.as_ref().unwrap();
             if tex_br.group as i32 > max_set {
                 max_set = tex_br.group as i32;
             }
-            let set = &mut r[tex_br.group as usize];
-            set.push(super::PiBindEntry {
-                binding: tex_br.binding as usize,
-                ty: PiBindingType::Texture,
 
-                glsl_name: name,
-                glow_binding,
-            });
+            let pi_br = super::PiResourceBinding {
+                group: tex_br.group,
+                binding: tex_br.binding,
+            };
+            let glow_binding = self.cache.update_sampler(pi_br);
+
+            let set = &mut r[tex_br.group as usize];
+            if !temp.contains_key(&(tex_br.group, tex_br.binding)) {
+                set.push(super::PiBindEntry {
+                    binding: tex_br.binding as usize,
+                    ty: PiBindingType::Texture,
+    
+                    glsl_name: name.clone(),
+                    glow_binding,
+                });
+                temp.insert((tex_br.group, tex_br.binding), ());
+            } 
+
+            let sampler_handle = mapping.sampler.unwrap();
+            let sampler_var = &module.global_variables[sampler_handle];
+            let sampler_br = sampler_var.binding.as_ref().unwrap();
+
+            if sampler_br.group as i32 > max_set {
+                max_set = sampler_br.group as i32;
+            }
+            let set = &mut r[sampler_br.group as usize];
+            if !temp.contains_key(&(sampler_br.group, sampler_br.binding)) {
+                set.push(super::PiBindEntry {
+                    binding: sampler_br.binding as usize,
+                    ty: PiBindingType::Sampler,
+    
+                    glsl_name: name,
+                    glow_binding,
+                });
+                temp.insert((sampler_br.group, sampler_br.binding), ());
+    
+            }
+            
+            
         }
 
         let max_set = max_set + 1;
@@ -1518,8 +1578,8 @@ impl GLStateImpl {
     }
 
     #[inline]
-    fn before_draw(&mut self, gl: &glow::Context) {
-        self.update_vao(gl);
+    fn before_draw(&mut self, gl: &glow::Context, first_instance: u32) {
+        self.update_vao(gl, first_instance);
 
         self.update_uniforms(gl);
     }
@@ -1528,7 +1588,7 @@ impl GLStateImpl {
     fn after_draw(&mut self, _gl: &glow::Context) {}
 
     // 根据 render_pipeline.attributes + vertex_buffers 更新 vao
-    fn update_vao(&mut self, gl: &glow::Context) {
+    fn update_vao(&mut self, gl: &glow::Context, first_instance: u32) {
         profiling::scope!("hal::GLState::update_vao");
 
         let rp = self.render_pipeline.as_ref().unwrap().0.as_ref();
@@ -1557,9 +1617,11 @@ impl GLStateImpl {
             attributes: rp.attributes.clone(),
             vbs,
             ib: self.index_buffer.as_ref().map(|ib| ib.raw),
+            first_instance,
         };
 
         self.cache.bind_vao(gl, &geometry);
+        
 
         // 回收 vbs
         self.last_vbs = Some(geometry.vbs);
@@ -1641,6 +1703,9 @@ impl GLStateImpl {
         let reorder = &self.render_pipeline.as_ref().unwrap().0.layout_reoder;
 
         for (i, bindings) in program.uniforms.iter().enumerate() {
+            if self.group_dirty & (1 << i) == 0 {
+                continue;
+            }
             let bg = &bg_set[i];
             if bg.is_none() {
                 // assert!(bindings.len() == 0);
@@ -1713,7 +1778,6 @@ impl GLStateImpl {
                                         old_target != *target || old_texture != *raw
                                     }
                                 };
-
                                 if need_update {
                                     self.textures[binding.glow_binding as usize].0 =
                                         Some((*target, *raw));
@@ -1739,7 +1803,6 @@ impl GLStateImpl {
                             (_, None) => true,
                             (_, Some(old_sampler)) => old_sampler != imp.raw,
                         };
-
                         if need_update {
                             self.textures[binding.glow_binding as usize].1 = Some(imp.raw);
 
@@ -1749,6 +1812,7 @@ impl GLStateImpl {
                 }
             }
         }
+        self.group_dirty = 0;
     }
 
     fn clear_render_target(

@@ -11,7 +11,8 @@ keywords = ["pi", "webgpu"]
 [features]
 default = ["gl"]
 # default = ["use_wgpu", "gl"]
-
+webgl = []
+webgpu = []
 gl = []
 single_thread = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
@@ -45,9 +46,6 @@ web-sys = { version = "0.3", features = [
 	"OffscreenCanvas",
 ] }
 js-sys = "0.3"
-
-[patch.yn]
-pi_egl = { path = "../pi_egl" }
 
 # DEV dependencies
 
@@ -103,3 +101,6 @@ ndk-glue = "0.7"
 
 # [patch.crates-io]
 # glow = { path = "../glow-0.12.3"}
+[patch.yn]
+pi_egl = { path = "../pi_egl" }
+winit = { path = "../winit"}

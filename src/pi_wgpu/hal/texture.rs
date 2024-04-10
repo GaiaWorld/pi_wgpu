@@ -85,7 +85,7 @@ impl Texture {
             };
 
             //Note: this has to be done before defining the storage!
-            match desc.format.sample_type(None) {
+            match desc.format.sample_type(None, Some(adapter.imp.borrow().as_ref().unwrap().features)) {
                 Some(
                     wgt::TextureSampleType::Float { filterable: false }
                     | wgt::TextureSampleType::Uint
@@ -425,7 +425,7 @@ pub(crate) struct TextureView {
     pub(crate) inner: Share<TextureImpl>,
 
     pub(crate) format_desc: TextureFormatDesc,
-    pub(crate) sample_type: wgt::TextureSampleType,
+    // pub(crate) sample_type: wgt::TextureSampleType,
     pub(crate) aspects: super::FormatAspects,
     pub(crate) mip_levels: Range<u32>,
     pub(crate) array_layers: Range<u32>,
@@ -461,12 +461,11 @@ impl TextureView {
             array_layers,
 
             format: imp.format,
-            sample_type: imp.format.sample_type(None).unwrap(),
+            // sample_type: imp.format.sample_type(None, None).unwrap(),
 
             format_desc: imp.format_desc.clone(),
 
-            aspects: super::FormatAspects::from(imp.format)
-                & super::FormatAspects::from(desc.aspect),
+            aspects: super::FormatAspects::new(imp.format, desc.aspect),
             id: TEXTURE_VIEW_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         })
     }

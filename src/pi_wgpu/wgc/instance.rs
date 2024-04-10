@@ -1,7 +1,9 @@
-use std::future::{ready, Future};
+use std::{future::{ready, Future}, marker::PhantomData};
 
 use pi_share::Share;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, HasDisplayHandle};
+use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, WindowHandle};
+
+use crate::{pi_wgpu::wgt::Gles3MinorVersion, SurfaceTarget};
 
 use super::super::{
     hal, wgt, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface,
@@ -28,6 +30,8 @@ impl Default for Instance {
         Instance::new(InstanceDescriptor {
             backends: Backends::GL,
             dx12_shader_compiler: wgt::Dx12Compiler::default(),
+            flags: Default::default(),
+            gles_minor_version: Gles3MinorVersion::Automatic,
         })
     }
 }
@@ -78,7 +82,7 @@ impl Instance {
     ) -> impl Future<Output = Option<super::super::Adapter>> + Send {
         profiling::scope!("Instance::request_adapter");
 
-        log::trace!("pi_wgpu::Instance::request_adapter, options = {:?}", options);
+        // log::trace!("pi_wgpu::Instance::request_adapter, options = {:?}", options);
 
         // 不支持 软件 Adapter
         assert!(!options.force_fallback_adapter);
@@ -179,17 +183,109 @@ impl Instance {
     /// - On macOS/Metal: will panic if not called on the main thread.
     /// - On web: will panic if the `raw_window_handle` does not properly refer to a
     ///   canvas element.
-    pub unsafe fn create_surface<W: HasWindowHandle + HasDisplayHandle>(
+    pub fn create_surface<'window>(
         &self,
-        window: &W,
-    ) -> Result<Surface, CreateSurfaceError> {
+        window: impl Into<SurfaceTarget<'window>>,
+    ) -> Result<Surface<'window>, CreateSurfaceError> {
         profiling::scope!("Instance::create_surface");
-        
-        let raw = self.inner.create_surface(window);
+        let target: SurfaceTarget = window.into();
+        let target = unsafe { std::mem::transmute(target)};
+        let surface = match &target{
+            SurfaceTarget::Window(window) => unsafe {
+                let h = RawHandle::from_window(window).map_err(|_e| CreateSurfaceError {
+                })?;
+                let surface = self.inner.create_surface(&h);
 
-		log::trace!("pi_wgpu::Instance::create_surface, result = {:?}", raw);
+                surface
+            },
+
+            #[cfg(any(webgpu, webgl))]
+            SurfaceTarget::Canvas(canvas) => {
+                let value: &wasm_bindgen::JsValue = &canvas;
+                let obj = std::ptr::NonNull::from(value).cast();
+                let raw_window_handle = raw_window_handle::WebCanvasWindowHandle::new(obj).into();
+                let raw_display_handle = raw_window_handle::WebDisplayHandle::new().into();
+
+                // Note that we need to call this while we still have `value` around.
+                // This is safe without storing canvas to `handle_origin` since the surface will create a copy internally.
+                unsafe {
+                    self.create_surface_unsafe(SurfaceTargetUnsafe::RawHandle {
+                        raw_display_handle,
+                        raw_window_handle,
+                    })
+                }?
+            }
+
+            #[cfg(any(webgpu, webgl))]
+            SurfaceTarget::OffscreenCanvas(canvas) => {
+
+                let value: &wasm_bindgen::JsValue = &canvas;
+                let obj = std::ptr::NonNull::from(value).cast();
+                let raw_window_handle =
+                    raw_window_handle::WebOffscreenCanvasWindowHandle::new(obj).into();
+                let raw_display_handle = raw_window_handle::WebDisplayHandle::new().into();
+
+                // Note that we need to call this while we still have `value` around.
+                // This is safe without storing canvas to `handle_origin` since the surface will create a copy internally.
+                unsafe {
+                    self.create_surface_unsafe(SurfaceTargetUnsafe::RawHandle {
+                        raw_display_handle,
+                        raw_window_handle,
+                    })
+                }?
+            }
+        };
+
+		log::trace!("pi_wgpu::Instance::create_surface, result = {:?}", surface);
         Ok(super::super::Surface {
-            inner: raw.unwrap(),
+            inner: surface.unwrap(),
+            window: target,
         })
     }
 }
+
+
+/// The window/canvas/surface/swap-chain/etc. a surface is attached to, for use with unsafe surface creation.
+///
+/// This is either a window or an actual web canvas depending on the platform and
+/// enabled features.
+/// Refer to the individual variants for more information.
+///
+/// See also [`SurfaceTarget`] for safe variants.
+pub struct RawHandle<'a> {
+    /// Raw display handle, underlying display must outlive the surface created from this.
+    raw_display_handle: DisplayHandle<'a>,
+
+    /// Raw display handle, underlying window must outlive the surface created from this.
+    raw_window_handle: WindowHandle<'a>,
+}
+
+impl<'a> RawHandle<'a> {
+    /// Creates a [`SurfaceTargetUnsafe::RawHandle`] from a window.
+    ///
+    /// # Safety
+    ///
+    /// - `window` must outlive the resulting surface target
+    ///   (and subsequently the surface created for this target).
+    pub unsafe fn from_window(window: &'a Box<dyn super::surface::WindowHandle>) -> Result<Self, raw_window_handle::HandleError>
+    {
+        Ok(Self {
+            raw_display_handle: window.display_handle()?,
+            raw_window_handle: window.window_handle()?,
+        })
+    }
+}
+
+impl<'a> HasWindowHandle for RawHandle<'a> {
+    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        Ok(self.raw_window_handle.clone())
+    }
+}
+
+impl<'a> HasDisplayHandle for RawHandle<'a> {
+    fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+        Ok(self.raw_display_handle.clone())
+    }
+}
+
+
