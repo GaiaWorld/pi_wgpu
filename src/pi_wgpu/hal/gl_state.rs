@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use glow::{HasContext, NativeUniformLocation};
+use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,

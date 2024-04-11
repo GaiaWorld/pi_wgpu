@@ -5818,106 +5818,144 @@ pub enum TextureAspect {
  }
  
  /// Specific type of a binding.
- ///
- /// For use in [`BindGroupLayoutEntry`].
- ///
- /// Corresponds to WebGPU's mutually exclusive fields within [`GPUBindGroupLayoutEntry`](
- /// https://gpuweb.github.io/gpuweb/#dictdef-gpubindgrouplayoutentry).
- #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
- #[cfg_attr(feature = "trace", derive(Serialize))]
- #[cfg_attr(feature = "replay", derive(Deserialize))]
- pub enum BindingType {
-     /// A buffer binding.
-     ///
-     /// Corresponds to [WebGPU `GPUBufferBindingLayout`](
-     /// https://gpuweb.github.io/gpuweb/#dictdef-gpubufferbindinglayout).
-     Buffer {
-         /// Sub-type of the buffer binding.
-         ty: BufferBindingType,
-         /// Indicates that the binding has a dynamic offset.
-         ///
-         /// One offset must be passed to [`RenderPass::set_bind_group`][RPsbg] for each dynamic
-         /// binding in increasing order of binding number.
-         ///
-         /// [RPsbg]: ../wgpu/struct.RenderPass.html#method.set_bind_group
-         #[cfg_attr(any(feature = "trace", feature = "replay"), serde(default))]
-         has_dynamic_offset: bool,
-         /// Minimum size of the corresponding `BufferBinding` required to match this entry.
-         /// When pipeline is created, the size has to cover at least the corresponding structure in the shader
-         /// plus one element of the unbound array, which can only be last in the structure.
-         /// If `None`, the check is performed at draw call time instead of pipeline and bind group creation.
-         #[cfg_attr(any(feature = "trace", feature = "replay"), serde(default))]
-         min_binding_size: Option<BufferSize>,
-     },
-     /// A sampler that can be used to sample a texture.
-     ///
-     /// Example WGSL syntax:
-     /// ```rust,ignore
-     /// @group(0) @binding(0)
-     /// var s: sampler;
-     /// ```
-     ///
-     /// Example GLSL syntax:
-     /// ```cpp,ignore
-     /// layout(binding = 0)
-     /// uniform sampler s;
-     /// ```
-     ///
-     /// Corresponds to [WebGPU `GPUSamplerBindingLayout`](
-     /// https://gpuweb.github.io/gpuweb/#dictdef-gpusamplerbindinglayout).
-     Sampler(SamplerBindingType),
-     /// A texture binding.
-     ///
-     /// Example WGSL syntax:
-     /// ```rust,ignore
-     /// @group(0) @binding(0)
-     /// var t: texture_2d<f32>;
-     /// ```
-     ///
-     /// Example GLSL syntax:
-     /// ```cpp,ignore
-     /// layout(binding = 0)
-     /// uniform texture2D t;
-     /// ```
-     ///
-     /// Corresponds to [WebGPU `GPUTextureBindingLayout`](
-     /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturebindinglayout).
-     Texture {
-         /// Sample type of the texture binding.
-         sample_type: TextureSampleType,
-         /// Dimension of the texture view that is going to be sampled.
-         view_dimension: TextureViewDimension,
-         /// True if the texture has a sample count greater than 1. If this is true,
-         /// the texture must be read from shaders with `texture1DMS`, `texture2DMS`, or `texture3DMS`,
-         /// depending on `dimension`.
-         multisampled: bool,
-     },
-     /// A storage texture.
-     ///
-     /// Example WGSL syntax:
-     /// ```rust,ignore
-     /// @group(0) @binding(0)
-     /// var my_storage_image: texture_storage_2d<f32, write>;
-     /// ```
-     ///
-     /// Example GLSL syntax:
-     /// ```cpp,ignore
-     /// layout(set=0, binding=0, r32f) writeonly uniform image2D myStorageImage;
-     /// ```
-     /// Note that the texture format must be specified in the shader as well.
-     /// A list of valid formats can be found in the specification here: <https://www.khronos.org/registry/OpenGL/specs/gl/GLSLangSpec.4.60.html#layout-qualifiers>
-     ///
-     /// Corresponds to [WebGPU `GPUStorageTextureBindingLayout`](
-     /// https://gpuweb.github.io/gpuweb/#dictdef-gpustoragetexturebindinglayout).
-     StorageTexture {
-         /// Allowed access to this texture.
-         access: StorageTextureAccess,
-         /// Format of the texture.
-         format: TextureFormat,
-         /// Dimension of the texture view that is going to be sampled.
-         view_dimension: TextureViewDimension,
-     },
- }
+///
+/// For use in [`BindGroupLayoutEntry`].
+///
+/// Corresponds to WebGPU's mutually exclusive fields within [`GPUBindGroupLayoutEntry`](
+/// https://gpuweb.github.io/gpuweb/#dictdef-gpubindgrouplayoutentry).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "trace", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub enum BindingType {
+    /// A buffer binding.
+    ///
+    /// Corresponds to [WebGPU `GPUBufferBindingLayout`](
+    /// https://gpuweb.github.io/gpuweb/#dictdef-gpubufferbindinglayout).
+    Buffer {
+        /// Sub-type of the buffer binding.
+        ty: BufferBindingType,
+
+        /// Indicates that the binding has a dynamic offset.
+        ///
+        /// One offset must be passed to [`RenderPass::set_bind_group`][RPsbg]
+        /// for each dynamic binding in increasing order of binding number.
+        ///
+        /// [RPsbg]: ../wgpu/struct.RenderPass.html#method.set_bind_group
+        #[cfg_attr(any(feature = "trace", feature = "replay"), serde(default))]
+        has_dynamic_offset: bool,
+
+        /// The minimum size for a [`BufferBinding`] matching this entry, in bytes.
+        ///
+        /// If this is `Some(size)`:
+        ///
+        /// - When calling [`create_bind_group`], the resource at this bind point
+        ///   must be a [`BindingResource::Buffer`] whose effective size is at
+        ///   least `size`.
+        ///
+        /// - When calling [`create_render_pipeline`] or [`create_compute_pipeline`],
+        ///   `size` must be at least the [minimum buffer binding size] for the
+        ///   shader module global at this bind point: large enough to hold the
+        ///   global's value, along with one element of a trailing runtime-sized
+        ///   array, if present.
+        ///
+        /// If this is `None`:
+        ///
+        /// - Each draw or dispatch command checks that the buffer range at this
+        ///   bind point satisfies the [minimum buffer binding size].
+        ///
+        /// [`BufferBinding`]: ../wgpu/struct.BufferBinding.html
+        /// [`create_bind_group`]: ../wgpu/struct.Device.html#method.create_bind_group
+        /// [`BindingResource::Buffer`]: ../wgpu/enum.BindingResource.html#variant.Buffer
+        /// [minimum buffer binding size]: https://www.w3.org/TR/webgpu/#minimum-buffer-binding-size
+        /// [`create_render_pipeline`]: ../wgpu/struct.Device.html#method.create_render_pipeline
+        /// [`create_compute_pipeline`]: ../wgpu/struct.Device.html#method.create_compute_pipeline
+        #[cfg_attr(any(feature = "trace", feature = "replay"), serde(default))]
+        min_binding_size: Option<BufferSize>,
+    },
+    /// A sampler that can be used to sample a texture.
+    ///
+    /// Example WGSL syntax:
+    /// ```rust,ignore
+    /// @group(0) @binding(0)
+    /// var s: sampler;
+    /// ```
+    ///
+    /// Example GLSL syntax:
+    /// ```cpp,ignore
+    /// layout(binding = 0)
+    /// uniform sampler s;
+    /// ```
+    ///
+    /// Corresponds to [WebGPU `GPUSamplerBindingLayout`](
+    /// https://gpuweb.github.io/gpuweb/#dictdef-gpusamplerbindinglayout).
+    Sampler(SamplerBindingType),
+    /// A texture binding.
+    ///
+    /// Example WGSL syntax:
+    /// ```rust,ignore
+    /// @group(0) @binding(0)
+    /// var t: texture_2d<f32>;
+    /// ```
+    ///
+    /// Example GLSL syntax:
+    /// ```cpp,ignore
+    /// layout(binding = 0)
+    /// uniform texture2D t;
+    /// ```
+    ///
+    /// Corresponds to [WebGPU `GPUTextureBindingLayout`](
+    /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturebindinglayout).
+    Texture {
+        /// Sample type of the texture binding.
+        sample_type: TextureSampleType,
+        /// Dimension of the texture view that is going to be sampled.
+        view_dimension: TextureViewDimension,
+        /// True if the texture has a sample count greater than 1. If this is true,
+        /// the texture must be read from shaders with `texture1DMS`, `texture2DMS`, or `texture3DMS`,
+        /// depending on `dimension`.
+        multisampled: bool,
+    },
+    /// A storage texture.
+    ///
+    /// Example WGSL syntax:
+    /// ```rust,ignore
+    /// @group(0) @binding(0)
+    /// var my_storage_image: texture_storage_2d<f32, write>;
+    /// ```
+    ///
+    /// Example GLSL syntax:
+    /// ```cpp,ignore
+    /// layout(set=0, binding=0, r32f) writeonly uniform image2D myStorageImage;
+    /// ```
+    /// Note that the texture format must be specified in the shader as well.
+    /// A list of valid formats can be found in the specification here: <https://www.khronos.org/registry/OpenGL/specs/gl/GLSLangSpec.4.60.html#layout-qualifiers>
+    ///
+    /// Corresponds to [WebGPU `GPUStorageTextureBindingLayout`](
+    /// https://gpuweb.github.io/gpuweb/#dictdef-gpustoragetexturebindinglayout).
+    StorageTexture {
+        /// Allowed access to this texture.
+        access: StorageTextureAccess,
+        /// Format of the texture.
+        format: TextureFormat,
+        /// Dimension of the texture view that is going to be sampled.
+        view_dimension: TextureViewDimension,
+    },
+
+    /// A ray-tracing acceleration structure binding.
+    ///
+    /// Example WGSL syntax:
+    /// ```rust,ignore
+    /// @group(0) @binding(0)
+    /// var as: acceleration_structure;
+    /// ```
+    ///
+    /// Example GLSL syntax:
+    /// ```cpp,ignore
+    /// layout(binding = 0)
+    /// uniform accelerationStructureEXT as;
+    /// ```
+    AccelerationStructure,
+}
  
  impl BindingType {
      /// Returns true for buffer bindings with dynamic offset enabled.
