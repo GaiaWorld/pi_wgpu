@@ -540,7 +540,6 @@ impl Drop for TextureInner {
                 let gl = lock.get_glow();
 
                 unsafe {
-                    log::error!("==================== delete_renderbuffer = {:?}", raw);
                     gl.delete_renderbuffer(*raw);
                 }
                 state.remove_render_buffer(&gl, *raw);

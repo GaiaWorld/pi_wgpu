@@ -589,7 +589,7 @@ impl Program {
                     for x in bg.iter() {
                         r.push(x.binding);
                     }
-                    println!("info==========={:?}, {:?}", bg, info);
+                    // println!("info==========={:?}, {:?}", bg, info);
                 }
                 
 
@@ -618,10 +618,10 @@ pub(crate) struct ProgramImpl {
 
 impl Drop for ProgramImpl {
     fn drop(&mut self) {
-        log::error!(
-            "============================== delete_program: raw = {:?}",
-            self.raw
-        );
+        // log::error!(
+        //     "============================== delete_program: raw = {:?}",
+        //     self.raw
+        // );
         log::trace!("Dropping ProgramImpl {:?}", self.raw);
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
