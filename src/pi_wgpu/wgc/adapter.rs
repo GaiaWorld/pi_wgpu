@@ -1,5 +1,8 @@
 use std::future::{ready, Future};
+use pi_assets::allocator::Allocator;
 use thiserror::Error;
+
+use crate::PiWgpuAdapter;
 
 use super::super::{
     hal,
@@ -29,6 +32,17 @@ pub struct Adapter {
     pub(crate) inner: hal::Adapter,
 }
 
+impl PiWgpuAdapter for Adapter {
+    fn request_device(
+        &self,
+        desc: &DeviceDescriptor,
+        _trace_path: Option<&std::path::Path>,
+        alloter: &mut Allocator,
+    ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
+        self.request_device(desc, _trace_path, alloter)
+    }
+}
+
 impl Adapter {
     /// Requests a connection to a physical device, creating a logical device.
     ///
@@ -51,11 +65,12 @@ impl Adapter {
         &self,
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
+        alloter: &mut Allocator,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
         log::trace!("pi_wgpu::Adapter::request_device, desc = {:?}", desc);
         let open = self
             .inner
-            .open(desc.required_features, &desc.required_limits)
+            .open(desc.required_features, &desc.required_limits, alloter)
             .map_err(|err| match err {
                 DeviceError::Lost => RequestDeviceError,
                 DeviceError::OutOfMemory => RequestDeviceError,

@@ -3,15 +3,15 @@
 //! 作用：状态机 分配资源时，先到这里找，找到了就返回，有利于设置时候，全局比较指针
 //!
 
+use derive_deref_rs::Deref;
 use pi_time::Instant;
-use std::{
-    collections::{HashMap, HashSet},
-    time::Duration,
-};
+use std::{hash::{Hash, Hasher}, time::Duration};
 
+use pi_hash::{DefaultHasher, XHashMap, XHashSet};
 use glow::HasContext;
-use pi_share::{Share, ShareWeak};
-use twox_hash::RandomXxHashBuilder64;
+use pi_share::{cell::TrustCell, Share, ShareWeak};
+use pi_assets::{asset::{Asset, Garbageer, Handle, Size}, mgr::AssetMgr};
+use pi_assets::allocator::Allocator;
 
 use super::{
     super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl,
@@ -20,32 +20,60 @@ use super::{
 
 pub(crate) type ProgramID = (ShaderID, ShaderID);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, Deref)]
+pub struct VertexArrayAsset(pub glow::VertexArray);
+
+impl Asset for VertexArrayAsset {
+    type Key = u64;
+}
+
+impl Size for VertexArrayAsset {
+    fn size(&self) -> usize {
+        std::mem::align_of::<Self>()
+    }
+}
+
+pub struct VaoGarbage(pub Share<TrustCell<Vec<glow::VertexArray>>>);
+
+impl Garbageer<VertexArrayAsset> for VaoGarbage {
+    fn garbage(&self, _k: <VertexArrayAsset as Asset>::Key, v: VertexArrayAsset, _timeout: u64) {
+        self.0.borrow_mut().push(v.0);
+    }
+}
+// #[derive(Debug)]
 pub(crate) struct GLCache {
     last_clear_time: Instant,
 
-    vao: Option<glow::VertexArray>,
+    vao: Option<Handle<VertexArrayAsset>>,
 
     shader_binding_map: super::ShaderBindingMap,
-    vao_map: HashMap<GeometryState, glow::VertexArray, RandomXxHashBuilder64>,
-    fbo_map: HashMap<RenderTarget, glow::Framebuffer, RandomXxHashBuilder64>,
-    shader_map: HashMap<ShaderID, ShaderInner, RandomXxHashBuilder64>,
+    vao_map: Share<AssetMgr<VertexArrayAsset, VaoGarbage>>,
+    garbage_vao: Share<TrustCell<Vec<glow::VertexArray>>>,
+    buffer_vao_map: XHashMap<glow::Buffer, Vec<u64>>, // buffer 与vao资源key的对应关系
+    fbo_map: XHashMap<RenderTarget, glow::Framebuffer>,
+    shader_map: XHashMap<ShaderID, ShaderInner>,
 
-    program_map: HashMap<ProgramID, ShareWeak<super::ProgramImpl>, RandomXxHashBuilder64>,
-    bs_map: HashMap<BlendStateImpl, ShareWeak<BlendState>, RandomXxHashBuilder64>,
-    rs_map: HashMap<RasterStateImpl, ShareWeak<RasterState>, RandomXxHashBuilder64>,
-    ds_map: HashMap<DepthStateImpl, ShareWeak<DepthState>, RandomXxHashBuilder64>,
-    ss_map: HashMap<StencilStateImpl, ShareWeak<StencilState>, RandomXxHashBuilder64>,
+    program_map: XHashMap<ProgramID, ShareWeak<super::ProgramImpl>>,
+    bs_map: XHashMap<BlendStateImpl, ShareWeak<BlendState>>,
+    rs_map: XHashMap<RasterStateImpl, ShareWeak<RasterState>>,
+    ds_map: XHashMap<DepthStateImpl, ShareWeak<DepthState>>,
+    ss_map: XHashMap<StencilStateImpl, ShareWeak<StencilState>>,
 }
+
 
 impl GLCache {
     #[inline]
-    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
+    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize, alloter: &mut Allocator) -> Self {
+        let garbage_vao = Share::new(TrustCell::new(Vec::new()));
+        let vao_map = AssetMgr::new(VaoGarbage(garbage_vao.clone()), false, 20 * 1024, 10 * 1000); // 过期时间：10分钟
+        alloter.register(vao_map.clone(), 20 * 1024, 30 * 1024);
         Self {
             vao: None,
 
             last_clear_time: Instant::now(),
-            vao_map: Default::default(),
+            vao_map,
+            garbage_vao,
+            buffer_vao_map: Default::default(),
             fbo_map: Default::default(),
             shader_map: Default::default(),
 
@@ -63,7 +91,7 @@ impl GLCache {
         }
     }
 
-    pub(crate) fn clear_weak_refs(&mut self) {
+    pub(crate) fn clear_weak_refs(&mut self, gl: &glow::Context) {
         let now = Instant::now();
         if now - self.last_clear_time < Duration::from_secs(CLEAR_DURATION) {
             return;
@@ -75,6 +103,23 @@ impl GLCache {
         self.ds_map.retain(|_, v| v.upgrade().is_some());
         self.ss_map.retain(|_, v| v.upgrade().is_some());
         self.program_map.retain(|_, v| v.upgrade().is_some());
+
+        // 回收vao
+        let mut garbage_vao = self.garbage_vao.borrow_mut();
+        if garbage_vao.len() > 0 {
+            for vao in garbage_vao.drain(..) {
+                unsafe {
+                    gl.delete_vertex_array(vao);
+                    if let Some(old) = &self.vao {
+                        if ****old == vao {
+                            self.vao = None;
+                            unsafe { gl.bind_vertex_array(None) };
+                        }
+                    }
+                }
+            }
+        }
+        
     }
 
     #[inline]
@@ -271,7 +316,7 @@ impl GLCache {
     pub(crate) fn restore_current_vao(&self, gl: &glow::Context) {
         match &self.vao {
             Some(v) => unsafe {
-                gl.bind_vertex_array(Some(*v));
+                gl.bind_vertex_array(Some((****v).clone()));
             },
             None => unsafe {
                 gl.bind_vertex_array(None);
@@ -282,25 +327,38 @@ impl GLCache {
     pub(crate) fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
         profiling::scope!("hal::GLCache::bind_vao");
 
-        match self.vao_map.get(geometry) {
+        let mut hasher = DefaultHasher::default();
+        geometry.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        match self.vao_map.get(&hash) {
             Some(vao) => unsafe {
                 let need_update = match &self.vao {
-                    Some(v) => *v != *vao,
+                    Some(v) => ***v != **vao,
                     None => true,
                 };
 
                 if need_update {
-                    self.vao = Some(*vao);
-                    gl.bind_vertex_array(Some(*vao));
+                    gl.bind_vertex_array(Some(***vao));
                 }
             },
             None => unsafe {
                 let vao = gl.create_vertex_array().unwrap();
-
-                self.vao = Some(vao);
                 gl.bind_vertex_array(Some(vao));
 
+                let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
+                self.vao = Some(vao);
+
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, geometry.ib);
+
+                // 创建ib与vao之间的关系
+                if let Some(ib) = geometry.ib {
+                    match self.buffer_vao_map.entry(ib) {
+                        std::collections::hash_map::Entry::Occupied(mut r) => {r.get_mut().push(hash);},
+                        std::collections::hash_map::Entry::Vacant(mut r) => {r.insert(vec![hash]);},
+                    };
+                }
+                
 
                 for (i, attrib) in geometry.attributes.info.iter().enumerate() {
                     let i = i as u32;
@@ -315,6 +373,12 @@ impl GLCache {
                             let vb = geometry.vbs[attrib.buffer_slot].as_ref().unwrap();
 
                             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vb.raw));
+
+                            // 创建vb与vao之间的关系
+                            match self.buffer_vao_map.entry(vb.raw) {
+                                std::collections::hash_map::Entry::Occupied(mut r) => {r.get_mut().push(hash);},
+                                std::collections::hash_map::Entry::Vacant(mut r) => {r.insert(vec![hash]);},
+                            };
 
                             let mut offset = attrib.attrib_offset + vb.offset;
                             if attrib.is_buffer_instance {
@@ -349,8 +413,6 @@ impl GLCache {
                         }
                     }
                 }
-
-                self.vao_map.insert(geometry.clone(), vao);
             },
         }
     }
@@ -376,7 +438,7 @@ impl GLCache {
                 return false;
             })
             .map(|(_, v)| v)
-            .collect::<HashSet<_>>();
+            .collect::<XHashSet<_>>();
 
         for fbo in set {
             unsafe {
@@ -406,7 +468,7 @@ impl GLCache {
                 return false;
             })
             .map(|(_, v)| v)
-            .collect::<HashSet<_>>();
+            .collect::<XHashSet<_>>();
 
         for fbo in set {
             unsafe {
@@ -422,60 +484,75 @@ impl GLCache {
         buffer: glow::Buffer,
     ) {
         profiling::scope!("hal::GLCache::remove_buffer");
-
-        let set: HashSet<glow::VertexArray> = if bind_target == glow::ARRAY_BUFFER {
-            self.vao_map
-                .extract_if(|k, vao| {
-                    let mut r = false;
-                    for v in k.vbs.iter() {
-                        if let Some(vb) = v.as_ref() {
-                            if vb.raw == buffer {
-                                r = true;
-
-                                if let Some(old) = self.vao {
-                                    if old == *vao {
-                                        self.vao = None;
-                                        unsafe { gl.bind_vertex_array(None) };
-                                    }
-                                }
-
-                                break;
-                            }
-                        }
-                    }
-                    return r;
-                })
-                .map(|(_, v)| v)
-                .collect::<HashSet<_>>()
-        } else if bind_target == glow::ELEMENT_ARRAY_BUFFER {
-            self.vao_map
-                .extract_if(|k, vao| {
-                    let mut r = false;
-                    if let Some(ib) = &k.ib {
-                        r = *ib == buffer;
-
-                        if r {
-                            if let Some(old) = self.vao {
-                                if old == *vao {
+        if bind_target == glow::ARRAY_BUFFER || bind_target == glow::ELEMENT_ARRAY_BUFFER {
+            if let Some(r) = self.buffer_vao_map.remove(&buffer) {
+                for hash in r.into_iter() {
+                    if let Some(vao) = self.vao_map.get(&hash) {
+                        unsafe {
+                            gl.delete_vertex_array(***vao);
+                            if let Some(old) = &self.vao {
+                                if ***old == **vao {
                                     self.vao = None;
                                     unsafe { gl.bind_vertex_array(None) };
                                 }
                             }
                         }
+
+                        self.vao_map.remove(&hash);
                     }
-                    return r;
-                })
-                .map(|(_, v)| v)
-                .collect::<HashSet<_>>()
+                }
+            }
         } else {
             unreachable!();
-        };
-
-        for vao in set {
-            unsafe {
-                gl.delete_vertex_array(vao);
-            }
         }
+
+        // let set: XHashSet<glow::VertexArray> = if bind_target == glow::ARRAY_BUFFER {
+        //     self.vao_map
+        //         .extract_if(|k, vao| {
+        //             let mut r = false;
+        //             for v in k.vbs.iter() {
+        //                 if let Some(vb) = v.as_ref() {
+        //                     if vb.raw == buffer {
+        //                         r = true;
+
+        //                         if let Some(old) = self.vao {
+        //                             if old == *vao {
+        //                                 self.vao = None;
+        //                                 unsafe { gl.bind_vertex_array(None) };
+        //                             }
+        //                         }
+
+        //                         break;
+        //                     }
+        //                 }
+        //             }
+        //             return r;
+        //         })
+        //         .map(|(_, v)| v)
+        //         .collect::<XHashSet<_>>()
+        // } else if bind_target == glow::ELEMENT_ARRAY_BUFFER {
+        //     self.vao_map
+        //         .extract_if(|k, vao| {
+        //             let mut r = false;
+        //             if let Some(ib) = &k.ib {
+        //                 r = *ib == buffer;
+
+        //                 if r {
+        //                     if let Some(old) = self.vao {
+        //                         if old == *vao {
+        //                             self.vao = None;
+        //                             unsafe { gl.bind_vertex_array(None) };
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //             return r;
+        //         })
+        //         .map(|(_, v)| v)
+        //         .collect::<XHashSet<_>>()
+        // } else {
+        //     unreachable!();
+        // };
     }
 }
 

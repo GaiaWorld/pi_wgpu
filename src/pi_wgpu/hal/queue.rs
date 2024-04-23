@@ -8,7 +8,11 @@ pub(crate) struct Queue {
 
 impl Queue {
     #[inline]
-    pub(crate) fn submit<I: IntoIterator<Item = super::CommandBuffer>>(&self, command_buffers: I) {
-        self.state.clear_cache();
+    pub(crate) fn submit<I: IntoIterator<Item = super::CommandBuffer>>(&self, _command_buffers: I) {
+        let lock = self.adapter.lock(None);
+
+        let gl = lock.get_glow();
+
+        self.state.clear_cache(&gl);
     }
 }

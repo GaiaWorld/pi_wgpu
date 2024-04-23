@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use pi_hash::XHashMap;
 
 use super::{
     super::ShaderModuleDescriptor,
@@ -116,11 +116,11 @@ pub(crate) enum PiBindingType {
 pub(crate) struct ShaderBindingMap {
     next_ubo_id: usize,
     max_uniform_buffer_bindings: usize,
-    ubo_map: HashMap<PiResourceBinding, usize>,
+    ubo_map: XHashMap<PiResourceBinding, usize>,
 
     next_sampler_id: usize,
     max_textures_slots: usize,
-    sampler_map: HashMap<PiResourceBinding, usize>,
+    sampler_map: XHashMap<PiResourceBinding, usize>,
 }
 
 impl ShaderBindingMap {
