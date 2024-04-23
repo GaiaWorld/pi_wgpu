@@ -331,6 +331,8 @@ impl GLCache {
         geometry.hash(&mut hasher);
         let hash = hasher.finish();
 
+        
+
         match self.vao_map.get(&hash) {
             Some(vao) => unsafe {
                 let need_update = match &self.vao {
@@ -340,6 +342,7 @@ impl GLCache {
 
                 if need_update {
                     gl.bind_vertex_array(Some(***vao));
+                    self.vao = Some(vao);
                 }
             },
             None => unsafe {
@@ -349,13 +352,15 @@ impl GLCache {
                 let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
                 self.vao = Some(vao);
 
+                
+
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, geometry.ib);
 
                 // 创建ib与vao之间的关系
                 if let Some(ib) = geometry.ib {
                     match self.buffer_vao_map.entry(ib) {
                         std::collections::hash_map::Entry::Occupied(mut r) => {r.get_mut().push(hash);},
-                        std::collections::hash_map::Entry::Vacant(mut r) => {r.insert(vec![hash]);},
+                        std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
                     };
                 }
                 
