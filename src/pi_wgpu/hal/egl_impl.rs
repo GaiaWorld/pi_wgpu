@@ -761,12 +761,23 @@ struct Egl {
 impl Default for Egl {
     fn default() -> Self {
         let is_vsync = true;
-
-        let instance =
-            pi_egl::Instance::new(pi_egl::PowerPreference::HighPerformance, is_vsync).unwrap();
-
-        let context = instance.create_context().unwrap();
-
+        log::error!("111================");
+        let instance = match pi_egl::Instance::new(pi_egl::PowerPreference::HighPerformance, is_vsync) {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Failed to create EGL instance: {:?}", e);
+                panic!();
+            },
+        };
+        log::error!("2222================");
+        let context = match instance.create_context() {
+            Ok(r) => r,
+            Err(r) => {
+                log::error!("Failed to create EGL context: {:?}", r);
+                panic!();
+            },
+        };
+        log::error!("3333================");
         Self {
             instance,
             context,
