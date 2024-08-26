@@ -5,7 +5,7 @@ use std::{
 
 use glow::HasContext;
 use pi_share::{cell::Ref, Share, ShareCell};
-use raw_window_handle::{HasWindowHandle, HasDisplayHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::{db, PrivateCapabilities};
 use crate::{
@@ -259,6 +259,20 @@ impl AdapterContext {
             egl,
             reentrant_count,
         }
+    }
+
+    pub(crate) fn unmake_current<'a>(&'a self) {
+        self.egl.as_ref().borrow_mut().unmake_current2();
+    }
+
+    pub(crate) fn make_current<'a>(&'a self) {
+        let s = self
+            .imp
+            .as_ref()
+            .borrow()
+            .map(|v| &v.as_ref().unwrap().surface);
+
+        self.egl.as_ref().borrow_mut().make_current2(&s);
     }
 }
 
@@ -827,6 +841,15 @@ impl Egl {
         }
     }
 
+    /// 拓展；适配pi_export双线程
+    #[inline]
+    fn make_current2(&mut self, surface: &pi_egl::Surface) {
+        let _ = self
+            .instance
+            .make_current(Some(surface), Some(&self.context));
+        
+    }
+
     #[inline]
     fn unmake_current(&mut self) {
         // 单线程 不解绑
@@ -834,6 +857,13 @@ impl Egl {
         {
             self.instance.make_current(None, None);
         }
+    }
+
+    /// 拓展；适配pi_export双线程
+    #[inline]
+    fn unmake_current2(&mut self) {
+        self.instance.make_current(None, None);
+        
     }
 
     #[inline]
