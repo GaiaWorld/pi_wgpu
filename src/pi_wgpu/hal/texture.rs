@@ -250,7 +250,7 @@ impl Texture {
         let format_desc = &inner.format_desc;
 
         let lock = adapter.lock(None);
-        let gl = lock.get_glow();
+        let  gl = lock.get_glow();
 
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
@@ -377,6 +377,263 @@ impl Texture {
                     };
                 }
                 _ => unreachable!(),
+            }
+        }
+
+        state.restore_current_texture(&gl, 0, dst_target);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_compress_jsdata(
+        state: &GLState,
+        copy: super::super::ImageCopyTexture,
+        data: &js_sys::Object,
+        _data_layout: super::super::ImageDataLayout,
+        size: super::super::Extent3d,
+    ) {
+        profiling::scope!("hal::Texture::write_data");
+
+        let inner = copy.texture.inner.0.as_ref();
+
+        let (raw, dst_target, adapter) = match &inner.inner {
+            TextureInner::Texture {
+                raw,
+                target,
+                adapter,
+                ..
+            } => (*raw, *target, adapter),
+            _ => unreachable!(),
+        };
+
+        let format_desc = &inner.format_desc;
+
+        let lock = adapter.lock(None);
+        let  gl = lock.get_glow();
+
+        unsafe {
+            // gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(dst_target, Some(raw));
+        }
+
+        if !inner.format.is_compressed() {
+            unreachable!()
+        } else {
+            match dst_target {
+                glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_3d_jsobj(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            copy.origin.z as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            size.depth_or_array_layers as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_2D => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_2d_jsobj(
+                            dst_target,
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                glow::TEXTURE_CUBE_MAP => {
+                    unsafe {
+                        gl.compressed_tex_sub_image_2d_jsobj(
+                            super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
+                            copy.mip_level as i32,
+                            copy.origin.x as i32,
+                            copy.origin.y as i32,
+                            size.width as i32,
+                            size.height as i32,
+                            format_desc.internal,
+                            data,
+                        )
+                    };
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        state.restore_current_texture(&gl, 0, dst_target);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_external_image(
+        state: &GLState,
+        src: &crate::ImageCopyExternalImage,
+        copy: crate::ImageCopyTexture,
+        size: super::super::Extent3d,
+        dst_premultiplication: bool,
+    ) {
+        profiling::scope!("hal::Texture::write_external_image");
+
+        let inner = copy.texture.inner.0.as_ref();
+
+        let (raw, dst_target, adapter) = match &inner.inner {
+            TextureInner::Texture {
+                raw,
+                target,
+                adapter,
+                ..
+            } => (*raw, *target, adapter),
+            _ => unreachable!(),
+        };
+
+        let format_desc = &inner.format_desc;
+
+        let lock = adapter.lock(None);
+        let  gl = lock.get_glow();
+
+        unsafe {
+            const UNPACK_FLIP_Y_WEBGL: u32 =
+                    web_sys::WebGl2RenderingContext::UNPACK_FLIP_Y_WEBGL;
+            const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 =
+                web_sys::WebGl2RenderingContext::UNPACK_PREMULTIPLY_ALPHA_WEBGL;
+            if src.flip_y {
+                gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
+            }
+            if dst_premultiplication {
+                gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+            }
+        }
+
+
+        unsafe {
+            // gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(dst_target, Some(raw));
+        }
+
+        if is_layered_target(dst_target) {
+            match src.source {
+                wgt::ExternalImageSource::HTMLImageElement(ref b) => unsafe {
+                    unreachable!()
+                },
+                wgt::ExternalImageSource::ImageBitmap(ref b) => unsafe {
+                    gl.tex_sub_image_3d_with_image_bitmap(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        copy.origin.z as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        size.depth_or_array_layers as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        b,
+                    );
+                },
+                wgt::ExternalImageSource::HTMLVideoElement(ref v) => unsafe {
+                    gl.tex_sub_image_3d_with_html_video_element(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        copy.origin.z as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        size.depth_or_array_layers as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        v,
+                    );
+                },
+                wgt::ExternalImageSource::HTMLCanvasElement(ref c) => unsafe {
+                    gl.tex_sub_image_3d_with_html_canvas_element(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        copy.origin.z as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        size.depth_or_array_layers as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        c,
+                    );
+                },
+                wgt::ExternalImageSource::OffscreenCanvas(_) => unreachable!(),
+            }
+        } else {
+            let dst_target = match dst_target {
+                glow::TEXTURE_2D => {
+                    unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+                    unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
+                    dst_target
+                },
+                glow::TEXTURE_2D => super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
+                _ => unreachable!(),
+            };
+            match src.source {
+                wgt::ExternalImageSource::HTMLImageElement(ref b) => unsafe {
+                    // HtmlImageElmement
+                    gl.tex_sub_image_2d_with_html_image_and_width_and_height(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        &b,
+                    );
+                },
+                wgt::ExternalImageSource::ImageBitmap(ref b) => unsafe {
+                    // 当前实现将 ImageBitmap 视为 HtmlImageElmement
+                    gl.tex_sub_image_2d_with_image_bitmap_and_width_and_height(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        &b,
+                    );
+                },
+                wgt::ExternalImageSource::HTMLVideoElement(ref v) => unsafe {
+                    gl.tex_sub_image_2d_with_html_video_and_width_and_height(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        v,
+                    )
+                },
+                wgt::ExternalImageSource::HTMLCanvasElement(ref c) => unsafe {
+                    gl.tex_sub_image_2d_with_html_canvas_and_width_and_height(
+                        dst_target,
+                        copy.mip_level as i32,
+                        copy.origin.x as i32,
+                        copy.origin.y as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        format_desc.external,
+                        format_desc.data_type,
+                        c,
+                    )
+                },
+                wgt::ExternalImageSource::OffscreenCanvas(_) => unreachable!(),
             }
         }
 
@@ -583,5 +840,13 @@ fn get_texture_bytes_per_block(format: TextureFormat) -> u32 {
         TextureFormat::Astc { .. } => 16, // ASTC 块总是使用 128 位，即 16 字节。
 
         _ => unimplemented!(),
+    }
+}
+
+fn is_layered_target(target: u32) -> bool {
+    match target {
+        glow::TEXTURE_2D | glow::TEXTURE_CUBE_MAP => false,
+        glow::TEXTURE_2D_ARRAY | glow::TEXTURE_3D => true,
+        _ => unreachable!(),
     }
 }

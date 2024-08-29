@@ -216,9 +216,12 @@ pub type TextureDescriptor<'a> =
     super::super::wgt::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
 
 pub use super::super::wgt::ImageCopyTexture as ImageCopyTextureBase;
+pub use super::super::wgt::ImageCopyTextureTagged as ImageCopyTextureTaggedBase;
+
 
 /// View of a texture which can be used to copy to/from a buffer/texture.
 ///
 /// Corresponds to [WebGPU `GPUImageCopyTexture`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpuimagecopytexture).
 pub type ImageCopyTexture<'a> = ImageCopyTextureBase<&'a Texture>;
+pub type ImageCopyTextureTagged<'a> = ImageCopyTextureTaggedBase<&'a Texture>;

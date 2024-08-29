@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.31"
+version = "0.1.32"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -47,6 +47,7 @@ wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 web-sys = { version = "0.3", features = [
 	"HtmlCanvasElement",
 	"OffscreenCanvas",
+	"ImageBitmap",
 ] }
 js-sys = "0.3"
 

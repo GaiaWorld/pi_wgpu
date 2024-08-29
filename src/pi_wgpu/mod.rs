@@ -31,6 +31,10 @@ pub use wgt::{
     
 };
 
+#[cfg(target_arch = "wasm32")]
+pub use wgt::{ImageCopyExternalImage, ExternalImageSource};
+pub use util::TextureDataOrder;
+
 use std::any::Any;
 
 // The underlying types are also exported so that documentation shows up for them

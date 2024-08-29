@@ -69,6 +69,25 @@ impl Queue {
         self.write_texture_inner(texture, data, data_layout, size);
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_texture_jsbuffer(
+        &self,
+        texture: super::super::ImageCopyTexture,
+        data: &js_sys::Object,
+        data_layout: ImageDataLayout,
+        size: Extent3d,
+    ) {
+        log::trace!("queue.write_texture");
+        log::trace!(
+            "pi_wgpu::Queue::write_texture_jsbuffer, texture = {:?}, data_layout = {:?}, size = {:?}",
+            texture,
+            data_layout,
+            size
+        );
+
+        hal::Texture::write_compress_jsdata(&self.inner.state, texture, data, data_layout, size);
+    }
+
     #[inline]
     pub(crate) fn write_texture_inner(
         &self,
@@ -85,6 +104,16 @@ impl Queue {
         );
 
         hal::Texture::write_data(&self.inner.state, texture, data, data_layout, size);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn copy_external_image_to_texture(
+        &self,
+        source: &super::super::ImageCopyExternalImage,
+        dest: super::super::ImageCopyTextureTagged,
+        size: Extent3d,
+    ) {
+        hal::Texture::write_external_image(&self.inner.state, source, dest.to_untagged(), size, dest.premultiplied_alpha);
     }
 
     /// Submits a series of finished command buffers for execution.

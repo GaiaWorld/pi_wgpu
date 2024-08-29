@@ -6081,6 +6081,8 @@ pub enum BindingType {
  #[derive(Clone, Debug)]
  pub enum ExternalImageSource {
      /// Copy from a previously-decoded image bitmap.
+     HTMLImageElement(web_sys::HtmlImageElement),
+     /// Copy from a previously-decoded image bitmap.
      ImageBitmap(web_sys::ImageBitmap),
      /// Copy from a current frame of a video element.
      HTMLVideoElement(web_sys::HtmlVideoElement),
@@ -6097,6 +6099,7 @@ pub enum BindingType {
      /// Gets the pixel, not css, width of the source.
      pub fn width(&self) -> u32 {
          match self {
+             ExternalImageSource::HTMLImageElement(b) => b.width(),
              ExternalImageSource::ImageBitmap(b) => b.width(),
              ExternalImageSource::HTMLVideoElement(v) => v.video_width(),
              ExternalImageSource::HTMLCanvasElement(c) => c.width(),
@@ -6107,6 +6110,7 @@ pub enum BindingType {
      /// Gets the pixel, not css, height of the source.
      pub fn height(&self) -> u32 {
          match self {
+             ExternalImageSource::HTMLImageElement(b) => b.height(),
              ExternalImageSource::ImageBitmap(b) => b.height(),
              ExternalImageSource::HTMLVideoElement(v) => v.video_height(),
              ExternalImageSource::HTMLCanvasElement(c) => c.height(),
@@ -6121,6 +6125,7 @@ pub enum BindingType {
  
      fn deref(&self) -> &Self::Target {
          match self {
+             Self::HTMLImageElement(b) => b,
              Self::ImageBitmap(b) => b,
              Self::HTMLVideoElement(v) => v,
              Self::HTMLCanvasElement(c) => c,

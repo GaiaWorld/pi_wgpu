@@ -64,6 +64,14 @@ pub trait DeviceExt {
         order: TextureDataOrder,
         data: &[u8],
     ) -> super::super::Texture;
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_compress_texture_with_data_jsdata( 
+        &self,
+        queue: &super::super::Queue,
+        desc: &super::super::TextureDescriptor,
+        order: TextureDataOrder,
+        data: &[js_sys::Object]) -> super::super::Texture;
 }
 
 impl DeviceExt for super::super::Device {
@@ -174,6 +182,92 @@ impl DeviceExt for super::super::Device {
                 );
 
                 binary_offset = end_offset;
+            }
+        }
+        {
+            log::trace!(
+                "let texture{:?} = device.create_texture_with_data(&{:?});",
+                texture.inner.0.inner.debug_str(),
+                desc,
+            );
+        }
+
+        texture
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_compress_texture_with_data_jsdata( 
+        &self,
+        queue: &super::super::Queue,
+        desc: &super::super::TextureDescriptor,
+        order: TextureDataOrder,
+        data: &[js_sys::Object],
+    ) -> super::super::Texture {
+        let mut desc = desc.to_owned();
+        desc.usage |= crate::TextureUsages::COPY_DST;
+        let texture = self.create_texture_inner(&desc);
+
+        // Will return None only if it's a combined depth-stencil format
+        // If so, default to 4, validation will fail later anyway since the depth or stencil
+        // aspect needs to be written to individually
+        let block_size = desc.format.block_size(None).unwrap_or(4);
+        let (block_width, block_height) = desc.format.block_dimensions();
+        let layer_iterations = desc.array_layer_count();
+
+        let outer_iteration;
+        let inner_iteration;
+        match order {
+            TextureDataOrder::LayerMajor => {
+                outer_iteration = layer_iterations;
+                inner_iteration = desc.mip_level_count;
+            }
+            TextureDataOrder::MipMajor => {
+                outer_iteration = desc.mip_level_count;
+                inner_iteration = layer_iterations;
+            }
+        }
+        let mut i = 0;
+
+        for layer in 0..outer_iteration {
+            for mip in 0..inner_iteration {
+                let mut mip_size = desc.mip_level_size(mip).unwrap();
+                // copying layers separately
+                if desc.dimension != wgt::TextureDimension::D3 {
+                    mip_size.depth_or_array_layers = 1;
+                }
+
+                // When uploading mips of compressed textures and the mip is supposed to be
+                // a size that isn't a multiple of the block size, the mip needs to be uploaded
+                // as its "physical size" which is the size rounded up to the nearest block size.
+                let mip_physical = mip_size.physical_size(desc.format);
+
+                // All these calculations are performed on the physical size as that's the
+                // data that exists in the buffer.
+                let width_blocks = mip_physical.width / block_width;
+                let height_blocks = mip_physical.height / block_height;
+
+                let bytes_per_row = width_blocks * block_size;
+
+                queue.write_texture_jsbuffer(
+                    crate::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: mip,
+                        origin: crate::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: layer,
+                        },
+                        aspect: wgt::TextureAspect::All,
+                    },
+                    &data[i],
+                    crate::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(bytes_per_row),
+                        rows_per_image: Some(height_blocks),
+                    },
+                    mip_physical,
+                );
+                i += 1;
             }
         }
         {
