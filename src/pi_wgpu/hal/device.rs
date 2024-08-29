@@ -98,4 +98,10 @@ impl Device {
         let imp = super::RenderPipelineImpl::new(&self.state, &self.adapter, &self.features, desc)?;
         Ok(super::RenderPipeline(Share::new(imp)))
     }
+    pub(crate) fn unmake_current(&self){
+        self.adapter.unmake_current();
+    }
+    pub(crate) fn make_current(&self){
+        self.adapter.make_current();
+    }
 }

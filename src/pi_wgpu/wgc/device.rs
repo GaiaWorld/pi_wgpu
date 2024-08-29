@@ -241,6 +241,14 @@ impl Device {
 		log::trace!("let sampler{} = device.create_sampler(&{:?});", r.0.raw.0.get(), desc);
         Sampler::from_hal(r)
     }
+    pub fn unmake_current(&self){
+        #[cfg(feature = "single_thread")]
+        self.inner.unmake_current();
+    }
+    pub fn make_current(&self){
+        #[cfg(feature = "single_thread")]
+        self.inner.make_current();
+    }
 }
 
 /// Describes a [`Device`].
