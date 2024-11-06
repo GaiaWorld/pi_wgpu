@@ -91,6 +91,14 @@ impl GLCache {
         }
     }
 
+    pub(crate) fn reset_vao_state(&mut self, gl: &glow::Context) {
+        if let Some(_) = self.vao {
+            unsafe { gl.bind_vertex_array(None)};
+        }
+        self.vao = None;
+
+    }
+
     pub(crate) fn clear_weak_refs(&mut self, gl: &glow::Context) {
         let now = Instant::now();
         if now - self.last_clear_time < Duration::from_secs(CLEAR_DURATION) {
@@ -349,6 +357,8 @@ impl GLCache {
                 let vao = gl.create_vertex_array().unwrap();
                 gl.bind_vertex_array(Some(vao));
 
+                // log::warn!("Creating new VAO: {:?}", &vao);
+
                 let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
                 self.vao = Some(vao);
 
@@ -389,6 +399,8 @@ impl GLCache {
                             if attrib.is_buffer_instance {
                                 offset +=  geometry.first_instance as i32 * attrib.attrib_stride;
                             }
+
+                            // log::warn!("bind buffer: {:?}", (offset, i, attrib.attrib_stride, attrib.element_count, &attrib.attrib_kind, vb.raw));
 
                             match attrib.attrib_kind {
                                 super::VertexAttribKind::Float => {

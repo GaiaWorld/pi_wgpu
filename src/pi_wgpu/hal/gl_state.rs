@@ -39,6 +39,11 @@ impl GLState {
     }
 
     #[inline]
+    pub(crate) fn reset_state(&self, gl: &glow::Context,) {
+        self.imp.as_ref().borrow_mut().reset_state(gl);
+    }
+
+    #[inline]
     pub(crate) fn next_shader_id(&self) -> ShaderID {
         // log::trace!(
         //     "========== GLState::next_shader_id lock, thread_id = {:?}",
@@ -804,6 +809,7 @@ struct UBOState {
 }
 
 impl GLStateImpl {
+
     fn new(gl: &glow::Context, alloter: &mut Allocator) -> Self {
         // 一个 Program 能同时接受的 UBO 绑定的个数
         // PC Chrome 浏览器 24
@@ -874,6 +880,71 @@ impl GLStateImpl {
             textures: textures.into_boxed_slice(),
             group_dirty: 0,
         }
+    }
+
+    fn reset_state(&mut self, gl: &glow::Context) {
+        self.is_depth_test_enable = false;
+        Self::apply_depth_test_enable(gl, self.is_depth_test_enable);
+
+        self.is_stencil_test_enable = false;
+        Self::apply_stencil_test_enable(gl, self.is_stencil_test_enable);
+
+        // 重置清屏颜色
+        let clear_color = wgt::Color::default();
+        if self.clear_color != clear_color {
+            unsafe {
+                gl.clear_color(
+                    clear_color.r as f32,
+                    clear_color.g as f32,
+                    clear_color.b as f32,
+                    clear_color.a as f32,
+                );
+            }
+            self.clear_color = clear_color;
+        }
+        unsafe {
+            gl.clear_depth_f32(1.0);
+        }
+        self.clear_depth = 1.0;
+
+        unsafe {
+            gl.clear_stencil(0);
+        }
+        self.clear_stencil = 0;
+
+        self.viewport = Default::default();
+        self.scissor = Default::default();
+        unsafe { gl.viewport(self.viewport.x, self.viewport.y, self.viewport.w, self.viewport.h) };
+        unsafe { gl.viewport(self.scissor.x, self.scissor.y, self.scissor.w, self.scissor.h) };
+        
+        for i in self.vertex_buffers.iter_mut() {
+            *i = None;
+        }
+        self.cache.reset_vao_state(gl);
+
+        for (i, item) in self.textures.iter_mut().enumerate() {
+            if let Some((target, _)) = &mut item.0 {
+                unsafe {
+                    self.active_texture_unit = i as u32;
+                    gl.active_texture(glow::TEXTURE0 + i as u32);
+                    gl.bind_texture(*target, None);
+                }
+                item.0 = None;
+            }
+
+            if item.1.is_some() {
+                unsafe { gl.bind_sampler(i as u32, None) };
+                item.1 = None;
+            }
+        }
+        for i in self.ubos.iter_mut() {
+            *i = None;
+        }
+       
+        
+        self.render_pipeline = None;
+        self.index_buffer = None;
+        self.active_texture_unit = 0;
     }
 
     #[inline]

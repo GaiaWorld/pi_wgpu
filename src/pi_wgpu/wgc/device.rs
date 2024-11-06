@@ -37,6 +37,11 @@ impl Device {
         self.inner.limits.clone()
     }
 
+    #[inline]
+    pub fn reset_state(&self) {
+        self.inner.reset_state();
+    }
+
     /// Creates a shader module from either SPIR-V or WGSL source code.
     #[inline]
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor) -> ShaderModule {

@@ -104,4 +104,10 @@ impl Device {
     pub(crate) fn make_current(&self){
         self.adapter.make_current();
     }
+
+    pub(crate) fn reset_state(&self) {
+        let lock = self.adapter.lock(None);
+        let gl = lock.get_glow();
+        self.state.reset_state(&gl);
+    }
 }
