@@ -335,11 +335,7 @@ impl GLCache {
     pub(crate) fn bind_vao(&mut self, gl: &glow::Context, geometry: &super::GeometryState) {
         profiling::scope!("hal::GLCache::bind_vao");
 
-        let mut hasher = DefaultHasher::default();
-        geometry.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        
+        let hash = geometry.hash;
 
         match self.vao_map.get(&hash) {
             Some(vao) => unsafe {
@@ -573,12 +569,39 @@ impl GLCache {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct GeometryState {
     pub(crate) attributes: AttributeState,
     pub(crate) vbs: Box<[Option<VBState>]>, // 长度 为 attributes.vb_count
     pub(crate) ib: Option<glow::Buffer>,
     pub(crate) first_instance: u32,
+    pub(crate) hash: u64,
+}
+impl GeometryState {
+    pub fn new(attributes: AttributeState,
+        vbs: Box<[Option<VBState>]>,
+        ib: Option<glow::Buffer>,
+        first_instance: u32,
+    ) -> Self {
+        let mut state = DefaultHasher::default();
+        attributes.hash(&mut state);
+        vbs.hash(&mut state);
+        ib.hash(&mut state);
+        first_instance.hash(&mut state);
+
+        Self {
+            attributes,
+            vbs,
+            ib,
+            first_instance,
+            hash: state.finish()
+        }
+    }
+}
+impl Hash for GeometryState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
+    }
 }
 
 #[derive(Debug)]
