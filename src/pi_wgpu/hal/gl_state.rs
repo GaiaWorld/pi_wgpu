@@ -2,6 +2,9 @@
 //! 全局 缓冲表，见 GLCache
 //!
 
+use core::hash;
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use pi_assets::allocator::Allocator;
 use pi_hash::XHashMap;
 
@@ -1685,12 +1688,12 @@ impl GLStateImpl {
             }
         }
 
-        let geometry = super::GeometryState {
-            attributes: rp.attributes.clone(),
+        let geometry = super::GeometryState::new(
+            rp.attributes.clone(),
             vbs,
-            ib: self.index_buffer.as_ref().map(|ib| ib.raw),
+            self.index_buffer.as_ref().map(|ib| ib.raw),
             first_instance,
-        };
+        );
 
         self.cache.bind_vao(gl, &geometry);
         
@@ -2402,19 +2405,30 @@ pub(crate) struct IBState {
     pub(crate) offset: i32,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct AttributeState {
     pub(crate) vb_count: usize, // vertex_buffers 的 前多少个 VB 对这个 Attribute 有效
     pub(crate) info: Box<[Option<AttributeInfo>]>,
+    pub(crate) hash: u64,
 }
 
 impl AttributeState {
     #[inline]
     pub(crate) fn new(max_vertex_attributes: usize, vb_count: usize) -> Self {
+        let mut hash = DefaultHasher::default();
+        let info = vec![None; max_vertex_attributes].into_boxed_slice();
+        vb_count.hash(&mut hash);
+        info.hash(&mut hash);
         Self {
             vb_count,
-            info: vec![None; max_vertex_attributes].into_boxed_slice(),
+            info,
+            hash: hash.finish(),
         }
+    }
+}
+impl Hash for AttributeState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
     }
 }
 
