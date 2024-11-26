@@ -10,7 +10,7 @@ use std::{hash::{Hash, Hasher}, time::Duration};
 use pi_hash::{DefaultHasher, XHashMap, XHashSet};
 use glow::HasContext;
 use pi_share::{cell::TrustCell, Share, ShareWeak};
-use pi_assets::{asset::{Asset, Garbageer, Handle, Size}, mgr::AssetMgr};
+use pi_assets::asset::{Asset, Garbageer, Size};
 use pi_assets::allocator::Allocator;
 
 use super::{
@@ -44,10 +44,12 @@ impl Garbageer<VertexArrayAsset> for VaoGarbage {
 pub(crate) struct GLCache {
     last_clear_time: Instant,
 
-    vao: Option<Handle<VertexArrayAsset>>,
+    // vao: Option<Handle<VertexArrayAsset>>,
+    vao: Option<glow::VertexArray>,
 
     shader_binding_map: super::ShaderBindingMap,
-    vao_map: Share<AssetMgr<VertexArrayAsset, VaoGarbage>>,
+    // vao_map: Share<AssetMgr<VertexArrayAsset, VaoGarbage>>,
+    vao_map: XHashMap<u64, glow::VertexArray>,
     garbage_vao: Share<TrustCell<Vec<glow::VertexArray>>>,
     buffer_vao_map: XHashMap<glow::Buffer, Vec<u64>>, // buffer 与vao资源key的对应关系
     fbo_map: XHashMap<RenderTarget, glow::Framebuffer>,
@@ -63,10 +65,11 @@ pub(crate) struct GLCache {
 
 impl GLCache {
     #[inline]
-    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize, alloter: &mut Allocator) -> Self {
+    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize, _alloter: &mut Allocator) -> Self {
         let garbage_vao = Share::new(TrustCell::new(Vec::new()));
-        let vao_map = AssetMgr::new(VaoGarbage(garbage_vao.clone()), false, 20 * 1024, 10 * 1000); // 过期时间：10分钟
-        alloter.register(vao_map.clone(), 20 * 1024, 30 * 1024);
+        // let vao_map = AssetMgr::new(VaoGarbage(garbage_vao.clone()), false, 20 * 1024, 10 * 1000); // 过期时间：10分钟
+        // alloter.register(vao_map.clone(), 20 * 1024, 30 * 1024);
+        let vao_map = XHashMap::default();
         Self {
             vao: None,
 
@@ -119,9 +122,9 @@ impl GLCache {
                 unsafe {
                     gl.delete_vertex_array(vao);
                     if let Some(old) = &self.vao {
-                        if ****old == vao {
+                        if *old == vao {
                             self.vao = None;
-                            unsafe { gl.bind_vertex_array(None) };
+                            gl.bind_vertex_array(None);
                         }
                     }
                 }
@@ -324,7 +327,7 @@ impl GLCache {
     pub(crate) fn restore_current_vao(&self, gl: &glow::Context) {
         match &self.vao {
             Some(v) => unsafe {
-                gl.bind_vertex_array(Some((****v).clone()));
+                gl.bind_vertex_array(Some((*v).clone()));
             },
             None => unsafe {
                 gl.bind_vertex_array(None);
@@ -344,13 +347,13 @@ impl GLCache {
         match self.vao_map.get(&hash) {
             Some(vao) => unsafe {
                 let need_update = match &self.vao {
-                    Some(v) => ***v != **vao,
+                    Some(v) => *v != *vao,
                     None => true,
                 };
 
                 if need_update {
-                    gl.bind_vertex_array(Some(***vao));
-                    self.vao = Some(vao);
+                    gl.bind_vertex_array(Some(*vao));
+                    self.vao = Some(*vao);
                 }
             },
             None => unsafe {
@@ -359,7 +362,8 @@ impl GLCache {
 
                 // log::warn!("Creating new VAO: {:?}", &vao);
 
-                let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
+                // let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
+                self.vao_map.insert(hash, vao.clone());
                 self.vao = Some(vao);
 
                 
@@ -392,7 +396,7 @@ impl GLCache {
                             // 创建vb与vao之间的关系
                             match self.buffer_vao_map.entry(vb.raw) {
                                 std::collections::hash_map::Entry::Occupied(mut r) => {r.get_mut().push(hash);},
-                                std::collections::hash_map::Entry::Vacant(mut r) => {r.insert(vec![hash]);},
+                                std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
                             };
 
                             let mut offset = attrib.attrib_offset + vb.offset;
@@ -506,11 +510,11 @@ impl GLCache {
                 for hash in r.into_iter() {
                     if let Some(vao) = self.vao_map.get(&hash) {
                         unsafe {
-                            gl.delete_vertex_array(***vao);
+                            gl.delete_vertex_array(*vao);
                             if let Some(old) = &self.vao {
-                                if ***old == **vao {
+                                if *old == *vao {
                                     self.vao = None;
-                                    unsafe { gl.bind_vertex_array(None) };
+                                    gl.bind_vertex_array(None);
                                 }
                             }
                         }
