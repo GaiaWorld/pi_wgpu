@@ -3,7 +3,6 @@
 
 use std::future::Future;
 
-use pi_assets::allocator::Allocator;
 #[cfg(feature = "use_wgpu")]
 pub use wgpu::*;
 
@@ -19,7 +18,6 @@ pub trait PiWgpuAdapter {
         &self,
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
-        alloter: &mut Allocator,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send;
 }
 
@@ -29,7 +27,6 @@ impl PiWgpuAdapter for Adapter {
         &self,
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
-        _alloter: &mut Allocator,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
         self.request_device(desc, _trace_path)
     }

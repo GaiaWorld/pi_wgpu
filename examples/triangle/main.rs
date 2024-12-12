@@ -29,6 +29,7 @@ pub struct TriangleExample {
 
     vertex_buf: pi_wgpu::Buffer,
     pipeline: pi_wgpu::RenderPipeline,
+    count: f32,
 }
 
 impl Example for TriangleExample {
@@ -53,6 +54,7 @@ impl Example for TriangleExample {
 
             vertex_buf,
             pipeline,
+            count: 0.0,
         }
     }
 
@@ -65,7 +67,35 @@ impl Example for TriangleExample {
         // let count = 1000;
         // let begin = pi_time::Instant::now();
         // for _ in 0..count {
-        //     queue.write_buffer(&self.temp_buf, 0, &self.temp_data.as_slice());
+            let mut vertices = [
+                Vertex {
+                    position: [0.0, 0.0],
+                    color: [0.0, 0.0, 0.0, 1.0],
+                },
+                Vertex {
+                    position: [0.0, 0.5],
+                    color: [0.0, 1.0, 0.0, 1.0],
+                },
+                Vertex {
+                    position: [0.5, 0.5],
+                    color: [0.0, 0.0, 1.0, 1.0],
+                },
+            ];
+            self.count += 0.05;
+            if self.count > 1.0 {
+                self.count = 0.0
+            }
+            vertices[0].color = [self.count , 0.0, 0.0, 1.0];
+
+            let slice = vertices.as_slice();
+            let contents = unsafe {
+                std::slice::from_raw_parts(
+                    slice.as_ptr() as *const u8,
+                    slice.len() * std::mem::size_of::<Vertex>(),
+                )
+            };
+
+            queue.write_buffer(&self.vertex_buf, 0, &contents);
         // }
         // let d = begin.elapsed();
         // log::warn!("{} write_buffer time = {:?}", count, d);

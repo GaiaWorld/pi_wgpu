@@ -1,3 +1,5 @@
+use derive_more::derive::Debug;
+
 use super::super::{
     hal, BufferAddress, ColorTargetState, DepthStencilState, Label,
     MultisampleState, PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute,
@@ -34,6 +36,7 @@ pub struct RenderPipelineDescriptor<'a> {
     /// Debug label of the pipeline. This will show up in graphics debuggers for easy identification.
     pub label: Label<'a>,
     /// The layout of bind groups for this pipeline.
+    #[debug("{}", match layout {Some(r) => format!("Some(&pipeline_layout{:?})", r.inner.id), None => "None".to_string()})]
     pub layout: Option<&'a PipelineLayout>,
     /// The compiled vertex stage, its entry point, and the input buffers layout.
     pub vertex: VertexState<'a>,
@@ -58,14 +61,17 @@ pub struct RenderPipelineDescriptor<'a> {
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpuvertexstate).
 #[derive(Clone, Debug)]
 pub struct VertexState<'a> {
+    #[debug("&shader_module{:?}", module.inner.id)]
     /// The compiled shader module for this stage.
     pub module: &'a ShaderModule,
     /// The name of the entry point in the compiled shader. There must be a function with this name
     /// in the shader.
     pub entry_point: &'a str,
-    /// The format of any vertex buffers used with this pipeline.
+    /// The format of any vertex buffers used with this pipeline
+    #[debug("&{buffers:?}")]
     pub buffers: &'a [VertexBufferLayout<'a>],
 }
+
 
 /// Describes how the vertex buffer is interpreted.
 ///
@@ -73,12 +79,13 @@ pub struct VertexState<'a> {
 ///
 /// Corresponds to [WebGPU `GPUVertexBufferLayout`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpurenderpassdescriptor).
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct VertexBufferLayout<'a> {
     /// The stride, in bytes, between elements of this buffer.
     pub array_stride: BufferAddress,
-    /// How often this vertex buffer is "stepped" forward.
+    /// How often this vertex buffer is "stepped" forward
     pub step_mode: VertexStepMode,
+    #[debug("&{attributes:?}")]
     /// The list of attributes which comprise a single vertex.
     pub attributes: &'a [VertexAttribute],
 }
@@ -92,10 +99,12 @@ pub struct VertexBufferLayout<'a> {
 #[derive(Clone, Debug)]
 pub struct FragmentState<'a> {
     /// The compiled shader module for this stage.
+    #[debug("&shader_module{:?}", module.inner.id)]
     pub module: &'a ShaderModule,
     /// The name of the entry point in the compiled shader. There must be a function with this name
     /// in the shader.
     pub entry_point: &'a str,
     /// The color state of the render targets.
+    #[debug("&{targets:?}")]
     pub targets: &'a [Option<ColorTargetState>],
 }

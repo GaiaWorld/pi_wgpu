@@ -47,7 +47,7 @@ impl Device {
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor) -> ShaderModule {
         let r = self.inner.create_shader_module(&desc);
         let r = r.unwrap();
-		log::trace!("let shader_module{:?} = device.create_shader_module({:?});", r.id, desc);
+		log::trace!("let shader_module{:?} = device.create_shader_module({:?});", r.id, &desc);
         ShaderModule::from_hal(r)
     }
 
@@ -57,7 +57,8 @@ impl Device {
         &self,
         desc: &super::super::CommandEncoderDescriptor,
     ) -> CommandEncoder {
-        log::trace!("let command_encoder = device.create_command_encoder(&{:?});", desc);
+        log::trace!("{{
+        let mut command_encoder = device.create_command_encoder(&{:?});", desc);
 
         let r = self.inner.create_command_encoder(&desc);
         let r = r.unwrap();
@@ -69,7 +70,7 @@ impl Device {
     pub fn create_bind_group_layout(&self, desc: &BindGroupLayoutDescriptor) -> BindGroupLayout {
         let r = self.inner.create_bind_group_layout(&desc);
         let r = r.unwrap();
-		log::trace!("let bind_group_layout{} = device.create_bind_group_layout(&{:?});", r.id, desc);
+		log::trace!("let bind_group_layout{} = device.create_bind_group_layout(&{:?});", r.id, &desc);
         BindGroupLayout::from_hal(r)
     }
 
@@ -106,28 +107,7 @@ impl Device {
     pub fn create_render_pipeline(&self, desc: &RenderPipelineDescriptor) -> RenderPipeline {
         let r = self.inner.create_render_pipeline(&desc);
         let r = r.unwrap();
-		log::trace!("let render_pipeline{} = device.create_render_pipeline(&RenderPipelineDescriptor {{
-				label: {:?},
-				layout: {},
-				vertex: {:?},
-				primitive: {:?},
-				depth_stencil: {:?},
-				multisample: {:?},
-				fragment: {:?},
-				multiview: {:?},
-			}});", 
-			r.0.id, &desc.label, 
-			match desc.layout {
-				Some(r) => "Some(pipeline_layout".to_string() + r.inner.id.to_string().as_str() + ")",
-				None => "None".to_string(),
-			},
-			&desc.vertex,
-			&desc.primitive,
-			&desc.depth_stencil,
-			&desc.multisample,
-			&desc.fragment,
-			&desc.multiview,
-		);
+		log::trace!("let render_pipeline{} = device.create_render_pipeline(&{:?});", r.0.id, desc);
         RenderPipeline::from_hal(r)
     }
 
@@ -189,7 +169,7 @@ impl Device {
     // #[inline]
     pub fn create_texture(&self, desc: &super::super::TextureDescriptor) -> Texture {
         let texture = self.create_texture_inner(desc);
-		log::trace!("let texture{} = device.create_texture(&{:?});", texture.inner.0.inner.debug_str(), desc);
+		log::warn!("let texture{} = device.create_texture(&{:?});", texture.inner.0.inner.debug_str(), desc);
 		texture
     }
 

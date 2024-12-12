@@ -3,6 +3,7 @@ use std::{borrow::Cow, marker::PhantomData};
 use thiserror::Error;
 
 use super::super::{DeviceError, Label, MissingFeatures};
+use derive_more::Debug;
 
 /// Handle to a compiled shader module.
 ///
@@ -37,8 +38,10 @@ impl ShaderModule {
 #[non_exhaustive]
 pub enum ShaderSource<'a> {
     /// Naga module.
+    #[debug("ShaderSource::Naga(Cow::from({_0:?}))")]
     Naga(Cow<'static, naga::Module>),
 
+    #[debug("Glsl {{shader: Cow::from({shader:?}), stage: naga::ShaderStage::{stage:?},  defines: naga::FastHashMap::default()}}")]
     Glsl {
         /// The source code of the shader.
         shader: Cow<'a, str>,

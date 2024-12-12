@@ -279,14 +279,14 @@ impl AdapterContext {
 impl AdapterContextImpl {
     fn new(gl: &glow::Context, surface: pi_egl::Surface) -> Self {
         let extensions = gl.supported_extensions();
-        log::info!("GL Extensions: {:#?}", extensions);
+        // log::info!("GL Extensions: {:#?}", extensions);
 
-        log::info!("glow version: {:#?}", gl.version());
+        // log::info!("glow version: {:#?}", gl.version());
 
         // ========== 1. 版本，必须大于等于 3.0
 
         let version = unsafe { gl.get_parameter_string(glow::VERSION) };
-        log::info!("GL Version: {}", version);
+        // log::info!("GL Version: {}", version);
 
         let ver = Self::parse_version(&version).unwrap();
         if ver < (3, 0) {
@@ -310,15 +310,15 @@ impl AdapterContextImpl {
 
             (vendor, renderer)
         };
-        log::info!("GL Renderer: {}", renderer);
-        log::info!("GL Vendor: {}", vendor);
+        // log::info!("GL Renderer: {}", renderer);
+        // log::info!("GL Vendor: {}", vendor);
 
         // ========== 3. glsl shader 版本
 
         let shading_language_version = {
             let sl_version = unsafe { gl.get_parameter_string(glow::SHADING_LANGUAGE_VERSION) };
 
-            log::info!("GLSL version: {}", &sl_version);
+            // log::info!("GLSL version: {}", &sl_version);
 
             let (sl_major, sl_minor) = Self::parse_version(&sl_version).unwrap();
 

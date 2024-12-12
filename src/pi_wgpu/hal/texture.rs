@@ -748,7 +748,7 @@ pub(crate) struct TextureImpl {
 
 #[derive(Debug, Clone)]
 pub(crate) enum TextureInner {
-    NativeRenderBuffer,
+    NativeRenderBuffer, // 窗口表面纹理
 
     Renderbuffer {
         state: GLState,
@@ -768,7 +768,7 @@ impl TextureInner {
     pub(crate) fn debug_str(&self) -> String {
         #[cfg(not(target_arch = "wasm32"))]
         let r = match self {
-            crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "native".to_string(),
+            crate::pi_wgpu::hal::TextureInner::NativeRenderBuffer => "surface".to_string(),
             crate::pi_wgpu::hal::TextureInner::Renderbuffer { raw, .. } => {
                 "render".to_string() + raw.0.get().to_string().as_str()
             }
@@ -785,7 +785,8 @@ impl TextureInner {
 impl Drop for TextureInner {
     fn drop(&mut self) {
         profiling::scope!("hal::TextureInner::drop");
-        log::trace!("Dropping TextureInner {:?}", self);
+        // log::trace!("{{let _a = texture{};}}", self.debug_str());
+        
         match &self {
             &TextureInner::NativeRenderBuffer => {}
             &TextureInner::Renderbuffer {

@@ -622,7 +622,7 @@ impl Drop for ProgramImpl {
         //     "============================== delete_program: raw = {:?}",
         //     self.raw
         // );
-        log::trace!("Dropping ProgramImpl {:?}", self.raw);
+        // log::trace!("Dropping ProgramImpl {:?}", self.raw);
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
         unsafe {

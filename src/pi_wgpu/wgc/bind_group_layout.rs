@@ -1,6 +1,7 @@
 use super::super::{
     BindGroupLayoutEntry, BufferBinding, Label, Sampler, TextureView,
 };
+use derive_more::Debug;
 
 /// Resource that can be bound to a pipeline.
 ///
@@ -13,6 +14,7 @@ pub enum BindingResource<'a> {
     ///
     /// Corresponds to [`super::super::wgt::BufferBindingType::Uniform`] and [`super::super::wgt::BufferBindingType::Storage`]
     /// with [`BindGroupLayoutEntry::count`] set to None.
+    #[debug("BindingResource::Buffer({:?})", _0)]
     Buffer(BufferBinding<'a>),
     /// Binding is backed by an array of buffers.
     ///
@@ -24,6 +26,7 @@ pub enum BindingResource<'a> {
     /// Binding is a sampler.
     ///
     /// Corresponds to [`super::super::wgt::BindingType::Sampler`] with [`BindGroupLayoutEntry::count`] set to None.
+    #[debug("BindingResource::Sampler(&sampler{:?})", _0.inner.0.raw)]
     Sampler(&'a Sampler),
     /// Binding is backed by an array of samplers.
     ///
@@ -36,6 +39,7 @@ pub enum BindingResource<'a> {
     ///
     /// Corresponds to [`super::super::wgt::BindingType::Texture`] and [`super::super::wgt::BindingType::StorageTexture`] with
     /// [`BindGroupLayoutEntry::count`] set to None.
+    #[debug("BindingResource::TextureView(&texture_view{:?})", _0.inner.id)]
     TextureView(&'a TextureView),
     /// Binding is backed by an array of textures.
     ///
@@ -81,5 +85,6 @@ pub struct BindGroupLayoutDescriptor<'a> {
     pub label: Label<'a>,
 
     /// Array of entries in this BindGroupLayout
+    #[debug("&{entries:?}")]
     pub entries: &'a [BindGroupLayoutEntry],
 }

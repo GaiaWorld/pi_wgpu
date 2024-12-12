@@ -107,7 +107,7 @@ impl<'w> Surface<'w> {
     /// - Texture format requested is unsupported on the surface.
     #[inline]
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
-        log::trace!("surface.configure(device, &{:?});", config);
+        // log::trace!("surface.configure(device, &{:?});", config);
         self.inner.configure(&device, config).unwrap();
     }
 
@@ -125,7 +125,7 @@ impl<'w> Surface<'w> {
             None => Err(SurfaceError::Lost),
             Some(inner) => {
                 let texture = crate::Texture::into_surface_texture(inner);
-				log::trace!("pi_wgpu::Surface::get_current_texture, result={:?}", texture);
+				// log::trace!("pi_wgpu::Surface::get_current_texture, result={:?}", texture);
                 Ok(SurfaceTexture {
                     texture,
                     suboptimal: true,
@@ -158,7 +158,9 @@ impl SurfaceTexture {
     ///
     /// Needs to be called after any work on the texture is scheduled via [`Queue::submit`].
     pub fn present(mut self) {
+        log::trace!("texturesurface.present();");
         self.surface.present().unwrap();
+        log::trace!("present end");
     }
 }
 

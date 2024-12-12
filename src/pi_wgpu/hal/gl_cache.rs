@@ -11,7 +11,6 @@ use pi_hash::{DefaultHasher, XHashMap, XHashSet};
 use glow::HasContext;
 use pi_share::{cell::TrustCell, Share, ShareWeak};
 use pi_assets::asset::{Asset, Garbageer, Size};
-use pi_assets::allocator::Allocator;
 
 use super::{
     super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl,
@@ -65,7 +64,7 @@ pub(crate) struct GLCache {
 
 impl GLCache {
     #[inline]
-    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize, _alloter: &mut Allocator) -> Self {
+    pub(crate) fn new(max_uniform_buffer_bindings: usize, max_textures_slots: usize) -> Self {
         let garbage_vao = Share::new(TrustCell::new(Vec::new()));
         // let vao_map = AssetMgr::new(VaoGarbage(garbage_vao.clone()), false, 20 * 1024, 10 * 1000); // 过期时间：10分钟
         // alloter.register(vao_map.clone(), 20 * 1024, 30 * 1024);
@@ -314,7 +313,7 @@ impl GLCache {
                     }
                     let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                     if status != glow::FRAMEBUFFER_COMPLETE {
-                        panic!("bind_fbo error, reason = {}", status);
+                        panic!("bind_fbo error, reason = {}, colors: {:?}, depth: {:?}", status, &render_target.colors, &render_target.depth_stencil);
                     }
 
                     self.fbo_map.insert(render_target.clone(), fbo);

@@ -1,4 +1,5 @@
 use super::super::{BindGroupLayout, Label, PushConstantRange};
+use derive_more::Debug;
 
 /// Handle to a pipeline layout.
 ///
@@ -30,11 +31,13 @@ pub struct PipelineLayoutDescriptor<'a> {
     pub label: Label<'a>,
     /// Bind groups that this pipeline uses. The first entry will provide all the bindings for
     /// "set = 0", second entry will provide all the bindings for "set = 1" etc.
+    #[debug("&[{}]", bind_group_layouts.iter().map(|r| {format!("&bind_group_layout{:?}", r.inner.id)}).collect::<Vec<String>>().join(", "))]  
     pub bind_group_layouts: &'a [&'a BindGroupLayout],
     /// Set of push constant ranges this pipeline uses. Each shader stage that uses push constants
     /// must define the range in push constant memory that corresponds to its single `layout(push_constant)`
     /// uniform block.
     ///
     /// If this array is non-empty, the [`Features::PUSH_CONSTANTS`] must be enabled.
+    #[debug("&{push_constant_ranges:?}")]
     pub push_constant_ranges: &'a [PushConstantRange],
 }

@@ -6,6 +6,7 @@
 use std::ops::RangeBounds;
 
 use super::super::{hal, BindingResource, BufferAddress, BufferSize, BufferUsages, Label};
+use derive_more::Debug;
 
 /// Describes a [`Buffer`].
 ///
@@ -124,6 +125,7 @@ pub struct BufferSlice<'a> {
 #[derive(Clone, Debug)]
 pub struct BufferBinding<'a> {
     /// The buffer to bind.
+    #[debug("&buffer{:?}", buffer.inner.0.raw)]
     pub buffer: &'a Buffer,
     /// Base offset of the buffer. For bindings with `dynamic == true`, this offset
     /// will be added to the dynamic offset provided in [`RenderPass::set_bind_group`].
@@ -132,5 +134,9 @@ pub struct BufferBinding<'a> {
     /// or [`Limits::min_storage_buffer_offset_alignment`] appropriately.
     pub offset: BufferAddress,
     /// Size of the binding, or `None` for using the rest of the buffer.
+    #[debug("{}", match size {
+        Some(r) => format!("Some(BufferSize::new({:?}).unwrap())", r),
+        None => "None".to_string(),
+    })]
     pub size: Option<BufferSize>,
 }

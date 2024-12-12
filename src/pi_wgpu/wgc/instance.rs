@@ -43,12 +43,13 @@ impl Instance {
     ///
     /// - `instance_desc` - Has fields for which [backends][Backends] wgpu will choose
     ///   during instantiation, and which [DX12 shader compiler][Dx12Compiler] wgpu will use.
-    pub fn new(instance_desc: InstanceDescriptor) -> Self {
+    pub fn new(mut instance_desc: InstanceDescriptor) -> Self {
         profiling::scope!("Instance::new");
 
         log::trace!("pi_wgpu::Instance::new, instance_desc{:?}", instance_desc);
 
-        assert!(instance_desc.backends.contains(Backends::GL));
+        // assert!(instance_desc.backends.contains(Backends::GL));
+        instance_desc.backends = Backends::GL;
 
         let mut flags = hal::InstanceFlags::empty();
         if cfg!(debug_assertions) {

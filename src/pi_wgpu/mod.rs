@@ -9,6 +9,7 @@ pub mod util;
 pub use hal::{api::*, ExposedAdapter};
 
 pub use wgc::*;
+use derive_more::Debug;
 
 pub use wgt::{
     AdapterInfo, AddressMode, AstcBlock, AstcChannel, Backend, Backends, BindGroupLayoutEntry,
@@ -68,6 +69,7 @@ pub struct Operations<V> {
 pub enum StoreOp {
     /// Stores the resulting value of the render pass for this attachment.
     #[default]
+    #[debug("StoreOp::Store")]
     Store,
     /// Discards the resulting value of the render pass for this attachment.
     ///
@@ -78,6 +80,7 @@ pub enum StoreOp {
     /// This can be significantly faster on tile-based render hardware.
     ///
     /// Prefer this if the attachment is not read by subsequent passes.
+    #[debug("StoreOp::Discard")]
     Discard,
 }
 
@@ -100,8 +103,10 @@ impl<V: Default> Default for Operations<V> {
 #[cfg_attr(feature = "replay", derive(serde::Deserialize))]
 pub enum LoadOp<V> {
     /// Clear with a specified value.
+    #[debug("LoadOp::Clear({:?})", _0)]
     Clear(V),
     /// Load from memory.
+    #[debug("LoadOp::Load")]
     Load,
 }
 

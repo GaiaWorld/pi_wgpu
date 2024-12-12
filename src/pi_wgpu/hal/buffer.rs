@@ -72,7 +72,8 @@ impl Drop for BufferImpl {
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
 
-        log::trace!("Dropping buffer {:?}", self.raw);
+        #[cfg(not(target_arch = "wasm32"))]
+        log::trace!("{{let _a = buffer{:?};}}", self.raw.0);
 
         unsafe {
             gl.delete_buffer(self.raw);

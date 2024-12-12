@@ -38,7 +38,6 @@ impl Adapter {
         &self,
         features: wgt::Features,
         _limits: &wgt::Limits,
-        alloter: &mut Allocator,
     ) -> Result<super::OpenDevice<super::GL>, super::super::DeviceError> {
         // Verify all features were exposed by the adapter
         if !self.context.features().contains(features) {
@@ -54,7 +53,7 @@ impl Adapter {
         unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
         unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
 
-        let state = GLState::new(&gl, alloter);
+        let state = GLState::new(&gl);
 
         Ok(super::OpenDevice {
             device: super::Device {

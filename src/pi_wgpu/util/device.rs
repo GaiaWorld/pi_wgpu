@@ -1,4 +1,5 @@
 use super::super::wgt;
+use derive_more::Debug;
 
 /// Describes a [Buffer](super::super::Buffer) when allocating.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -6,9 +7,11 @@ pub struct BufferInitDescriptor<'a> {
     /// Debug label of a buffer. This will show up in graphics debuggers for easy identification.
     pub label: super::super::Label<'a>,
     /// Contents of a buffer on creation.
+    #[debug("&{:?}", contents)]
     pub contents: &'a [u8],
     /// Usages of a buffer. If the buffer is used in any way that isn't specified here, the operation
     /// will panic.
+    #[debug("BufferUsages::from_bits({:?}).unwrap()/*{:?}*/", (*usage).bits(), usage)]
     pub usage: super::super::BufferUsages,
 }
 
@@ -94,12 +97,20 @@ impl DeviceExt for super::super::Device {
             let gl = lock.get_glow();
 
             buffer.inner.write_buffer(&gl, 0, &descriptor.contents[..]);
-			#[cfg(not(target_arch = "wasm32"))]
-            log::trace!(
-                "let buffer{:?} = device.create_buffer_init(&{:?});",
-                buffer.inner.0.raw.0,
-                descriptor,
-            );
+			#[cfg(not(target_arch = "wasm32"))] {
+            //     f.debug_struct("BufferInitDescriptor")
+            // .field("label", &self.label)
+            // .field("contents", &self.contents.len())
+            // .field("usage", &self.usage)
+            // .finish()
+                log::trace!(
+                    "
+                    let buffer{:?} = device.create_buffer_init(&{:?});",
+                    buffer.inner.0.raw.0,
+                    descriptor
+                );
+            }
+            
 
             buffer
         }

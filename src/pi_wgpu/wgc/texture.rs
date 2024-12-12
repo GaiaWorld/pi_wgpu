@@ -67,7 +67,7 @@ impl Texture {
         
 
         let inner = hal::TextureView::new(&self.inner, desc).unwrap();
-		log::trace!("let texture_view{} = texture{}.create_view(&{:?})", inner.id, self.inner.0.inner.debug_str(), desc);
+		log::trace!("let texture_view{} = texture{}.create_view(&{:?});", inner.id, self.inner.0.inner.debug_str(), desc);
         TextureView { inner }
     }
 

@@ -1,12 +1,10 @@
 use std::mem::transmute;
 
 use pi_wgpu::{
-    Adapter, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features,
-    Instance, Limits, LoadOp, Operations, PowerPreference, PresentMode, Queue, RenderPass,
-    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
-    RequestAdapterOptions, Surface, SurfaceConfiguration, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+    Adapter, Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features, Instance, Limits, LoadOp, Operations, PowerPreference, PresentMode, Queue, RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor, RequestAdapterOptions, Surface, SurfaceConfiguration, SurfaceTexture, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor
 };
+#[cfg(target_arch = "wasm32")]
+use web_sys::Element;
 use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
@@ -17,6 +15,12 @@ use winit::{
 #[allow(dead_code)]
 fn main() {}
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(module = "/examples/webgl_spector/webgl_spector.js")]
+extern "C" {
+    fn initSpector(port: u32, canvas: &Element);
+}
+
 pub trait Example: 'static + Sized {
     // fn setting(&mut self, device: &Device, device: &Device,) {}
     fn init(device: &Device, queue: &Queue, config: &SurfaceConfiguration) -> Self;
@@ -26,10 +30,23 @@ pub trait Example: 'static + Sized {
         queue: &'a Queue,
         rpass: &'b mut RenderPass<'a>,
     );
+    fn render1<'b, 'a: 'b>(
+        &'a mut self,
+        _device: &'a Device,
+        _queue: &'a Queue,
+        texture_surface: SurfaceTexture,
+    ) {
+
+    }
 
     fn get_init_size() -> Option<(u32, u32)> {
         // None表示使用默认值
         None
+    }
+
+    fn auto() -> bool {
+        // None表示使用默认值
+        true
     }
 }
 
@@ -58,7 +75,11 @@ pub fn start<T: Example + Sync + Send + 'static>() {
             .and_then(|win| win.document())
             .and_then(|doc| doc.body())
             .and_then(|body| {
-                body.append_child(&web_sys::Element::from(window.canvas()))
+                window.canvas().set_width(450);
+                window.canvas().set_height(720);
+                let el = web_sys::Element::from(window.canvas());
+                initSpector(0, &el);
+                body.append_child(&el)
                     .ok()
             })
             .expect("couldn't append canvas to document body");
@@ -77,6 +98,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
 
     let mut engine: Option<Engine> = None;
     let mut example: Option<T> = None;
+    let is_auto = T::auto();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -109,12 +131,13 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                 }
 
                 if engine.is_none() {
-                    let e = pollster::block_on(Engine::new(&window));
+                    let e = pollster::block_on(Engine::new(&window,));
                     engine = Some(e);
                 } else {
                     engine.as_mut().unwrap().configure(&window);
                 }
 
+              
                 if example.is_none() {
                     let engine = engine.as_ref().unwrap();
                     let e = T::init(&engine.device, &engine.queue, &engine.config);
@@ -126,58 +149,67 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                 let depth_view = &e.depth_view;
                 let example = example.as_mut().unwrap();
 
-                let frame = surface.get_current_texture().unwrap();
+                let texture_surface = surface.get_current_texture().unwrap();
+               
 
-                let view: pi_wgpu::TextureView =
-                    frame.texture.create_view(&TextureViewDescriptor::default());
-
-                let mut encoder = engine
-                    .as_ref()
-                    .unwrap()
-                    .device
-                    .create_command_encoder(&CommandEncoderDescriptor { label: None });
-                {
-                    let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(Color {
-                                    r: 0.0,
-                                    g: 0.0,
-                                    b: 0.0,
-                                    a: 1.0,
+                if is_auto {
+                    let view: pi_wgpu::TextureView =
+                    texture_surface.texture.create_view(&TextureViewDescriptor::default());
+                    let mut encoder = engine
+                        .as_ref()
+                        .unwrap()
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor { label: None });
+                    {
+                        let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[Some(RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: Operations {
+                                    load: LoadOp::Clear(Color {
+                                        r: 0.0,
+                                        g: 0.0,
+                                        b: 0.0,
+                                        a: 1.0,
+                                    }),
+                                    store: pi_wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                                view: &depth_view,
+                                depth_ops: Some(Operations {
+                                    load: LoadOp::Clear(1.0),
+                                    store: pi_wgpu::StoreOp::Discard,
                                 }),
-                                store: pi_wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-                            view: &depth_view,
-                            depth_ops: Some(Operations {
-                                load: LoadOp::Clear(1.0),
-                                store: pi_wgpu::StoreOp::Discard,
+                                stencil_ops: None,
                             }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
 
-                    example.render(
+                        example.render(
+                            &engine.as_ref().unwrap().device,
+                            &engine.as_ref().unwrap().queue,
+                            &mut rpass,
+                        );
+                    }
+
+                    engine
+                        .as_ref()
+                        .unwrap()
+                        .queue
+                        .submit(Some(encoder.finish()));
+
+                    texture_surface.present();
+                } else {
+                    example.render1(
                         &engine.as_ref().unwrap().device,
                         &engine.as_ref().unwrap().queue,
-                        &mut rpass,
+                        texture_surface,
                     );
                 }
-
-                engine
-                    .as_ref()
-                    .unwrap()
-                    .queue
-                    .submit(Some(encoder.finish()));
-
-                frame.present();
+                
             }
             _ => {}
         }

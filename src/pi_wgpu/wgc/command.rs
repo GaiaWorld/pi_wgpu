@@ -6,6 +6,7 @@ use super::super::{
     hal, BindGroup, Buffer, BufferSlice, Color, DynamicOffset, IndexFormat, Label, Operations,
     RenderPipeline, TextureView,
 };
+use derive_more::Debug;
 
 /// Handle to a command buffer on the GPU.
 ///
@@ -43,7 +44,8 @@ impl CommandEncoder {
 impl CommandEncoder {
     /// Finishes recording and returns a [`CommandBuffer`] that can be submitted for execution.
     pub fn finish(self) -> CommandBuffer {
-        log::trace!("pi_wgpu::CommandEncoder::finish()");
+        log::trace!("command_encoder.finish();
+        }}");
 
         CommandBuffer {
             inner: hal::CommandBuffer,
@@ -57,7 +59,7 @@ impl CommandEncoder {
         desc: &RenderPassDescriptor<'pass, '_>,
     ) -> RenderPass<'pass> {
         log::trace!(
-            "let render_pass = command_encoder.begin_render_pass(&{:?});",
+            "let mut render_pass = command_encoder.begin_render_pass(&{:?});",
             desc,
         );
 
@@ -114,6 +116,7 @@ pub struct RenderPassDescriptor<'tex, 'desc> {
     /// Debug label of the render pass. This will show up in graphics debuggers for easy identification.
     pub label: Label<'desc>,
     /// The color attachments of the render pass.
+    #[debug("&{color_attachments:?}")]
     pub color_attachments: &'desc [Option<RenderPassColorAttachment<'tex>>],
     /// The depth and stencil attachment of the render pass, if any.
     pub depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<'tex>>,
@@ -139,7 +142,7 @@ pub struct RenderPass<'a> {
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
-        log::trace!("Dropping RenderPass");
+        // log::trace!("Dropping RenderPass");
         self.encoder.end_render_pass()
     }
 }
@@ -281,7 +284,7 @@ impl<'a> RenderPass<'a> {
     ///
     /// Subsequent draw calls will draw any fragments in this region.
     pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {
-        log::trace!("render_pass.set_viewport({x}, {y}, {w}, {h}, {min_depth}, {max_depth});");
+        log::trace!("render_pass.set_viewport({x:?}, {y:?}, {w:?}, {h:?}, {min_depth:?}, {max_depth:?});");
         self.encoder.set_viewport(
             &self.lock.get_glow(),
             x as i32,
@@ -342,8 +345,13 @@ impl<'a> RenderPass<'a> {
 #[derive(Clone, Debug)]
 pub struct RenderPassColorAttachment<'tex> {
     /// The view to use as an attachment.
+    #[debug("&texture_view{:?}", view.inner.id)]
     pub view: &'tex TextureView,
     /// The view that will receive the resolved output if multisampling is used.
+    #[debug("{}", match resolve_target {
+        Some(r) => format!("Some(&texture_view{})", r.inner.id),
+        None => "None".to_string()
+    })]
     pub resolve_target: Option<&'tex TextureView>,
     /// What operations will be performed on this color attachment.
     pub ops: Operations<Color>,
@@ -358,6 +366,7 @@ pub struct RenderPassColorAttachment<'tex> {
 #[derive(Clone, Debug)]
 pub struct RenderPassDepthStencilAttachment<'tex> {
     /// The view to use as an attachment.
+    #[debug("&texture_view{:?}", view.inner.id)]
     pub view: &'tex TextureView,
     /// What operations will be performed on the depth part of the attachment.
     pub depth_ops: Option<Operations<f32>>,

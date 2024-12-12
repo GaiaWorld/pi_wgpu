@@ -35,6 +35,7 @@ pi_wgpu = {version = "0.1", default-features = false, features = ["use_wgpu"]}
 
 + 执行`wasm-pack test  --chrome --example triangle`命令，构建wasm以及测试环境，并开启服务器监听在`8000`端口 
 +  在浏览器中访问`http://127.0.0.1:8000`地址，即可运行测试
++  如果想修改访问地址， 将地址设置在`WASM_BINDGEN_TEST_ADDRESS`环境变量中， 如$env:WASM_BINDGEN_TEST_ADDRESS="0.0.0.0:8000", 即可通过ip访问
 
 ## 1.4. 运行 Android 平台
 

@@ -19,7 +19,7 @@ pub(crate) struct ShaderModule {
 impl Drop for ShaderModule {
     #[inline]
     fn drop(&mut self) {
-		log::trace!("Dropping ShaderModule {:?}", self.id);
+        log::trace!("{{let _a = shader_module{:?};}}", self.id);
         self.state.remove_shader(self.id);
     }
 }

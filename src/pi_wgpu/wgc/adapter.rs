@@ -37,9 +37,8 @@ impl PiWgpuAdapter for Adapter {
         &self,
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
-        alloter: &mut Allocator,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
-        self.request_device(desc, _trace_path, alloter)
+        self.request_device(desc, _trace_path)
     }
 }
 
@@ -65,12 +64,11 @@ impl Adapter {
         &self,
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
-        alloter: &mut Allocator,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
         log::trace!("pi_wgpu::Adapter::request_device, desc = {:?}", desc);
         let open = self
             .inner
-            .open(desc.required_features, &desc.required_limits, alloter)
+            .open(desc.required_features, &desc.required_limits)
             .map_err(|err| match err {
                 DeviceError::Lost => RequestDeviceError,
                 DeviceError::OutOfMemory => RequestDeviceError,

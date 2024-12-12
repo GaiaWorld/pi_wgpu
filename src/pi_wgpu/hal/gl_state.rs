@@ -33,8 +33,8 @@ impl std::fmt::Debug for GLState {
 
 impl GLState {
     #[inline]
-    pub(crate) fn new(gl: &glow::Context, alloter: &mut Allocator) -> Self {
-        let imp = GLStateImpl::new(&gl, alloter);
+    pub(crate) fn new(gl: &glow::Context) -> Self {
+        let imp = GLStateImpl::new(&gl);
 
         Self {
             imp: Share::new(ShareCell::new(imp)),
@@ -813,7 +813,7 @@ struct UBOState {
 
 impl GLStateImpl {
 
-    fn new(gl: &glow::Context, alloter: &mut Allocator) -> Self {
+    fn new(gl: &glow::Context) -> Self {
         // 一个 Program 能同时接受的 UBO 绑定的个数
         // PC Chrome 浏览器 24
         // MAX_VERTEX_UNIFORM_BLOCKS / MAX_FRAGMENT_UNIFORM_BLOCKS 各 12 个
@@ -835,7 +835,7 @@ impl GLStateImpl {
         let max_color_attachments =
             unsafe { gl.get_parameter_i32(glow::MAX_COLOR_ATTACHMENTS) as usize };
 
-        let cache = GLCache::new(max_uniform_buffer_bindings, max_textures_slots, alloter);
+        let cache = GLCache::new(max_uniform_buffer_bindings, max_textures_slots);
 
         let is_depth_test_enable = false;
         Self::apply_depth_test_enable(gl, is_depth_test_enable);

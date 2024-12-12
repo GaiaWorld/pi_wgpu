@@ -9,11 +9,12 @@
  )]
  #![warn(missing_docs, unsafe_op_in_unsafe_fn)]
  
- #[cfg(any(feature = "serde", test))]
+#[cfg(any(feature = "serde", test))]
  use serde::{Deserialize, Serialize};
- use std::hash::{Hash, Hasher};
+use std::hash::{Hash, Hasher};
  use std::path::PathBuf;
  use std::{num::NonZeroU32, ops::Range};
+ use derive_more::Debug;
 
 pub use super::hal::InstanceFlags;
  
@@ -98,18 +99,25 @@ pub use super::hal::InstanceFlags;
  #[cfg_attr(feature = "replay", derive(Deserialize))]
  pub enum Backend {
      /// Dummy backend, used for testing.
+     #[debug("Backend::Empty")]
      Empty = 0,
      /// Vulkan API
+     #[debug("Backend::Vulkan")]
      Vulkan = 1,
      /// Metal API (Apple platforms)
+     #[debug("Backend::Metal")]
      Metal = 2,
      /// Direct3D-12 (Windows)
+     #[debug("Backend::Dx12")]
      Dx12 = 3,
      /// Direct3D-11 (Windows)
+     #[debug("Backend::Dx11")]
      Dx11 = 4,
      /// OpenGL ES-3 (Linux, Android)
+     #[debug("Backend::Gl")]
      Gl = 5,
      /// WebGPU in the browser
+     #[debug("Backend::BrowserWebGpu")]
      BrowserWebGpu = 6,
  }
  
@@ -125,8 +133,10 @@ pub use super::hal::InstanceFlags;
  pub enum PowerPreference {
      /// Adapter that uses the least possible power. This is often an integrated GPU.
      #[default]
+     #[debug("PowerPreference::LowPower")]
      LowPower = 0,
      /// Adapter that has the highest performance. This is often a discrete GPU.
+     #[debug("PowerPreference::HighPerformance")]
      HighPerformance = 1,
  }
  
@@ -1351,10 +1361,13 @@ impl Default for Limits {
  #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
  pub enum ShaderModel {
      /// Extremely limited shaders, including a total instruction limit.
+     #[debug("ShaderModel::Sm2")]
      Sm2,
      /// Missing minor features and storage images.
+     #[debug("ShaderModel::Sm4")]
      Sm4,
      /// WebGPU supports shader module 5.
+     #[debug("ShaderModel::Sm5")]
      Sm5,
  }
  
@@ -1365,14 +1378,19 @@ impl Default for Limits {
  #[cfg_attr(feature = "replay", derive(serde::Deserialize))]
  pub enum DeviceType {
      /// Other or Unknown.
+     #[debug("DeviceType::Other")]
      Other,
      /// Integrated GPU with shared CPU/GPU memory.
+     #[debug("DeviceType::IntegratedGpu")]
      IntegratedGpu,
      /// Discrete GPU with separate CPU/GPU memory.
+     #[debug("DeviceType::DiscreteGpu")]
      DiscreteGpu,
      /// Virtual / Hosted.
+     #[debug("DeviceType::VirtualGpu")]
      VirtualGpu,
      /// Cpu / Software Rendering.
+     #[debug("DeviceType::Cpu")]
      Cpu,
  }
  
@@ -1476,22 +1494,28 @@ impl Default for Limits {
  pub enum TextureViewDimension {
      /// A one dimensional texture. `texture_1d` in WGSL and `texture1D` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "1d"))]
+     #[debug("TextureViewDimension::D1")]
      D1,
      /// A two dimensional texture. `texture_2d` in WGSL and `texture2D` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "2d"))]
      #[default]
+     #[debug("TextureViewDimension::D2")]
      D2,
      /// A two dimensional array texture. `texture_2d_array` in WGSL and `texture2DArray` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "2d-array"))]
+     #[debug("TextureViewDimension::D2Array")]
      D2Array,
      /// A cubemap texture. `texture_cube` in WGSL and `textureCube` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "cube"))]
+     #[debug("TextureViewDimension::Cube")]
      Cube,
      /// A cubemap array texture. `texture_cube_array` in WGSL and `textureCubeArray` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "cube-array"))]
+     #[debug("TextureViewDimension::CubeArray")]
      CubeArray,
      /// A three dimensional texture. `texture_3d` in WGSL and `texture3D` in GLSL.
      #[cfg_attr(feature = "serde", serde(rename = "3d"))]
+     #[debug("TextureViewDimension::D3")]
      D3,
  }
  
@@ -1519,30 +1543,43 @@ impl Default for Limits {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum BlendFactor {
      /// 0.0
+     #[debug("BlendFactor::Zero")]
      Zero = 0,
      /// 1.0
+     #[debug("BlendFactor::One")]
      One = 1,
      /// S.component
+     #[debug("BlendFactor::Src")]
      Src = 2,
      /// 1.0 - S.component
+     #[debug("BlendFactor::OneMinusSrc")]
      OneMinusSrc = 3,
      /// S.alpha
+     #[debug("BlendFactor::SrcAlpha")]
      SrcAlpha = 4,
      /// 1.0 - S.alpha
+     #[debug("BlendFactor::OneMinusSrcAlpha")]
      OneMinusSrcAlpha = 5,
      /// D.component
+     #[debug("BlendFactor::Dst")]
      Dst = 6,
      /// 1.0 - D.component
+     #[debug("BlendFactor::OneMinusDst")]
      OneMinusDst = 7,
      /// D.alpha
+     #[debug("BlendFactor::DstAlpha")]
      DstAlpha = 8,
      /// 1.0 - D.alpha
+     #[debug("BlendFactor::OneMinusDstAlpha")]
      OneMinusDstAlpha = 9,
      /// min(S.alpha, 1.0 - D.alpha)
+     #[debug("BlendFactor::SrcAlphaSaturated")]
      SrcAlphaSaturated = 10,
      /// Constant
+     #[debug("BlendFactor::Constant")]
      Constant = 11,
      /// 1.0 - Constant
+     #[debug("BlendFactor::OneMinusConstant")]
      OneMinusConstant = 12,
  }
  
@@ -1560,14 +1597,19 @@ impl Default for Limits {
  pub enum BlendOperation {
      /// Src + Dst
      #[default]
+     #[debug("BlendOperation::Add")]
      Add = 0,
      /// Src - Dst
+     #[debug("BlendOperation::Subtract")]
      Subtract = 1,
      /// Dst - Src
+     #[debug("BlendOperation::ReverseSubtract")]
      ReverseSubtract = 2,
      /// min(Src, Dst)
+     #[debug("BlendOperation::Min")]
      Min = 3,
      /// max(Src, Dst)
+     #[debug("BlendOperation::Max")]
      Max = 4,
  }
  
@@ -1687,6 +1729,7 @@ impl Default for Limits {
      pub blend: Option<BlendState>,
      /// Mask which enables/disables writes to different color/alpha channel.
      #[cfg_attr(feature = "serde", serde(default))]
+     #[debug("ColorWrites::from_bits({:?}).unwrap()/*{:?}*/", (*write_mask).bits(), write_mask)]
      pub write_mask: ColorWrites,
  }
  
@@ -1711,23 +1754,28 @@ impl Default for Limits {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum PrimitiveTopology {
      /// Vertex data is a list of points. Each vertex is a new point.
+     #[debug("PrimitiveTopology::PointList")]
      PointList = 0,
      /// Vertex data is a list of lines. Each pair of vertices composes a new line.
      ///
      /// Vertices `0 1 2 3` create two lines `0 1` and `2 3`
+     #[debug("PrimitiveTopology::LineList")]
      LineList = 1,
      /// Vertex data is a strip of lines. Each set of two adjacent vertices form a line.
      ///
      /// Vertices `0 1 2 3` create three lines `0 1`, `1 2`, and `2 3`.
+     #[debug("PrimitiveTopology::LineStrip")]
      LineStrip = 2,
      /// Vertex data is a list of triangles. Each set of 3 vertices composes a new triangle.
      ///
      /// Vertices `0 1 2 3 4 5` create two triangles `0 1 2` and `3 4 5`
      #[default]
+     #[debug("PrimitiveTopology::TriangleList")]
      TriangleList = 3,
      /// Vertex data is a triangle strip. Each set of three adjacent vertices form a triangle.
      ///
      /// Vertices `0 1 2 3 4 5` create four triangles `0 1 2`, `2 1 3`, `2 3 4`, and `4 3 5`
+     #[debug("PrimitiveTopology::TriangleStrip")]
      TriangleStrip = 4,
  }
  
@@ -1755,10 +1803,12 @@ impl Default for Limits {
      ///
      /// This is the default with right handed coordinate spaces.
      #[default]
+     #[debug("FrontFace::Ccw")]
      Ccw = 0,
      /// Triangles with vertices in clockwise order are considered the front face.
      ///
      /// This is the default with left handed coordinate spaces.
+     #[debug("FrontFace::Cw")]
      Cw = 1,
  }
  
@@ -1774,8 +1824,10 @@ impl Default for Limits {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum Face {
      /// Front face
+     #[debug("Face::Front")]
      Front = 0,
      /// Back face
+     #[debug("Face::Back")]
      Back = 1,
  }
  
@@ -1788,10 +1840,13 @@ impl Default for Limits {
  pub enum PolygonMode {
      /// Polygons are filled
      #[default]
+     #[debug("PolygonMode::Fill")]
      Fill = 0,
      /// Polygons are drawn as line segments
+     #[debug("PolygonMode::Line")]
      Line = 1,
      /// Polygons are drawn as points
+     #[debug("PolygonMode::Point")]
      Point = 2,
  }
  
@@ -1935,32 +1990,46 @@ impl Default for Limits {
  #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
  pub enum AstcBlock {
      /// 4x4 block compressed texture. 16 bytes per block (8 bit/px).
+     #[debug("AstcBlock::B4x4")]
      B4x4,
      /// 5x4 block compressed texture. 16 bytes per block (6.4 bit/px).
+     #[debug("AstcBlock::B5x4")]
      B5x4,
      /// 5x5 block compressed texture. 16 bytes per block (5.12 bit/px).
+     #[debug("AstcBlock::B5x5")]
      B5x5,
      /// 6x5 block compressed texture. 16 bytes per block (4.27 bit/px).
+     #[debug("AstcBlock::B6x5")]
      B6x5,
      /// 6x6 block compressed texture. 16 bytes per block (3.56 bit/px).
+     #[debug("AstcBlock::B6x6")]
      B6x6,
      /// 8x5 block compressed texture. 16 bytes per block (3.2 bit/px).
+     #[debug("AstcBlock::B8x5")]
      B8x5,
      /// 8x6 block compressed texture. 16 bytes per block (2.67 bit/px).
+     #[debug("AstcBlock::B8x6")]
      B8x6,
      /// 8x8 block compressed texture. 16 bytes per block (2 bit/px).
+     #[debug("AstcBlock::B8x8")]
      B8x8,
      /// 10x5 block compressed texture. 16 bytes per block (2.56 bit/px).
+     #[debug("AstcBlock::B10x5")]
      B10x5,
      /// 10x6 block compressed texture. 16 bytes per block (2.13 bit/px).
+     #[debug("AstcBlock::B10x6")]
      B10x6,
      /// 10x8 block compressed texture. 16 bytes per block (1.6 bit/px).
+     #[debug("AstcBlock::B10x8")]
      B10x8,
      /// 10x10 block compressed texture. 16 bytes per block (1.28 bit/px).
+     #[debug("AstcBlock::B10x10")]
      B10x10,
      /// 12x10 block compressed texture. 16 bytes per block (1.07 bit/px).
+     #[debug("AstcBlock::B12x10")]
      B12x10,
      /// 12x12 block compressed texture. 16 bytes per block (0.89 bit/px).
+     #[debug("AstcBlock::B12x12")]
      B12x12,
  }
  
@@ -1972,14 +2041,17 @@ impl Default for Limits {
      /// 8 bit integer RGBA, [0, 255] converted to/from linear-color float [0, 1] in shader.
      ///
      /// [`Features::TEXTURE_COMPRESSION_ASTC`] must be enabled to use this channel.
+     #[debug("AstcChannel::Unorm")]
      Unorm,
      /// 8 bit integer RGBA, Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
      ///
      /// [`Features::TEXTURE_COMPRESSION_ASTC`] must be enabled to use this channel.
+     #[debug("AstcChannel::UnormSrgb")]
      UnormSrgb,
      /// floating-point RGBA, linear-color float can be outside of the [0, 1] range.
      ///
      /// [`Features::TEXTURE_COMPRESSION_ASTC_HDR`] must be enabled to use this channel.
+     #[debug("AstcChannel::Hdr")]
      Hdr,
  }
  
@@ -1995,128 +2067,177 @@ impl Default for Limits {
 pub enum TextureFormat {
     // Normal 8 bit formats
     /// Red channel only. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    #[debug("TextureFormat::R8Unorm")]
     R8Unorm,
     /// Red channel only. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    #[debug("TextureFormat::R8Snorm")]
     R8Snorm,
     /// Red channel only. 8 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::R8Uint")]
     R8Uint,
     /// Red channel only. 8 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::R8Sint")]
     R8Sint,
 
     // Normal 16 bit formats
     /// Red channel only. 16 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::R16Uint")]
     R16Uint,
     /// Red channel only. 16 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::R16Sint")]
     R16Sint,
     /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::R16Unorm")]
     R16Unorm,
     /// Red channel only. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::R16Snorm")]
     R16Snorm,
     /// Red channel only. 16 bit float per channel. Float in shader.
+    #[debug("TextureFormat::R16Float")]
     R16Float,
     /// Red and green channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    #[debug("TextureFormat::Rg8Unorm")]
     Rg8Unorm,
     /// Red and green channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    #[debug("TextureFormat::Rg8Snorm")]
     Rg8Snorm,
     /// Red and green channels. 8 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rg8Uint")]
     Rg8Uint,
     /// Red and green channels. 8 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rg8Sint")]
     Rg8Sint,
 
     // Normal 32 bit formats
     /// Red channel only. 32 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::R32Uint")]
     R32Uint,
     /// Red channel only. 32 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::R32Sint")]
     R32Sint,
     /// Red channel only. 32 bit float per channel. Float in shader.
+    #[debug("TextureFormat::R32Float")]
     R32Float,
     /// Red and green channels. 16 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rg16Uint")]
     Rg16Uint,
     /// Red and green channels. 16 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rg16Sint")]
     Rg16Sint,
     /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Rg16Unorm")]
     Rg16Unorm,
     /// Red and green channels. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Rg16Snorm")]
     Rg16Snorm,
     /// Red and green channels. 16 bit float per channel. Float in shader.
+    #[debug("TextureFormat::Rg16Float")]
     Rg16Float,
     /// Red, green, blue, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    #[debug("TextureFormat::Rgba8Unorm")]
     Rgba8Unorm,
     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    #[debug("TextureFormat::Rgba8UnormSrgb")]
     Rgba8UnormSrgb,
     /// Red, green, blue, and alpha channels. 8 bit integer per channel. [-127, 127] converted to/from float [-1, 1] in shader.
+    #[debug("TextureFormat::Rgba8Snorm")]
     Rgba8Snorm,
     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rgba8Uint")]
     Rgba8Uint,
     /// Red, green, blue, and alpha channels. 8 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rgba8Sint")]
     Rgba8Sint,
     /// Blue, green, red, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    #[debug("TextureFormat::Bgra8Unorm")]
     Bgra8Unorm,
     /// Blue, green, red, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    #[debug("TextureFormat::Bgra8UnormSrgb")]
     Bgra8UnormSrgb,
 
     // Packed 32 bit formats
     /// Packed unsigned float with 9 bits mantisa for each RGB component, then a common 5 bits exponent
+    #[debug("TextureFormat::Rgb9e5Ufloat")]
     Rgb9e5Ufloat,
     /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. Unsigned in shader.
+    #[debug("TextureFormat::Rgb10a2Uint")]
     Rgb10a2Uint,
     /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. [0, 1023] ([0, 3] for alpha) converted to/from float [0, 1] in shader.
+    #[debug("TextureFormat::Rgb10a2Unorm")]
     Rgb10a2Unorm,
     /// Red, green, and blue channels. 11 bit float with no sign bit for RG channels. 10 bit float with no sign bit for blue channel. Float in shader.
+    #[debug("TextureFormat::Rg11b10Float")]
     Rg11b10Float,
 
     // Normal 64 bit formats
     /// Red and green channels. 32 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rg32Uint")]
     Rg32Uint,
     /// Red and green channels. 32 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rg32Sint")]
     Rg32Sint,
     /// Red and green channels. 32 bit float per channel. Float in shader.
+    #[debug("TextureFormat::Rg32Float")]
     Rg32Float,
     /// Red, green, blue, and alpha channels. 16 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rgba16Uint")]
     Rgba16Uint,
     /// Red, green, blue, and alpha channels. 16 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rgba16Sint")]
     Rgba16Sint,
     /// Red, green, blue, and alpha channels. 16 bit integer per channel. [0, 65535] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Rgba16Unorm")]
     Rgba16Unorm,
     /// Red, green, blue, and alpha. 16 bit integer per channel. [0, 65535] converted to/from float [-1, 1] in shader.
     ///
     /// [`Features::TEXTURE_FORMAT_16BIT_NORM`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Rgba16Snorm")]
     Rgba16Snorm,
     /// Red, green, blue, and alpha channels. 16 bit float per channel. Float in shader.
+    #[debug("TextureFormat::Rgba16Float")]
     Rgba16Float,
 
     // Normal 128 bit formats
     /// Red, green, blue, and alpha channels. 32 bit integer per channel. Unsigned in shader.
+    #[debug("TextureFormat::Rgba32Uint")]
     Rgba32Uint,
     /// Red, green, blue, and alpha channels. 32 bit integer per channel. Signed in shader.
+    #[debug("TextureFormat::Rgba32Sint")]
     Rgba32Sint,
     /// Red, green, blue, and alpha channels. 32 bit float per channel. Float in shader.
+    #[debug("TextureFormat::Rgba32Float")]
     Rgba32Float,
 
     // Depth and stencil formats
     /// Stencil format with 8 bit integer stencil.
+    #[debug("TextureFormat::Stencil8")]
     Stencil8,
     /// Special depth format with 16 bit integer depth.
+    #[debug("TextureFormat::Depth16Unorm")]
     Depth16Unorm,
     /// Special depth format with at least 24 bit integer depth.
+    #[debug("TextureFormat::Hdr")]
     Depth24Plus,
     /// Special depth/stencil format with at least 24 bit integer depth and 8 bits integer stencil.
+    #[debug("TextureFormat::Depth24PlusStencil8")]
     Depth24PlusStencil8,
     /// Special depth format with 32 bit floating point depth.
+    #[debug("TextureFormat::Depth32Float")]
     Depth32Float,
     /// Special depth/stencil format with 32 bit floating point depth and 8 bits integer stencil.
     ///
     /// [`Features::DEPTH32FLOAT_STENCIL8`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Depth32FloatStencil8")]
     Depth32FloatStencil8,
 
     /// YUV 4:2:0 chroma subsampled format.
@@ -2132,6 +2253,7 @@ pub enum TextureFormat {
     /// Width and height must be even.
     ///
     /// [`Features::TEXTURE_FORMAT_NV12`] must be enabled to use this texture format.
+    #[debug("TextureFormat::NV12")]
     NV12,
 
     // Compressed textures usable with `TEXTURE_COMPRESSION_BC` feature.
@@ -2141,6 +2263,7 @@ pub enum TextureFormat {
     /// Also known as DXT1.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc1RgbaUnorm")]
     Bc1RgbaUnorm,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 4 color + alpha pallet. 5 bit R + 6 bit G + 5 bit B + 1 bit alpha.
     /// Srgb-color [0, 63] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
@@ -2148,6 +2271,7 @@ pub enum TextureFormat {
     /// Also known as DXT1.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc1RgbaUnormSrgb")]
     Bc1RgbaUnormSrgb,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
     /// [0, 63] ([0, 15] for alpha) converted to/from float [0, 1] in shader.
@@ -2155,6 +2279,7 @@ pub enum TextureFormat {
     /// Also known as DXT3.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc2RgbaUnorm")]
     Bc2RgbaUnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet. 5 bit R + 6 bit G + 5 bit B + 4 bit alpha.
     /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
@@ -2162,6 +2287,7 @@ pub enum TextureFormat {
     /// Also known as DXT3.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc2RgbaUnormSrgb")]
     Bc2RgbaUnormSrgb,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
     /// [0, 63] ([0, 255] for alpha) converted to/from float [0, 1] in shader.
@@ -2169,6 +2295,7 @@ pub enum TextureFormat {
     /// Also known as DXT5.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc3RgbaUnorm")]
     Bc3RgbaUnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 4 color pallet + 8 alpha pallet. 5 bit R + 6 bit G + 5 bit B + 8 bit alpha.
     /// Srgb-color [0, 63] ([0, 255] for alpha) converted to/from linear-color float [0, 1] in shader.
@@ -2176,6 +2303,7 @@ pub enum TextureFormat {
     /// Also known as DXT5.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc3RgbaUnormSrgb")]
     Bc3RgbaUnormSrgb,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
     /// [0, 255] converted to/from float [0, 1] in shader.
@@ -2183,6 +2311,7 @@ pub enum TextureFormat {
     /// Also known as RGTC1.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc4RUnorm")]
     Bc4RUnorm,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). 8 color pallet. 8 bit R.
     /// [-127, 127] converted to/from float [-1, 1] in shader.
@@ -2190,6 +2319,7 @@ pub enum TextureFormat {
     /// Also known as RGTC1.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc4RSnorm")]
     Bc4RSnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
     /// [0, 255] converted to/from float [0, 1] in shader.
@@ -2197,6 +2327,7 @@ pub enum TextureFormat {
     /// Also known as RGTC2.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc5RgUnorm")]
     Bc5RgUnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). 8 color red pallet + 8 color green pallet. 8 bit RG.
     /// [-127, 127] converted to/from float [-1, 1] in shader.
@@ -2204,18 +2335,21 @@ pub enum TextureFormat {
     /// Also known as RGTC2.
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc5RgSnorm")]
     Bc5RgSnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit unsigned float RGB. Float in shader.
     ///
     /// Also known as BPTC (float).
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc6hRgbUfloat")]
     Bc6hRgbUfloat,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 16 bit signed float RGB. Float in shader.
     ///
     /// Also known as BPTC (float).
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc6hRgbFloat")]
     Bc6hRgbFloat,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
     /// [0, 255] converted to/from float [0, 1] in shader.
@@ -2223,6 +2357,7 @@ pub enum TextureFormat {
     /// Also known as BPTC (unorm).
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc7RgbaUnorm")]
     Bc7RgbaUnorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Variable sized pallet. 8 bit integer RGBA.
     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
@@ -2230,56 +2365,67 @@ pub enum TextureFormat {
     /// Also known as BPTC (unorm).
     ///
     /// [`Features::TEXTURE_COMPRESSION_BC`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Bc7RgbaUnormSrgb")]
     Bc7RgbaUnormSrgb,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
     /// [0, 255] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgb8Unorm")]
     Etc2Rgb8Unorm,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB.
     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgb8UnormSrgb")]
     Etc2Rgb8UnormSrgb,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
     /// [0, 255] ([0, 1] for alpha) converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgb8A1Unorm")]
     Etc2Rgb8A1Unorm,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 8 bit integer RGB + 1 bit alpha.
     /// Srgb-color [0, 255] ([0, 1] for alpha) converted to/from linear-color float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgb8A1UnormSrgb")]
     Etc2Rgb8A1UnormSrgb,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
     /// [0, 255] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgba8Unorm")]
     Etc2Rgba8Unorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 8 bit integer RGB + 8 bit alpha.
     /// Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::Etc2Rgba8UnormSrgb")]
     Etc2Rgba8UnormSrgb,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
     /// [0, 255] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::EacR11Unorm")]
     EacR11Unorm,
     /// 4x4 block compressed texture. 8 bytes per block (4 bit/px). Complex pallet. 11 bit integer R.
     /// [-127, 127] converted to/from float [-1, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::EacR11Snorm")]
     EacR11Snorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
     /// [0, 255] converted to/from float [0, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::EacRg11Unorm")]
     EacRg11Unorm,
     /// 4x4 block compressed texture. 16 bytes per block (8 bit/px). Complex pallet. 11 bit integer R + 11 bit integer G.
     /// [-127, 127] converted to/from float [-1, 1] in shader.
     ///
     /// [`Features::TEXTURE_COMPRESSION_ETC2`] must be enabled to use this texture format.
+    #[debug("TextureFormat::EacRg11Snorm")]
     EacRg11Snorm,
     /// block compressed texture. 16 bytes per block.
     ///
@@ -2288,6 +2434,8 @@ pub enum TextureFormat {
     ///
     /// [`TEXTURE_COMPRESSION_ASTC`]: Features::TEXTURE_COMPRESSION_ASTC
     /// [`TEXTURE_COMPRESSION_ASTC_HDR`]: Features::TEXTURE_COMPRESSION_ASTC_HDR
+    
+    #[debug("TextureFormat::Astc {{ block: {block:?}, channel:{channel:?} }}")]
     Astc {
         /// compressed block dimensions
         block: AstcBlock,
@@ -4026,6 +4174,7 @@ pub enum TextureFormat {
      /// Stencil values are AND'd with this mask when writing to the stencil buffer. Only low 8 bits are used.
      pub write_mask: u32,
  }
+
  
  impl StencilState {
      /// Returns true if the stencil test is enabled.
@@ -4156,9 +4305,11 @@ pub enum TextureFormat {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum IndexFormat {
      /// Indices are 16 bit unsigned integers.
+     #[debug("IndexFormat::Uint16")]
      Uint16 = 0,
      /// Indices are 32 bit unsigned integers.
      #[default]
+     #[debug("IndexFormat::Uint32")]
      Uint32 = 1,
  }
  
@@ -4174,23 +4325,31 @@ pub enum TextureFormat {
  pub enum StencilOperation {
      /// Keep stencil value unchanged.
      #[default]
+     #[debug("StencilOperation::Keep")]
      Keep = 0,
      /// Set stencil value to zero.
+     #[debug("StencilOperation::Zero")]
      Zero = 1,
      /// Replace stencil value with value provided in most recent call to
      /// [`RenderPass::set_stencil_reference`][RPssr].
      ///
      /// [RPssr]: ../wgpu/struct.RenderPass.html#method.set_stencil_reference
+     #[debug("StencilOperation::Replace")]
      Replace = 2,
      /// Bitwise inverts stencil value.
+     #[debug("StencilOperation::Invert")]
      Invert = 3,
      /// Increments stencil value by one, clamping on overflow.
+     #[debug("StencilOperation::IncrementClamp")]
      IncrementClamp = 4,
      /// Decrements stencil value by one, clamping on underflow.
+     #[debug("StencilOperation::DecrementClamp")]
      DecrementClamp = 5,
      /// Increments stencil value by one, wrapping on overflow.
+     #[debug("StencilOperation::IncrementWrap")]
      IncrementWrap = 6,
      /// Decrements stencil value by one, wrapping on underflow.
+     #[debug("StencilOperation::DecrementWrap")]
      DecrementWrap = 7,
  }
  
@@ -4258,24 +4417,32 @@ pub enum TextureFormat {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum CompareFunction {
      /// Function never passes
+     #[debug("CompareFunction::Never")]
      Never = 1,
      /// Function passes if new value less than existing value
+     #[debug("CompareFunction::Less")]
      Less = 2,
      /// Function passes if new value is equal to existing value. When using
      /// this compare function, make sure to mark your Vertex Shader's `@builtin(position)`
      /// output as `@invariant` to prevent artifacting.
+     #[debug("CompareFunction::Equal")]
      Equal = 3,
      /// Function passes if new value is less than or equal to existing value
+     #[debug("CompareFunction::LessEqual")]
      LessEqual = 4,
      /// Function passes if new value is greater than existing value
+     #[debug("CompareFunction::Greater")]
      Greater = 5,
      /// Function passes if new value is not equal to existing value. When using
      /// this compare function, make sure to mark your Vertex Shader's `@builtin(position)`
      /// output as `@invariant` to prevent artifacting.
+     #[debug("CompareFunction::NotEqual")]
      NotEqual = 6,
      /// Function passes if new value is greater than or equal to existing value
+     #[debug("CompareFunction::GreaterEqual")]
      GreaterEqual = 7,
      /// Function always passes
+     #[debug("CompareFunction::Always")]
      Always = 8,
  }
  
@@ -4354,8 +4521,10 @@ pub enum TextureFormat {
  pub enum VertexStepMode {
      /// Vertex data is advanced every vertex.
      #[default]
+     #[debug("VertexStepMode::Vertex")]
      Vertex = 0,
      /// Vertex data is advanced every instance.
+     #[debug("VertexStepMode::Instance")]
      Instance = 1,
  }
  
@@ -4380,7 +4549,8 @@ pub enum TextureFormat {
      pub offset: BufferAddress,
      /// Location for this input. Must match the location in the shader.
      pub shader_location: ShaderLocation,
- }
+}
+
  
  /// Vertex Format for a [`VertexAttribute`] (input).
  ///
@@ -4393,72 +4563,106 @@ pub enum TextureFormat {
  #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
  pub enum VertexFormat {
      /// Two unsigned bytes (u8). `uvec2` in shaders.
+     #[debug("VertexFormat::Uint8x2")]
      Uint8x2 = 0,
      /// Four unsigned bytes (u8). `uvec4` in shaders.
+     #[debug("VertexFormat::Uint8x4")]
      Uint8x4 = 1,
      /// Two signed bytes (i8). `ivec2` in shaders.
+     #[debug("VertexFormat::Sint8x2")]
      Sint8x2 = 2,
      /// Four signed bytes (i8). `ivec4` in shaders.
+     #[debug("VertexFormat::Sint8x4")]
      Sint8x4 = 3,
      /// Two unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec2` in shaders.
+     #[debug("VertexFormat::Unorm8x2")]
      Unorm8x2 = 4,
      /// Four unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec4` in shaders.
+     #[debug("VertexFormat::Unorm8x4")]
      Unorm8x4 = 5,
      /// Two signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec2` in shaders.
+     #[debug("VertexFormat::Snorm8x2")]
      Snorm8x2 = 6,
      /// Four signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec4` in shaders.
+     #[debug("VertexFormat::Snorm8x4")]
      Snorm8x4 = 7,
      /// Two unsigned shorts (u16). `uvec2` in shaders.
+     #[debug("VertexFormat::Uint16x2")]
      Uint16x2 = 8,
      /// Four unsigned shorts (u16). `uvec4` in shaders.
+     #[debug("VertexFormat::Uint16x4")]
      Uint16x4 = 9,
      /// Two signed shorts (i16). `ivec2` in shaders.
+     #[debug("VertexFormat::Sint16x2")]
      Sint16x2 = 10,
      /// Four signed shorts (i16). `ivec4` in shaders.
+     #[debug("VertexFormat::Sint16x4")]
      Sint16x4 = 11,
      /// Two unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec2` in shaders.
+     #[debug("VertexFormat::Unorm16x2")]
      Unorm16x2 = 12,
      /// Four unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec4` in shaders.
+     #[debug("VertexFormat::Unorm16x4")]
      Unorm16x4 = 13,
      /// Two signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec2` in shaders.
+     #[debug("VertexFormat::Snorm16x2")]
      Snorm16x2 = 14,
      /// Four signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec4` in shaders.
+     #[debug("VertexFormat::Snorm16x4")]
      Snorm16x4 = 15,
      /// Two half-precision floats (no Rust equiv). `vec2` in shaders.
+     #[debug("VertexFormat::Float16x2")]
      Float16x2 = 16,
      /// Four half-precision floats (no Rust equiv). `vec4` in shaders.
+     #[debug("VertexFormat::Float16x4")]
      Float16x4 = 17,
      /// One single-precision float (f32). `float` in shaders.
+     #[debug("VertexFormat::Float32")]
      Float32 = 18,
      /// Two single-precision floats (f32). `vec2` in shaders.
+     #[debug("VertexFormat::Float32x2")]
      Float32x2 = 19,
      /// Three single-precision floats (f32). `vec3` in shaders.
+     #[debug("VertexFormat::Float32x3")]
      Float32x3 = 20,
      /// Four single-precision floats (f32). `vec4` in shaders.
+     #[debug("VertexFormat::Float32x4")]
      Float32x4 = 21,
      /// One unsigned int (u32). `uint` in shaders.
+     #[debug("VertexFormat::Uint32")]
      Uint32 = 22,
      /// Two unsigned ints (u32). `uvec2` in shaders.
+     #[debug("VertexFormat::Uint32x2")]
      Uint32x2 = 23,
      /// Three unsigned ints (u32). `uvec3` in shaders.
+     #[debug("VertexFormat::Uint32x3")]
      Uint32x3 = 24,
      /// Four unsigned ints (u32). `uvec4` in shaders.
+     #[debug("VertexFormat::Uint32x4")]
      Uint32x4 = 25,
      /// One signed int (i32). `int` in shaders.
+     #[debug("VertexFormat::Sint32")]
      Sint32 = 26,
      /// Two signed ints (i32). `ivec2` in shaders.
+     #[debug("VertexFormat::Sint32x2")]
      Sint32x2 = 27,
      /// Three signed ints (i32). `ivec3` in shaders.
+     #[debug("VertexFormat::Sint32x3")]
      Sint32x3 = 28,
      /// Four signed ints (i32). `ivec4` in shaders.
+     #[debug("VertexFormat::Sint32x4")]
      Sint32x4 = 29,
      /// One double-precision float (f64). `double` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+     #[debug("VertexFormat::Float64")]
      Float64 = 30,
      /// Two double-precision floats (f64). `dvec2` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+     #[debug("VertexFormat::Float64x2")]
      Float64x2 = 31,
      /// Three double-precision floats (f64). `dvec3` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+     #[debug("VertexFormat::Float64x3")]
      Float64x3 = 32,
      /// Four double-precision floats (f64). `dvec4` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+     #[debug("VertexFormat::Float64x4")]
      Float64x4 = 33,
  }
  
@@ -4557,6 +4761,7 @@ pub enum TextureFormat {
      pub size: BufferAddress,
      /// Usages of a buffer. If the buffer is used in any way that isn't specified here, the operation
      /// will panic.
+     #[debug("BufferUsages::from_bits({:?}).unwrap()/*{:?}*/", usage.bits(), usage)]
      pub usage: BufferUsages,
      /// Allows a buffer to be mapped immediately after they are made. It does not have to be [`BufferUsages::MAP_READ`] or
      /// [`BufferUsages::MAP_WRITE`], all buffers are allowed to be mapped at creation.
@@ -4615,10 +4820,12 @@ pub enum TextureFormat {
      /// Chooses FifoRelaxed -> Fifo based on availability.
      ///
      /// Because of the fallback behavior, it is supported everywhere.
+     #[debug("PresentMode::AutoVsync")]
      AutoVsync = 0,
      /// Chooses Immediate -> Mailbox -> Fifo (on web) based on availability.
      ///
      /// Because of the fallback behavior, it is supported everywhere.
+     #[debug("PresentMode::AutoNoVsync")]
      AutoNoVsync = 1,
      /// Presentation frames are kept in a First-In-First-Out queue approximately 3 frames
      /// long. Every vertical blanking period, the presentation engine will pop a frame
@@ -4635,6 +4842,7 @@ pub enum TextureFormat {
      ///
      /// If you don't know what mode to choose, choose this mode. This is traditionally called "Vsync On".
      #[default]
+     #[debug("PresentMode::Fifo")]
      Fifo = 2,
      /// Presentation frames are kept in a First-In-First-Out queue approximately 3 frames
      /// long. Every vertical blanking period, the presentation engine will pop a frame
@@ -4651,6 +4859,7 @@ pub enum TextureFormat {
      /// Supported on AMD on Vulkan.
      ///
      /// This is traditionally called "Adaptive Vsync"
+     #[debug("PresentMode::FifoRelaxed")]
      FifoRelaxed = 3,
      /// Presentation frames are not queued at all. The moment a present command
      /// is executed on the GPU, the presented image is swapped onto the front buffer
@@ -4661,6 +4870,7 @@ pub enum TextureFormat {
      /// Supported on most platforms except older DX12 and Wayland.
      ///
      /// This is traditionally called "Vsync Off".
+     #[debug("PresentMode::Immediate")]
      Immediate = 4,
      /// Presentation frames are kept in a single-frame queue. Every vertical blanking period,
      /// the presentation engine will pop a frame from the queue. If there is no frame to display,
@@ -4675,6 +4885,7 @@ pub enum TextureFormat {
      /// Supported on DX11/12 on Windows 10, NVidia on Vulkan and Wayland on Vulkan.
      ///
      /// This is traditionally called "Fast Vsync"
+     #[debug("PresentMode::Mailbox")]
      Mailbox = 5,
  }
  
@@ -4688,26 +4899,31 @@ pub enum TextureFormat {
  pub enum CompositeAlphaMode {
      /// Chooses either `Opaque` or `Inherit` automatically，depending on the
      /// `alpha_mode` that the current surface can support.
+     #[debug("CompositeAlphaMode::Auto")]
      Auto = 0,
      /// The alpha channel, if it exists, of the textures is ignored in the
      /// compositing process. Instead, the textures is treated as if it has a
      /// constant alpha of 1.0.
+     #[debug("CompositeAlphaMode::Opaque")]
      Opaque = 1,
      /// The alpha channel, if it exists, of the textures is respected in the
      /// compositing process. The non-alpha channels of the textures are
      /// expected to already be multiplied by the alpha channel by the
      /// application.
+     #[debug("CompositeAlphaMode::PreMultiplied")]
      PreMultiplied = 2,
      /// The alpha channel, if it exists, of the textures is respected in the
      /// compositing process. The non-alpha channels of the textures are not
      /// expected to already be multiplied by the alpha channel by the
      /// application; instead, the compositor will multiply the non-alpha
      /// channels of the texture by the alpha channel during compositing.
+     #[debug("CompositeAlphaMode::PostMultiplied")]
      PostMultiplied = 3,
      /// The alpha channel, if it exists, of the textures is unknown for processing
      /// during compositing. Instead, the application is responsible for setting
      /// the composite alpha blending mode using native WSI command. If not set,
      /// then a platform-specific default will be used.
+     #[debug("CompositeAlphaMode::Inherit")]
      Inherit = 4,
  }
  
@@ -4821,6 +5037,7 @@ pub enum TextureFormat {
      /// View formats of the same format as the texture are always allowed.
      ///
      /// Note: currently, only the srgb-ness is allowed to change. (ex: Rgba8Unorm texture + Rgba8UnormSrgb view)
+     #[debug("&[]")] // TODO
      pub view_formats: V,
  }
  
@@ -4845,15 +5062,20 @@ pub enum TextureFormat {
  #[derive(Debug)]
  pub enum SurfaceStatus {
      /// No issues.
+     #[debug("SurfaceStatus::Good")]
      Good,
      /// The swap chain is operational, but it does no longer perfectly
      /// match the surface. A re-configuration is needed.
+     #[debug("SurfaceStatus::Suboptimal")]
      Suboptimal,
      /// Unable to get the next frame, timed out.
+     #[debug("SurfaceStatus::Timeout")]
      Timeout,
      /// The surface under the swap chain has changed.
+     #[debug("SurfaceStatus::Outdated")]
      Outdated,
      /// The surface under the swap chain is lost.
+     #[debug("SurfaceStatus::Lost")]
      Lost,
  }
  
@@ -4968,12 +5190,15 @@ pub enum TextureFormat {
  pub enum TextureDimension {
      /// 1D texture
      #[cfg_attr(feature = "serde", serde(rename = "1d"))]
+     #[debug("TextureDimension::D1")]
      D1,
      /// 2D texture
      #[cfg_attr(feature = "serde", serde(rename = "2d"))]
+     #[debug("TextureDimension::D2")]
      D2,
      /// 3D texture
      #[cfg_attr(feature = "serde", serde(rename = "3d"))]
+     #[debug("TextureDimension::D3")]
      D3,
  }
  
@@ -5262,12 +5487,14 @@ pub enum TextureFormat {
      /// Format of the texture.
      pub format: TextureFormat,
      /// Allowed usages of the texture. If used in other ways, the operation will panic.
+     #[debug("TextureUsages::from_bits({:?}).unwrap()/*{:?}*/", usage.bits(), usage)]
      pub usage: TextureUsages,
      /// Specifies what view formats will be allowed when calling create_view() on this texture.
      ///
      /// View formats of the same format as the texture are always allowed.
      ///
      /// Note: currently, only the srgb-ness is allowed to change. (ex: Rgba8Unorm texture + Rgba8UnormSrgb view)
+     #[debug("&[]")]
      pub view_formats: V,
  }
  
@@ -5382,16 +5609,22 @@ pub enum TextureFormat {
 pub enum TextureAspect {
     /// Depth, Stencil, and Color.
     #[default]
+    #[debug("TextureAspect::All")]
     All,
     /// Stencil.
+    #[debug("TextureAspect::StencilOnly")]
     StencilOnly,
     /// Depth.
+    #[debug("TextureAspect::DepthOnly")]
     DepthOnly,
     /// Plane 0.
+    #[debug("TextureAspect::Plane0")]
     Plane0,
     /// Plane 1.
+    #[debug("TextureAspect::Plane1")]
     Plane1,
     /// Plane 2.
+    #[debug("TextureAspect::Plane2")]
     Plane2,
 }
  /// How edges should be handled in texture addressing.
@@ -5409,22 +5642,26 @@ pub enum TextureAspect {
      /// -0.25 -> 0.0
      /// 1.25  -> 1.0
      #[default]
+     #[debug("AddressMode::ClampToEdge")]
      ClampToEdge = 0,
      /// Repeat the texture in a tiling fashion
      ///
      /// -0.25 -> 0.75
      /// 1.25 -> 0.25
+     #[debug("AddressMode::Repeat")]
      Repeat = 1,
      /// Repeat the texture, mirroring it every repeat
      ///
      /// -0.25 -> 0.25
      /// 1.25 -> 0.75
+     #[debug("AddressMode::MirrorRepeat")]
      MirrorRepeat = 2,
      /// Clamp the value to the border of the texture
      /// Requires feature [`Features::ADDRESS_MODE_CLAMP_TO_BORDER`]
      ///
      /// -0.25 -> border
      /// 1.25 -> border
+     #[debug("AddressMode::ClampToBorder")]
      ClampToBorder = 3,
  }
  
@@ -5442,10 +5679,12 @@ pub enum TextureAspect {
      ///
      /// This creates a pixelated effect when used as a mag filter
      #[default]
+     #[debug("FilterMode::Nearest")]
      Nearest = 0,
      /// Linear Interpolation
      ///
      /// This makes textures smooth but blurry when used as a mag filter.
+     #[debug("FilterMode::Linear")]
      Linear = 1,
  }
  
@@ -5615,6 +5854,7 @@ pub enum TextureAspect {
      /// };
      /// ```
      #[default]
+     #[debug("BufferBindingType::Uniform")]
      Uniform,
      /// A storage buffer.
      ///
@@ -5630,6 +5870,7 @@ pub enum TextureAspect {
      ///     vec4 myElement[];
      /// };
      /// ```
+     #[debug("BufferBindingType::Storage{{read_only: {read_only}}}")]
      Storage {
          /// If `true`, the buffer can only be read in the shader,
          /// and it:
@@ -5673,6 +5914,7 @@ pub enum TextureAspect {
      /// layout(binding = 0)
      /// uniform texture2D t;
      /// ```
+     #[debug("TextureSampleType::Float {{filterable: {filterable}}}")]
      Float {
          /// If this is `false`, the texture can't be sampled with
          /// a filtering sampler.
@@ -5696,6 +5938,7 @@ pub enum TextureAspect {
      /// layout(binding = 0)
      /// uniform texture2DShadow t;
      /// ```
+     #[debug("TextureSampleType::Depth")]
      Depth,
      /// Sampling returns signed integers.
      ///
@@ -5710,6 +5953,7 @@ pub enum TextureAspect {
      /// layout(binding = 0)
      /// uniform itexture2D t;
      /// ```
+     #[debug("TextureSampleType::Sint")]
      Sint,
      /// Sampling returns unsigned integers.
      ///
@@ -5724,6 +5968,7 @@ pub enum TextureAspect {
      /// layout(binding = 0)
      /// uniform utexture2D t;
      /// ```
+     #[debug("TextureSampleType::Uint")]
      Uint,
  }
  
@@ -5758,6 +6003,7 @@ pub enum TextureAspect {
      /// ```cpp,ignore
      /// layout(set=0, binding=0, r32f) writeonly uniform image2D myStorageImage;
      /// ```
+     #[debug("StorageTextureAccess::WriteOnly")]
      WriteOnly,
      /// The texture can only be read in the shader and it must be annotated with `read` (WGSL) or
      /// `readonly` (GLSL).
@@ -5775,6 +6021,7 @@ pub enum TextureAspect {
      /// ```cpp,ignore
      /// layout(set=0, binding=0, r32f) readonly uniform image2D myStorageImage;
      /// ```
+     #[debug("StorageTextureAccess::ReadOnly")]
      ReadOnly,
      /// The texture can be both read and written in the shader and must be annotated with
      /// `read_write` in WGSL.
@@ -5792,6 +6039,7 @@ pub enum TextureAspect {
      /// ```cpp,ignore
      /// layout(set=0, binding=0, r32f) uniform image2D myStorageImage;
      /// ```
+     #[debug("StorageTextureAccess::ReadWrite")]
      ReadWrite,
  }
  
@@ -5809,11 +6057,14 @@ pub enum TextureAspect {
  pub enum SamplerBindingType {
      /// The sampling result is produced based on more than a single color sample from a texture,
      /// e.g. when bilinear interpolation is enabled.
+     #[debug("SamplerBindingType::Filtering")]
      Filtering,
      /// The sampling result is produced based on a single color sample from a texture.
+     #[debug("SamplerBindingType::NonFiltering")]
      NonFiltering,
      /// Use as a comparison sampler instead of a normal sampler.
      /// For more info take a look at the analogous functionality in OpenGL: <https://www.khronos.org/opengl/wiki/Sampler_Object#Comparison_mode>.
+     #[debug("SamplerBindingType::Comparison")]
      Comparison,
  }
  
@@ -5831,6 +6082,10 @@ pub enum BindingType {
     ///
     /// Corresponds to [WebGPU `GPUBufferBindingLayout`](
     /// https://gpuweb.github.io/gpuweb/#dictdef-gpubufferbindinglayout).
+    #[debug("BindingType::Buffer{{ty:{ty:?}, has_dynamic_offset: {has_dynamic_offset:?}, min_binding_size: {}}}", match min_binding_size {
+        Some(r) => format!("Some(BufferSize::new({:?}).unwrap())", r),
+        None => "None".to_string(),
+    })]
     Buffer {
         /// Sub-type of the buffer binding.
         ty: BufferBindingType,
@@ -5888,6 +6143,7 @@ pub enum BindingType {
     ///
     /// Corresponds to [WebGPU `GPUSamplerBindingLayout`](
     /// https://gpuweb.github.io/gpuweb/#dictdef-gpusamplerbindinglayout).
+    #[debug("BindingType::Sampler({_0:?})")]
     Sampler(SamplerBindingType),
     /// A texture binding.
     ///
@@ -5905,6 +6161,7 @@ pub enum BindingType {
     ///
     /// Corresponds to [WebGPU `GPUTextureBindingLayout`](
     /// https://gpuweb.github.io/gpuweb/#dictdef-gputexturebindinglayout).
+    #[debug("BindingType::Texture{{sample_type: {sample_type:?}, view_dimension: {view_dimension:?}, multisampled: {multisampled:?}}}")]
     Texture {
         /// Sample type of the texture binding.
         sample_type: TextureSampleType,
@@ -5932,6 +6189,7 @@ pub enum BindingType {
     ///
     /// Corresponds to [WebGPU `GPUStorageTextureBindingLayout`](
     /// https://gpuweb.github.io/gpuweb/#dictdef-gpustoragetexturebindinglayout).
+    #[debug("BindingType::StorageTexture{{access: {access:?}, format: {format:?}, view_dimension: {view_dimension:?}}}")]
     StorageTexture {
         /// Allowed access to this texture.
         access: StorageTextureAccess,
@@ -5954,6 +6212,7 @@ pub enum BindingType {
     /// layout(binding = 0)
     /// uniform accelerationStructureEXT as;
     /// ```
+    #[debug("BindingType::AccelerationStructure")]
     AccelerationStructure,
 }
  
@@ -5981,6 +6240,7 @@ pub enum BindingType {
      /// of index 1, would be described as `layout(set = 0, binding = 1) uniform` in shaders.
      pub binding: u32,
      /// Which shader stages can see this binding.
+     #[debug("ShaderStages::from_bits({:?}).unwrap()/*{:?}*/", (*visibility).bits(), visibility)]
      pub visibility: ShaderStages,
      /// The type of the binding
      pub ty: BindingType,
@@ -6149,8 +6409,10 @@ pub enum BindingType {
  #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
  pub enum PredefinedColorSpace {
      /// sRGB color space
+     #[debug("PredefinedColorSpace::Srgb")]
      Srgb,
      /// Display-P3 color space
+     #[debug("PredefinedColorSpace::DisplayP3")]
      DisplayP3,
  }
  
@@ -6297,10 +6559,13 @@ pub enum BindingType {
  #[cfg_attr(feature = "replay", derive(serde::Deserialize))]
  pub enum SamplerBorderColor {
      /// [0, 0, 0, 0]
+     #[debug("SamplerBorderColor::TransparentBlack")]
      TransparentBlack,
      /// [0, 0, 0, 1]
+     #[debug("SamplerBorderColor::OpaqueBlack")]
      OpaqueBlack,
      /// [1, 1, 1, 1]
+     #[debug("SamplerBorderColor::OpaqueWhite")]
      OpaqueWhite,
  
      /// On the Metal backend, this is equivalent to `TransparentBlack` for
@@ -6308,6 +6573,7 @@ pub enum BindingType {
      /// for textures that do not have an alpha component. On other backends,
      /// this is equivalent to `TransparentBlack`. Requires
      /// [`Features::ADDRESS_MODE_CLAMP_TO_ZERO`]. Not supported on the web.
+     #[debug("SamplerBorderColor::Zero")]
      Zero,
  }
  
@@ -6348,6 +6614,7 @@ pub enum BindingType {
  #[cfg_attr(feature = "replay", derive(serde::Deserialize))]
  pub enum QueryType {
      /// Query returns a single 64-bit number, serving as an occlusion boolean.
+     #[debug("QueryType::TransparentBlack")]
      Occlusion,
      /// Query returns up to 5 64-bit numbers based on the given flags.
      ///
@@ -6355,6 +6622,7 @@ pub enum BindingType {
      /// on how they get resolved.
      ///
      /// [`Features::PIPELINE_STATISTICS_QUERY`] must be enabled to use this query type.
+     #[debug("QueryType::PipelineStatistics({_0:?})")]
      PipelineStatistics(PipelineStatisticsTypes),
      /// Query returns a 64-bit number indicating the GPU-timestamp
      /// where all previous commands have finished executing.
@@ -6367,6 +6635,7 @@ pub enum BindingType {
      /// [`Features::TIMESTAMP_QUERY`] must be enabled to use this query type.
      ///
      /// [Qgtp]: ../wgpu/struct.Queue.html#method.get_timestamp_period
+     #[debug("QueryType::Timestamp")]
      Timestamp,
  }
  
@@ -6505,11 +6774,13 @@ pub enum BindingType {
      ///
      /// However, it doesn't require any additional .dlls to be shipped with the application.
      #[default]
+     #[debug("Dx12Compiler::Fxc")]
      Fxc,
      /// The Dxc compiler is new, fast and maintained.
      ///
      /// However, it requires both `dxcompiler.dll` and `dxil.dll` to be shipped with the application.
      /// These files can be downloaded from <https://github.com/microsoft/DirectXShaderCompiler/releases>.
+     #[debug("Dx12Compiler::Dxc {{ dxil_path: {dxil_path:?}, dxc_path: {dxc_path:?} }}")]
      Dxc {
          /// Path to the `dxcompiler.dll` file. Passing `None` will use standard platform specific dll loading rules.
          dxil_path: Option<PathBuf>,

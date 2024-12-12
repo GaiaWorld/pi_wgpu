@@ -64,7 +64,12 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        log::trace!("queue.write_texture");
+        log::trace!("queue.write_texture(pi_wgpu::ImageCopyTexture {{
+            texture: &texture{},
+            mip_level: {:?},
+            origin: {:?},
+            aspect: {:?},
+        }}, &{:?}, {:?}, {:?});", texture.texture.inner.0.inner.debug_str(), &texture.mip_level, texture.origin, texture.aspect, data, data_layout, size);
 
         self.write_texture_inner(texture, data, data_layout, size);
     }
@@ -96,12 +101,12 @@ impl Queue {
         data_layout: ImageDataLayout,
         size: Extent3d,
     ) {
-        log::trace!(
-            "pi_wgpu::Queue::write_texture, texture = {:?}, data_layout = {:?}, size = {:?}",
-            texture,
-            data_layout,
-            size
-        );
+        // log::trace!(
+        //     "pi_wgpu::Queue::write_texture, texture = {:?}, data_layout = {:?}, size = {:?}",
+        //     texture,
+        //     data_layout,
+        //     size
+        // );
 
         hal::Texture::write_data(&self.inner.state, texture, data, data_layout, size);
     }
@@ -122,7 +127,7 @@ impl Queue {
         &self,
         command_buffers: I,
     ) -> SubmissionIndex {
-        log::trace!("pi_wgpu::Queue::submit");
+        log::trace!("queue.submit(vec![]);");
 
         let iter = command_buffers.into_iter().map(|v| v.inner);
 

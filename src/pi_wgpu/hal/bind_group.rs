@@ -1,11 +1,13 @@
 use std::sync::atomic::AtomicU32;
 
 use pi_share::Share;
+use derive_more::Debug;
 
 use super::super::wgt;
 
 #[derive(Debug)]
 pub struct BindGroupLayout {
+    #[debug("Share::new({entries:?})")]
     pub(crate) entries: Share<[wgt::BindGroupLayoutEntry]>,
 	pub(crate) id: u32,
 }

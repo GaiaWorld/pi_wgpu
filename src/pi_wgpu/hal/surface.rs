@@ -59,11 +59,11 @@ impl Surface {
         // );
 
         if config.width == 0 || config.height == 0 {
-            log::warn!(
-                "hal::Surface::configure() has 0 dimensions, size = ({}, {})",
-                config.width,
-                config.height
-            );
+            // log::warn!(
+            //     "hal::Surface::configure() has 0 dimensions, size = ({}, {})",
+            //     config.width,
+            //     config.height
+            // );
 
             return Ok(());
         }
@@ -131,11 +131,11 @@ impl SurfaceImpl {
         config: &crate::SurfaceConfiguration,
         clone: pi_egl::Surface,
     ) -> Result<(), super::SurfaceError> {
-        log::info!(
-            "hal::Surface::config, width = {}, height = {}",
-            config.width,
-            config.height
-        );
+        // log::info!(
+        //     "hal::Surface::config, width = {}, height = {}",
+        //     config.width,
+        //     config.height
+        // );
 
         self.adapter.set_surface(clone);
 
