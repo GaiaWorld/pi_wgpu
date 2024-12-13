@@ -7119,11 +7119,12 @@ export const initSpector = (port, canvas) => {
         });
 		// spyCanvas， 重载了getContext方法， getContext被调用后， 会发出通知（通知函数重载该gl上下文中的其他指令方法）
 		captureCanvas = canvas || window["canvas"];
+		captureCanvas.getContext("webgl2");
 		spector.spyCanvas(captureCanvas);
 
-		setTimeout(() => {
-			recordWebgl();
-		}, 5000);
+		// setTimeout(() => {
+			recordWebgl(250);
+		// }, 5000);
 	}
 }
 
@@ -7170,7 +7171,7 @@ const save = (port, dir, filename, content, success, fail) => {
 		if (xhr.readyState === 4 && xhr.status === 200) {
 			if (xhr.response !== '' || xhr.response !== undefined || xhr.response !== null) {
 				success && success(xhr.response);
-				console.log(`save ${filename} success`, xhr.response);
+				console.error(`save ${filename} success`, xhr.response);
 			}
 			else {
 				fail && fail(xhr.response);

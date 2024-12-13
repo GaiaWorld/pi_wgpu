@@ -23,6 +23,7 @@ use super::{
 #[derive(Clone)]
 pub(crate) struct GLState {
     imp: Share<ShareCell<GLStateImpl>>,
+    pub(crate) is_ios18: bool,
 }
 
 impl std::fmt::Debug for GLState {
@@ -37,6 +38,7 @@ impl GLState {
         let imp = GLStateImpl::new(&gl);
 
         Self {
+            is_ios18: imp.is_ios18,
             imp: Share::new(ShareCell::new(imp)),
         }
     }
@@ -755,6 +757,8 @@ impl GLState {
 
 // #[derive(Debug)]
 pub(crate) struct GLStateImpl {
+    pub(crate) is_ios18: bool, // ios18.0， 不支持sampler， 将sampler的描述设置在texture上
+
     cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
@@ -846,7 +850,15 @@ impl GLStateImpl {
         let ubos = vec![None; max_uniform_buffer_bindings];
         let textures = vec![(None, None); max_textures_slots];
 
+        #[allow(unused_mut)]
+        let mut is_ios18 = false;
+        #[cfg(target_arch = "wasm32")] 
+        if let Ok(user_agent) = web_sys::window().unwrap().navigator().user_agent(){
+            is_ios18 = user_agent.contains("iPhone OS 18_0") || user_agent.contains("iphone os 18_0");
+        }
+
         Self {
+            is_ios18,
             active_texture_unit: 0,
 
             global_shader_id: 0,
@@ -1287,33 +1299,33 @@ impl GLStateImpl {
     fn set_viewport(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         let vp = &mut self.viewport;
 
-        if x != vp.x || y != vp.y || w != vp.w || h != vp.h {
+        // if x != vp.x || y != vp.y || w != vp.w || h != vp.h {
             unsafe { gl.viewport(x, y, w, h) };
 
             vp.x = x;
             vp.y = y;
             vp.w = w;
             vp.h = h;
-        }
+        // }
     }
 
     #[inline]
     fn set_scissor(&mut self, gl: &glow::Context, x: i32, y: i32, w: i32, h: i32) {
         let s = &mut self.scissor;
 
-        if !s.is_enable {
+        // if !s.is_enable {
             unsafe { gl.enable(glow::SCISSOR_TEST) };
-            s.is_enable = true;
-        }
+        //     s.is_enable = true;
+        // }
 
-        if x != s.x || y != s.y || w != s.w || h != s.h {
+        // if x != s.x || y != s.y || w != s.w || h != s.h {
             unsafe { gl.scissor(x, y, w, h) };
 
             s.x = x;
             s.y = y;
             s.w = w;
             s.h = h;
-        }
+        // }
     }
 
     #[inline]
@@ -1868,7 +1880,7 @@ impl GLStateImpl {
                         }
                     },
                     RawBindingState::Sampler { raw } => unsafe {
-                        assert!(binding.ty == PiBindingType::Sampler);
+                        // assert!(binding.ty == PiBindingType::Sampler);
 
                         let sampler = raw.upgrade().unwrap();
 
@@ -1880,8 +1892,50 @@ impl GLStateImpl {
                         };
                         if need_update {
                             self.textures[binding.glow_binding as usize].1 = Some(imp.raw);
+                            if !self.is_ios18 {
+                                gl.bind_sampler(binding.glow_binding, Some(imp.raw));
+                            } else {
+                                let desc = &*imp.desc;
+                                let (min, mag) =
+                                    conv::map_filter_modes(desc.min_filter, desc.mag_filter, desc.mipmap_filter, false);
 
-                            gl.bind_sampler(binding.glow_binding, Some(imp.raw));
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, min as i32);
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, mag as i32);
+
+                                
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_WRAP_S,
+                                    conv::map_address_mode(desc.address_mode_u) as i32,
+                                );
+                                
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_WRAP_T,
+                                    conv::map_address_mode(desc.address_mode_v) as i32,
+                                );
+                                gl.tex_parameter_i32(
+                                    glow::TEXTURE_2D,
+                                    glow::TEXTURE_WRAP_R,
+                                    conv::map_address_mode(desc.address_mode_w) as i32,
+                                );
+
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_LOD, desc.lod_min_clamp as i32);
+                                gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAX_LOD, desc.lod_max_clamp as i32);
+
+                                if let Some(compare) = desc.compare {
+                                    gl.tex_parameter_i32(
+                                        glow::TEXTURE_2D,
+                                        glow::TEXTURE_COMPARE_MODE,
+                                        glow::COMPARE_REF_TO_TEXTURE as i32,
+                                    );
+                                    gl.tex_parameter_i32(
+                                        glow::TEXTURE_2D,
+                                        glow::TEXTURE_COMPARE_FUNC,
+                                        conv::map_compare_func(compare) as i32,
+                                    );
+                                }
+                            }
                         }
                     },
                 }
@@ -1919,7 +1973,7 @@ impl GLStateImpl {
                 }
             }
 
-            if self.clear_color != *color {
+            // if self.clear_color != *color {
                 unsafe {
                     gl.clear_color(
                         color.r as f32,
@@ -1929,7 +1983,7 @@ impl GLStateImpl {
                     );
                 }
                 self.clear_color = *color;
-            }
+            // }
         }
 
         match depth {
@@ -1980,22 +2034,22 @@ impl GLStateImpl {
         }
 
         if clear_mask != 0 {
-            if self.scissor.is_enable {
-                unsafe {
-                    // 清屏 受到 裁剪的影响，而 wgpu 的接口预期 清 全屏
-                    gl.disable(glow::SCISSOR_TEST);
-                }
-            }
+            // if self.scissor.is_enable {
+            //     unsafe {
+            //         // 清屏 受到 裁剪的影响，而 wgpu 的接口预期 清 全屏
+            //         gl.disable(glow::SCISSOR_TEST);
+            //     }
+            // }
 
             unsafe {
                 gl.clear(clear_mask);
             }
 
-            if self.scissor.is_enable {
-                unsafe {
-                    gl.enable(glow::SCISSOR_TEST);
-                }
-            }
+            // if self.scissor.is_enable {
+            //     unsafe {
+            //         gl.enable(glow::SCISSOR_TEST);
+            //     }
+            // }
         }
 
         if clear_mask & glow::COLOR_BUFFER_BIT != 0 {

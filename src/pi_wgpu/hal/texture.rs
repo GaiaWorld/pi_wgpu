@@ -101,11 +101,24 @@ impl Texture {
                 }
                 _ => {}
             }
+            
 
             unsafe {
+               
+                // gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
+                // gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
                 // gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, 0);
+                // gl.tex_parameter_i32(target, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+                // gl.tex_parameter_i32(target, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
 
-                gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+                if state.is_ios18 {
+                    gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+                    gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+                    gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 1000); // 设置该值不是1000， 在ios18上会导致该纹理作为fbo的color附件时， 无法渲染
+                } else {
+                    gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+                }
+                
             }
 
             let block_dims = desc.format.block_dimensions();

@@ -353,6 +353,7 @@ pub(crate) fn map_filter_modes(
     min: wgt::FilterMode,
     mag: wgt::FilterMode,
     mip: wgt::FilterMode,
+    is_mip: bool, // 是否为多级纹理(ios18.0, fbo设置mipmap采样异常渲染，默认尽量不设置mipmap)
 ) -> (u32, u32) {
     use wgt::FilterMode as Fm;
 
@@ -360,12 +361,19 @@ pub(crate) fn map_filter_modes(
         Fm::Nearest => glow::NEAREST,
         Fm::Linear => glow::LINEAR,
     };
-
-    let min_filter = match (min, mip) {
-        (Fm::Nearest, Fm::Nearest) => glow::NEAREST_MIPMAP_NEAREST,
-        (Fm::Nearest, Fm::Linear) => glow::NEAREST_MIPMAP_LINEAR,
-        (Fm::Linear, Fm::Nearest) => glow::LINEAR_MIPMAP_NEAREST,
-        (Fm::Linear, Fm::Linear) => glow::LINEAR_MIPMAP_LINEAR,
+    
+    let min_filter = if is_mip {
+        match (min, mip) {
+            (Fm::Nearest, Fm::Nearest) => glow::NEAREST_MIPMAP_NEAREST,
+            (Fm::Nearest, Fm::Linear) => glow::NEAREST_MIPMAP_LINEAR,
+            (Fm::Linear, Fm::Nearest) => glow::LINEAR_MIPMAP_NEAREST,
+            (Fm::Linear, Fm::Linear) => glow::LINEAR_MIPMAP_LINEAR,
+        }
+    } else {
+        match min {
+            Fm::Nearest => glow::NEAREST,
+            Fm::Linear => glow::LINEAR,
+        }
     };
 
     (min_filter, mag_filter)

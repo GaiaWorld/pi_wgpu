@@ -9,7 +9,7 @@ use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::Window,
+    window::{self, Window},
 };
 
 #[allow(dead_code)]
@@ -77,6 +77,8 @@ pub fn start<T: Example + Sync + Send + 'static>() {
             .and_then(|body| {
                 window.canvas().set_width(450);
                 window.canvas().set_height(720);
+                // web_sys::window().unwrap().alert_with_message(web_sys::window().unwrap().navigator().user_agent().unwrap().as_str());
+                // log::error!("navigator.userAgent========={:?}", );
                 let el = web_sys::Element::from(window.canvas());
                 initSpector(0, &el);
                 body.append_child(&el)
@@ -99,6 +101,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
     let mut engine: Option<Engine> = None;
     let mut example: Option<T> = None;
     let is_auto = T::auto();
+    let mut count = 0.0;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -161,6 +164,10 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                         .device
                         .create_command_encoder(&CommandEncoderDescriptor { label: None });
                     {
+                        count += 0.5;
+                        if count > 1.0 {
+                            count = 0.0;
+                        }
                         let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                             label: None,
                             color_attachments: &[Some(RenderPassColorAttachment {
@@ -168,7 +175,7 @@ async fn run<T: Example + Sync + Send + 'static>(event_loop: EventLoop<()>, wind
                                 resolve_target: None,
                                 ops: Operations {
                                     load: LoadOp::Clear(Color {
-                                        r: 0.0,
+                                        r: count,
                                         g: 0.0,
                                         b: 0.0,
                                         a: 1.0,

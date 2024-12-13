@@ -7,6 +7,7 @@ use super::super::{
     RenderPipeline, TextureView,
 };
 use derive_more::Debug;
+use glow::HasContext;
 
 /// Handle to a command buffer on the GPU.
 ///
@@ -143,7 +144,8 @@ pub struct RenderPass<'a> {
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
         // log::trace!("Dropping RenderPass");
-        self.encoder.end_render_pass()
+        self.encoder.end_render_pass();
+        unsafe { self.lock.get_glow().flush();}
     }
 }
 

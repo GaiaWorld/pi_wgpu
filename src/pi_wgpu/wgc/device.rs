@@ -169,7 +169,7 @@ impl Device {
     // #[inline]
     pub fn create_texture(&self, desc: &super::super::TextureDescriptor) -> Texture {
         let texture = self.create_texture_inner(desc);
-		log::warn!("let texture{} = device.create_texture(&{:?});", texture.inner.0.inner.debug_str(), desc);
+		log::trace!("let texture{} = device.create_texture(&{:?});", texture.inner.0.inner.debug_str(), desc);
 		texture
     }
 
