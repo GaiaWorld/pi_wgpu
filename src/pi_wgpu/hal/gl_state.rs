@@ -1486,14 +1486,15 @@ impl GLStateImpl {
             if !gl.get_program_link_status(raw) {
                 let info = gl.get_program_info_log(raw);
 
-                log::error!("program link error, info = {:?}", info);
+                log::error!("program link error, info = {:?}", (&info, info.len()));
 
-                gl.delete_program(raw);
-
-                return Err(super::ShaderError::LinkProgram(format!(
-                    "program link error, info = {:?}",
-                    info
-                )));
+                if info.len() != 0 {
+                    gl.delete_program(raw);
+                    return Err(super::ShaderError::LinkProgram(format!(
+                        "program link error, info = {:?}",
+                        info
+                    )));
+                }
             }
 
             raw
