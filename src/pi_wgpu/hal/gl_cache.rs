@@ -355,8 +355,6 @@ impl GLCache {
                 let vao = gl.create_vertex_array().unwrap();
                 gl.bind_vertex_array(Some(vao));
 
-                // log::warn!("Creating new VAO: {:?}", &vao);
-
                 // let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
                 self.vao_map.insert(hash, vao.clone());
                 self.vao = Some(vao);
@@ -390,7 +388,15 @@ impl GLCache {
 
                             // 创建vb与vao之间的关系
                             match self.buffer_vao_map.entry(vb.raw) {
-                                std::collections::hash_map::Entry::Occupied(mut r) => {r.get_mut().push(hash);},
+                                std::collections::hash_map::Entry::Occupied(mut r) => {
+                                    let rr = r.get_mut();
+                                    if let Some(r) = rr.last() {
+                                        if *r != hash {
+                                            // log::warn!("Creating new VAO: {:?}, first_instance: {:?},  len: {:?},  ib: {:?}, vbs: {:?}", hash, geometry.first_instance, rr.len(), &geometry.ib,  &vb);
+                                            rr.push(hash);
+                                        }
+                                    }
+                                },
                                 std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
                             };
 
@@ -505,6 +511,7 @@ impl GLCache {
                 for hash in r.into_iter() {
                     if let Some(vao) = self.vao_map.get(&hash) {
                         unsafe {
+                            // log::warn!("delete VAO: {:?}, buffer: {:?}", hash, &buffer);
                             gl.delete_vertex_array(*vao);
                             if let Some(old) = &self.vao {
                                 if *old == *vao {
