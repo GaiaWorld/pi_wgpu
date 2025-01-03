@@ -145,11 +145,13 @@ impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
         // log::trace!("Dropping RenderPass");
         self.encoder.end_render_pass();
-        unsafe { self.lock.get_glow().flush();}
     }
 }
 
 impl<'a> RenderPass<'a> {
+    pub fn flush(&self) {
+        unsafe { self.lock.get_glow().flush();}
+    }
     /// Sets the active bind group for a given bind group index. The bind group layout
     /// in the active pipeline when any `draw()` function is called must match the layout of this bind group.
     ///

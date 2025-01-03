@@ -2,7 +2,7 @@ use pi_share::{Share, ShareCell};
 use raw_window_handle::{ HasWindowHandle, HasDisplayHandle};
 use thiserror::Error;
 
-use crate::{Extent3d, TextureDescriptor};
+use crate::{Color, Extent3d, TextureDescriptor};
 
 use super::{
     super::{util::DeviceExt, wgt, DeviceError, MissingDownlevelFlags},
@@ -474,6 +474,24 @@ impl SwapChain {
     fn draw_y_flip(&mut self) {
         // log::warn!("aaaa==========");
         let view = self.native_texture.create_view(&Default::default());
+        {
+            self
+            .encoder
+            .begin_render_pass(&super::super::RenderPassDescriptor {
+                label: Some("Flip-Y RenderPass"),
+                color_attachments: &[Some(super::super::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: super::super::Operations {
+                        load: super::super::LoadOp::Clear(Color::TRANSPARENT),
+                        store: crate::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
         let mut rp = self
             .encoder
             .begin_render_pass(&super::super::RenderPassDescriptor {
@@ -494,6 +512,8 @@ impl SwapChain {
         rp.set_bind_group(0, &self.bg, &[]);
         rp.set_vertex_buffer(0, self.vb.slice(..));
         rp.draw(0..6, 0..1);
+        
+        rp.flush();
     }
 
     #[inline]
