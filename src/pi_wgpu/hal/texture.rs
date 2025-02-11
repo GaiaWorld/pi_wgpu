@@ -30,7 +30,7 @@ impl Texture {
         let mut copy_size = super::CopyExtent {
             width: desc.size.width,
             height: desc.size.height,
-            depth: 1,
+            depth: desc.size.depth_or_array_layers,
         };
 
         let lock = adapter.lock(None);
@@ -125,50 +125,26 @@ impl Texture {
             if block_dims != (1, 1) {
                 if is_3d {
                     // TODO 目前并不清楚 3D 压缩纹理的 深度格式，不实现
-                    let block_size = get_texture_bytes_per_block(desc.format);
-
-                    let block_width = (desc.size.width + block_dims.0 - 1) / block_dims.0;
-
-                    let block_height = (desc.size.height + block_dims.1 - 1) / block_dims.1;
-
-                    let image_size = block_width * block_height * block_size * desc.size.depth_or_array_layers; // ASTC 块总是使用 128 位，即 16 字节。
-                    
-                    let data = vec![0u8; image_size as usize];
                     unsafe {
-                        gl.compressed_tex_image_3d(
+                        gl.tex_storage_3d(
                             target,
-                            0,
-                            format_desc.internal as i32,
+                            1,
+                            format_desc.internal as u32,
                             desc.size.width as i32,
                             desc.size.height as i32,
                             desc.size.depth_or_array_layers as i32,
-                            0,
-                            image_size as i32,
-                            data.as_slice(),
                         );
                     }
                 } else if desc.sample_count > 1 {
                     unimplemented!()
                 } else {
-                    let block_size = get_texture_bytes_per_block(desc.format);
-
-                    let block_width = (desc.size.width + block_dims.0 - 1) / block_dims.0;
-
-                    let block_height = (desc.size.height + block_dims.1 - 1) / block_dims.1;
-
-                    let image_size = block_width * block_height * block_size; // ASTC 块总是使用 128 位，即 16 字节。
-
-                    let data = vec![0u8; image_size as usize];
                     unsafe {
-                        gl.compressed_tex_image_2d(
+                        gl.tex_storage_2d(
                             target,
-                            0,
-                            format_desc.internal as i32,
+                            1,
+                            format_desc.internal as u32,
                             desc.size.width as i32,
                             desc.size.height as i32,
-                            0,
-                            image_size as i32,
-                            data.as_slice(),
                         );
                     }
                 }
