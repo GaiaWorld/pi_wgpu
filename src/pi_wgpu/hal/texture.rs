@@ -80,7 +80,7 @@ impl Texture {
             let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
 
             unsafe {
-                gl.active_texture(glow::TEXTURE0);
+                // gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(target, Some(raw))
             };
 
@@ -151,39 +151,54 @@ impl Texture {
             } else {
                 if is_3d {
                     unsafe {
-                        gl.tex_image_3d(
+                        gl.tex_storage_3d(
                             target,
-                            0,
-                            format_desc.internal as i32,
+                            1,
+                            format_desc.internal as u32,
                             desc.size.width as i32,
                             desc.size.height as i32,
                             desc.size.depth_or_array_layers as i32,
-                            0,
-                            format_desc.external,
-                            format_desc.data_type,
-                            None,
                         );
+                        // gl.tex_image_3d(
+                        //     target,
+                        //     0,
+                        //     format_desc.internal as i32,
+                        //     desc.size.width as i32,
+                        //     desc.size.height as i32,
+                        //     desc.size.depth_or_array_layers as i32,
+                        //     0,
+                        //     format_desc.external,
+                        //     format_desc.data_type,
+                        //     None,
+                        // );
                     };
                 } else if desc.sample_count > 1 {
                     unimplemented!()
                 } else {
                     unsafe {
-                        gl.tex_image_2d(
+                        gl.tex_storage_2d(
                             target,
-                            0,
-                            format_desc.internal as i32,
+                            1,
+                            format_desc.internal as u32,
                             desc.size.width as i32,
                             desc.size.height as i32,
-                            0,
-                            format_desc.external,
-                            format_desc.data_type,
-                            None,
                         );
+                        // gl.tex_image_2d(
+                        //     target,
+                        //     0,
+                        //     format_desc.internal as i32,
+                        //     desc.size.width as i32,
+                        //     desc.size.height as i32,
+                        //     0,
+                        //     format_desc.external,
+                        //     format_desc.data_type,
+                        //     None,
+                        // );
                     }
                 }
             }
 
-            state.restore_current_texture(&gl, 0, target);
+            // state.restore_current_texture(&gl, 0, target);
 
             (
                 TextureInner::Texture {
@@ -265,6 +280,18 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
+            
+            let (block_width, block_height) = copy.texture.format().block_dimensions();
+            let block_size = copy.texture.format().block_copy_size(None).unwrap();
+        
+            if _data_layout.bytes_per_row.is_some() {
+                let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+                gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+            }
+            if _data_layout.rows_per_image.is_some() {
+                let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+                gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+            }
         }
 
         if !inner.format.is_compressed() {
@@ -306,8 +333,9 @@ impl Texture {
                     };
                 }
                 glow::TEXTURE_2D => {
-					unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
-					unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
+                    if size.width % 4 != 0 {
+                        unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+                    }
                     unsafe {
                         gl.tex_sub_image_2d(
                             dst_target,
@@ -390,7 +418,11 @@ impl Texture {
             }
         }
 
-        state.restore_current_texture(&gl, 0, dst_target);
+        unsafe {
+            // gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(dst_target, None);
+        }
+        // state.restore_current_texture(&gl, 0, dst_target);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -423,6 +455,18 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
+            
+            let (block_width, block_height) = copy.texture.format().block_dimensions();
+            let block_size = copy.texture.format().block_copy_size(None).unwrap();
+        
+            if _data_layout.bytes_per_row.is_some() {
+                let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+                gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+            }
+            if _data_layout.rows_per_image.is_some() {
+                let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+                gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+            }
         }
 
         if !inner.format.is_compressed() {
@@ -430,6 +474,7 @@ impl Texture {
         } else {
             match dst_target {
                 glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
+                    // log::error!("compressed_tex_sub_image_3d_jsobj");
                     unsafe {
                         gl.compressed_tex_sub_image_3d_jsobj(
                             dst_target,
@@ -476,8 +521,12 @@ impl Texture {
                 _ => unreachable!(),
             }
         }
+        unsafe {
+            // gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(dst_target, None);
+        }
 
-        state.restore_current_texture(&gl, 0, dst_target);
+        // state.restore_current_texture(&gl, 0, dst_target);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -581,8 +630,9 @@ impl Texture {
         } else {
             let dst_target = match dst_target {
                 glow::TEXTURE_2D => {
-                    unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
-                    unsafe { gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1) };
+                    if size.width % 4 != 0 {
+                        unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+                    }
                     dst_target
                 },
                 glow::TEXTURE_2D => super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
@@ -647,7 +697,10 @@ impl Texture {
             }
         }
 
-        state.restore_current_texture(&gl, 0, dst_target);
+        unsafe {
+        gl.bind_texture(dst_target, None);
+        }
+        // state.restore_current_texture(&gl, 0, dst_target);
     }
 }
 
@@ -663,7 +716,7 @@ impl Texture {
                 if desc.size.depth_or_array_layers > 1 {
                     //HACK: detect a cube map
                     let cube_count = if desc.size.width == desc.size.height
-                        && desc.size.depth_or_array_layers % 6 == 0
+                        && desc.size.depth_or_array_layers == 6
                         && desc.sample_count == 1
                     {
                         Some(desc.size.depth_or_array_layers / 6)
