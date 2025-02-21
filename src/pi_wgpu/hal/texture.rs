@@ -42,8 +42,22 @@ impl Texture {
         {
             // 纹理 仅作为 渲染目标，不作为 Sampler 或 Storage 或 Copy，则直接创建 RenderBuffer
             let raw = unsafe { gl.create_renderbuffer().unwrap() };
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
 
             unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(raw)) };
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
 
             if desc.sample_count > 1 {
                 unsafe {
@@ -65,7 +79,22 @@ impl Texture {
                     )
                 };
             }
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
+
             unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, None) };
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
 
             (
                 TextureInner::Renderbuffer {
@@ -77,12 +106,26 @@ impl Texture {
             )
         } else {
             let raw = unsafe { gl.create_texture().unwrap() };
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
             let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
 
             unsafe {
                 // gl.active_texture(glow::TEXTURE0);
-                gl.bind_texture(target, Some(raw))
+                gl.bind_texture(target, Some(raw));
             };
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
 
             //Note: this has to be done before defining the storage!
             match desc.format.sample_type(None, Some(adapter.imp.borrow().as_ref().unwrap().features)) {
@@ -98,6 +141,13 @@ impl Texture {
                     unsafe {
                         gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32)
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -115,8 +165,23 @@ impl Texture {
                     gl.tex_parameter_i32(target, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
                     gl.tex_parameter_i32(target, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
                     gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 1000); // 设置该值不是1000， 在ios18上会导致该纹理作为fbo的color附件时， 无法渲染
+                    
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 } else {
                     gl.tex_parameter_i32(target, glow::TEXTURE_MAX_LEVEL, 0);
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 }
                 
             }
@@ -135,6 +200,13 @@ impl Texture {
                             desc.size.depth_or_array_layers as i32,
                         );
                     }
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 } else if desc.sample_count > 1 {
                     unimplemented!()
                 } else {
@@ -146,6 +218,13 @@ impl Texture {
                             desc.size.width as i32,
                             desc.size.height as i32,
                         );
+                    }
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
                     }
                 }
             } else {
@@ -172,6 +251,13 @@ impl Texture {
                         //     None,
                         // );
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 } else if desc.sample_count > 1 {
                     unimplemented!()
                 } else {
@@ -194,6 +280,13 @@ impl Texture {
                         //     format_desc.data_type,
                         //     None,
                         // );
+                    }
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
                     }
                 }
             }
@@ -280,23 +373,55 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
-            
-            let (block_width, block_height) = copy.texture.format().block_dimensions();
-            let block_size = copy.texture.format().block_copy_size(None).unwrap();
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
+
         
-            if _data_layout.bytes_per_row.is_some() {
-                let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
-                gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
-            }
-            if _data_layout.rows_per_image.is_some() {
-                let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
-                gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
-            }
+            // if _data_layout.bytes_per_row.is_some() {
+            //     let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+            //     log::error!("UNPACK_ROW_LENGTH {:?}", row_texels);
+            //     gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+            // }
+            // if _data_layout.rows_per_image.is_some() {
+            //     let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+            //     log::error!("UNPACK_IMAGE_HEIGHT {:?}", column_texels);
+            //     gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+            // }
+                // #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                // unsafe {
+                //     match gl.get_error() {
+                //         glow::NO_ERROR => {},
+                //         err => log::error!("OpenGL error: {:?}", err),
+                //     }
+                // }
         }
 
         if !inner.format.is_compressed() {
             let data = glow::PixelUnpackData::Slice(data1);
 
+            let (block_width, block_height) = copy.texture.format().block_dimensions();
+            let block_size = copy.texture.format().block_copy_size(None).unwrap(); 
+            let rowbytes = ((size.width + block_width - 1) / block_width) * block_size;
+            let align: i32 = if rowbytes % 4 == 0 { 4 } else if (rowbytes % 2 == 0) { 2 } else { 1 };
+            unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, align) };   
+        
+            // unsafe {
+            // if _data_layout.bytes_per_row.is_some() {
+            //     let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+            //     // log::error!("UNPACK_ROW_LENGTH {:?}", row_texels);
+            //     gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+            // }
+            // if _data_layout.rows_per_image.is_some() {
+            //     let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+            //     // log::error!("UNPACK_IMAGE_HEIGHT {:?}", column_texels);
+            //     gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+            // }
+            // }
             match dst_target {
                 glow::TEXTURE_3D => {
                     unsafe {
@@ -314,6 +439,13 @@ impl Texture {
                             data,
                         )
                     };
+                    #[cfg(all(target_arch = "wasm32"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 }
                 glow::TEXTURE_2D_ARRAY => {
                     unsafe {
@@ -331,11 +463,25 @@ impl Texture {
                             data,
                         )
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 }
                 glow::TEXTURE_2D => {
-                    if size.width % 4 != 0 {
-                        unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
-                    }
+                    // if size.width % 4 != 0 {
+                    //     unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+                    //     #[cfg(all(target_arch = "wasm32"))]
+                    //     unsafe {
+                    //         match gl.get_error() {
+                    //             glow::NO_ERROR => {},
+                    //             err => log::error!("OpenGL error: {:?}", err),
+                    //         }
+                    //     }
+                    // }
                     unsafe {
                         gl.tex_sub_image_2d(
                             dst_target,
@@ -349,6 +495,21 @@ impl Texture {
                             data,
                         )
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", (err, dst_target,
+                                copy.mip_level as i32,
+                                copy.origin.x as i32,
+                                copy.origin.y as i32,
+                                size.width as i32,
+                                size.height as i32,
+                                format_desc.external,
+                                format_desc.data_type
+                            )),
+                        }
+                    }
                 }
                 glow::TEXTURE_CUBE_MAP => {
                     unsafe {
@@ -364,13 +525,51 @@ impl Texture {
                             data,
                         )
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", err),
+                        }
+                    }
                 }
                 _ => unreachable!(),
             }
+            
+            unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4) };   
         } else {
             let data = glow::CompressedPixelUnpackData::Slice(data1);
             match dst_target {
                 glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
+                    
+                    let (block_width, block_height) = copy.texture.format().block_dimensions();
+                    let block_size = copy.texture.format().block_copy_size(None).unwrap();
+                    let blockx = (size.width + block_width - 1) / block_width;
+                    let blocky = (size.height + block_height - 1) / block_height;
+                    let expected_size = blockx * blocky * block_size;
+                    // if data1.len() as u32 != expected_size {
+                    //     log::error!("expected_size error: {:?}", (data1.len(), expected_size));
+                    // }
+                    // if copy.origin.x + size.width > copy.texture.width() ||
+                    // copy.origin.y + size.height > copy.texture.height() ||
+                    // copy.origin.z >= copy.texture.depth_or_array_layers() {
+                    //     log::error!("size check error: {:?}", (
+                    //         (copy.origin.x, size.width, copy.texture.width())
+                    //         ,(copy.origin.y, size.height, copy.texture.height())
+                    //         ,(copy.origin.z, copy.texture.depth_or_array_layers())
+                    //     )
+                    //     );
+                    // }
+                    // // if _data_layout.bytes_per_row.is_some() {
+                    // //     let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+                    // //     log::error!("UNPACK_ROW_LENGTH {:?}", row_texels);
+                    // //     gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+                    // // }
+                    // // if _data_layout.rows_per_image.is_some() {
+                    // //     let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+                    // //     log::error!("UNPACK_IMAGE_HEIGHT {:?}", column_texels);
+                    // //     gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+                    // // }
                     unsafe {
                         gl.compressed_tex_sub_image_3d(
                             dst_target,
@@ -383,8 +582,15 @@ impl Texture {
                             size.depth_or_array_layers as i32,
                             format_desc.internal,
                             data,
-                        )
-                    };
+                        );
+                        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => {
+                                log::error!("OpenGL error: {:?}", err);
+                            },
+                        }
+                    }
                 }
                 glow::TEXTURE_2D => {
                     unsafe {
@@ -399,6 +605,20 @@ impl Texture {
                             data,
                         )
                     };
+                    #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                    unsafe {
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => log::error!("OpenGL error: {:?}", 
+                            (err,                            copy.mip_level as i32,
+                                copy.origin.x as i32,
+                                copy.origin.y as i32,
+                                size.width as i32,
+                                size.height as i32,
+                                format_desc.internal,)
+                            ),
+                        }
+                    }
                 }
                 glow::TEXTURE_CUBE_MAP => {
                     unsafe {
@@ -411,8 +631,23 @@ impl Texture {
                             size.height as i32,
                             format_desc.internal,
                             data,
-                        )
-                    };
+                        );
+                        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                        match gl.get_error() {
+                            glow::NO_ERROR => {},
+                            err => {
+                                log::error!("OpenGL error: {:?}", 
+                                    (err,
+                                    copy.mip_level as i32,
+                                    copy.origin.x as i32,
+                                    copy.origin.y as i32,
+                                    size.width as i32,
+                                    size.height as i32,
+                                    format_desc.internal,)
+                                );
+                            },
+                        }
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -421,6 +656,13 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, None);
+        }
+        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+        unsafe {
+            match gl.get_error() {
+                glow::NO_ERROR => {},
+                err => log::error!("OpenGL error: {:?}", err),
+            }
         }
         // state.restore_current_texture(&gl, 0, dst_target);
     }
@@ -455,18 +697,39 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
             
             let (block_width, block_height) = copy.texture.format().block_dimensions();
             let block_size = copy.texture.format().block_copy_size(None).unwrap();
         
-            if _data_layout.bytes_per_row.is_some() {
-                let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
-                gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
-            }
-            if _data_layout.rows_per_image.is_some() {
-                let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
-                gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
-            }
+            // if _data_layout.bytes_per_row.is_some() {
+            //     let row_texels = _data_layout.bytes_per_row.map_or(0, |bpr| block_width * bpr / block_size);
+            //     gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, (row_texels) as i32);
+            //     #[cfg(all(target_arch = "wasm32"))]
+            //     unsafe {
+            //         match gl.get_error() {
+            //             glow::NO_ERROR => {},
+            //             err => log::error!("OpenGL error: {:?}", err),
+            //         }
+            //     }
+            // }
+            // if _data_layout.rows_per_image.is_some() {
+            //     let column_texels = _data_layout.rows_per_image.map_or(0, |rpi| block_height * rpi);
+            //     gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32);
+            //     #[cfg(all(target_arch = "wasm32"))]
+            //     unsafe {
+            //         match gl.get_error() {
+            //             glow::NO_ERROR => {},
+            //             err => log::error!("OpenGL error: {:?}", err),
+            //         }
+            //     }
+            // }
         }
 
         if !inner.format.is_compressed() {
@@ -520,10 +783,24 @@ impl Texture {
                 }
                 _ => unreachable!(),
             }
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
         }
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, None);
+        }
+        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+        unsafe {
+            match gl.get_error() {
+                glow::NO_ERROR => {},
+                err => log::error!("OpenGL error: {:?}", err),
+            }
         }
 
         // state.restore_current_texture(&gl, 0, dst_target);
@@ -563,9 +840,23 @@ impl Texture {
                 web_sys::WebGl2RenderingContext::UNPACK_PREMULTIPLY_ALPHA_WEBGL;
             if src.flip_y {
                 gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
+                #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                unsafe {
+                    match gl.get_error() {
+                        glow::NO_ERROR => {},
+                        err => log::error!("OpenGL error: {:?}", err),
+                    }
+                }
             }
             if dst_premultiplication {
                 gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                unsafe {
+                    match gl.get_error() {
+                        glow::NO_ERROR => {},
+                        err => log::error!("OpenGL error: {:?}", err),
+                    }
+                }
             }
         }
 
@@ -573,6 +864,13 @@ impl Texture {
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
+            #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+            unsafe {
+                match gl.get_error() {
+                    glow::NO_ERROR => {},
+                    err => log::error!("OpenGL error: {:?}", err),
+                }
+            }
         }
 
         if is_layered_target(dst_target) {
@@ -630,9 +928,9 @@ impl Texture {
         } else {
             let dst_target = match dst_target {
                 glow::TEXTURE_2D => {
-                    if size.width % 4 != 0 {
-                        unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
-                    }
+                    // if size.width % 4 != 0 {
+                    //     unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1) };
+                    // }
                     dst_target
                 },
                 glow::TEXTURE_2D => super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
@@ -696,9 +994,23 @@ impl Texture {
                 wgt::ExternalImageSource::OffscreenCanvas(_) => unreachable!(),
             }
         }
+        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+        unsafe {
+            match gl.get_error() {
+                glow::NO_ERROR => {},
+                err => log::error!("OpenGL error: {:?}", err),
+            }
+        }
 
         unsafe {
         gl.bind_texture(dst_target, None);
+        }
+        #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+        unsafe {
+            match gl.get_error() {
+                glow::NO_ERROR => {},
+                err => log::error!("OpenGL error: {:?}", err),
+            }
         }
         // state.restore_current_texture(&gl, 0, dst_target);
     }
@@ -863,6 +1175,13 @@ impl Drop for TextureInner {
                 unsafe {
                     gl.delete_renderbuffer(*raw);
                 }
+                #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                unsafe {
+                    match gl.get_error() {
+                        glow::NO_ERROR => {},
+                        err => log::error!("OpenGL error: {:?}", err),
+                    }
+                }
                 state.remove_render_buffer(&gl, *raw);
             }
             &TextureInner::Texture {
@@ -876,6 +1195,13 @@ impl Drop for TextureInner {
 
                 unsafe {
                     gl.delete_texture(*raw);
+                }
+                #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
+                unsafe {
+                    match gl.get_error() {
+                        glow::NO_ERROR => {},
+                        err => log::error!("OpenGL error: {:?}", err),
+                    }
                 }
                 state.remove_texture(&gl, *raw);
             }
