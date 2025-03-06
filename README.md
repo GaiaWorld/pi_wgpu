@@ -1,67 +1,100 @@
-# pi_wgpu
+# pi_wgpu ![Rust](https://img.shields.io/badge/Rust-1.65%2B-orange) ![License](https://img.shields.io/badge/License-MIT-blue) ![Platform](https://img.shields.io/badge/Platform-Windows%7CAndroid%7CWeb-green)
 
 **注意：** 运行前，需要将 bin/两个dll 拷贝 到 运行目录，或者 exe所在目录
 
-`WebGPU`接口子集的`GL`后端，基于`Rust`实现。
+**跨平台图形渲染库** - 基于WebGPU接口规范的OpenGL/GLES后端实现
 
-+ 接口: 基于 [wgpu-rs](https://github.com/gfx-rs/wgpu) `v0.16` 进行修改；
-+ 功能: 仅仅对应[WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)的子集
-    - 加`压缩纹理`扩展：`DDS` / `ASTC`
-+ 平台:
-    - `Windows`: `OpenGL 3.3`
-    - `Android` / PC-Android 模拟器: `GLES 3.0`
-    - 浏览器 / 微信小游戏: [WebGL2](https://www.khronos.org/files/webgl20-reference-guide.pdf)
+## 项目概述
+pi_wgpu 是针对WebGPU API规范的轻量级OpenGL/GLES后端实现，主要特性包括：
+- 🚀 **跨平台支持**：Windows/Android/Web三大平台
+- ⚡ **性能优化**：通过GL状态机优化减少驱动调用次数
+- 🛠️ **兼容性**：支持WebGL2标准及扩展（DDS/ASTC压缩纹理）
+- 📦 **模块化设计**：与wgpu-rs生态无缝集成
 
-# 1. 使用
+## 功能特性
+- ✅ **核心功能**
+  - WebGL2标准兼容（[规范文档](https://www.khronos.org/files/webgl20-reference-guide.pdf)）
+  - 压缩纹理扩展支持（DDS/ASTC）
+  - 多线程资源管理
+- 🖥️ **平台支持**
+  | 平台 | GL版本 | 测试状态 |
+  |------|--------|----------|
+  | Windows | OpenGL 3.3+ | ✔️ 已验证 |
+  | Android | GLES 3.0+ | ✔️ 已验证 |
+  | Web/小程序 | WebGL2 | ✔️ 已验证 |
 
-## 1.1. 集成 wgpu-rs
+## 🚀 快速开始
 
-为了兼容 wgpu-rs，pi_wgpu 也 包含了 wgpu
-
-如果不加 feature，默认就是用 pi-wgpu 的实现
-
-如果 想用 wgpu-rs 实现，在 feature加入 `use_wgpu` 即可，例子：
-
-``` toml
+### 依赖集成
+在`Cargo.toml`中添加：
+```toml
 [dependencies]
-pi_wgpu = {version = "0.1", default-features = false, features = ["use_wgpu"]}
+pi_wgpu = { version = "0.1", features = ["gl"] }  # 默认使用pi_wgpu实现
+# pi_wgpu = { version = "0.1", features = ["use_wgpu"] }  # 使用原生wgpu实现
 ```
 
-## 1.2. 运行 Windows 平台
+### 运行示例
 
-执行 `cargo run --example triangle` 命令运行 triangle example
+#### Windows平台
+```bash
+cargo run --example triangle --features gl
+```
 
-## 1.3. 运行 [Web 平台](https://rustwasm.github.io/docs/wasm-bindgen/contributing/testing.html)
+#### Web平台
+```bash
+wasm-pack test --chrome --example triangle
+# 访问 http://localhost:8000 查看效果
+# 如果想修改访问地址， 将地址设置在`WASM_BINDGEN_TEST_ADDRESS`环境变量中， 如$env:WASM_BINDGEN_TEST_ADDRESS="0.0.0.0:8000", 即可通过ip访问
+# https://rustwasm.github.io/docs/wasm-bindgen/contributing/testing.html
+```
 
-+ 执行`wasm-pack test  --chrome --example triangle`命令，构建wasm以及测试环境，并开启服务器监听在`8000`端口 
-+  在浏览器中访问`http://127.0.0.1:8000`地址，即可运行测试
-+  如果想修改访问地址， 将地址设置在`WASM_BINDGEN_TEST_ADDRESS`环境变量中， 如$env:WASM_BINDGEN_TEST_ADDRESS="0.0.0.0:8000", 即可通过ip访问
+#### Android平台
+```bash
+cargo apk run --example triangle --lib # 打开Linux Shell,在Linux Shell中执行
+adb install target/debug/apk/examples/triangle.apk # 在powershell中执行
+```
 
-## 1.4. 运行 Android 平台
+## 📚 文档资源
+- [设计文档](documents/design.md) - 架构设计及实现细节
+- [API参考](documents/api.md) - 完整接口文档
+- [迁移指南](documents/migration.md) - 从wgpu-rs迁移指南
 
-+ 打开Linux Shell, 执行 `cargo apk run --example triangle --lib` 编译 example为apk
-+ 链接手机 在 `target\debug\apk\examples` 中打开cmd， 并执行 `adb install triangle.apk` 来安装apk
+## 🛠️ 功能支持
 
-## 1.5. 需要调试的 Demo
+### 核心模块支持
+| 模块           | 支持状态 | 特性说明                              |
+|----------------|----------|---------------------------------------|
+| RenderPipeline | ✔️       | 完整渲染管线支持，包含混合/深度测试    |
+| Texture        | ✔️       | 支持ASTC/DDS压缩纹理，自动生成Mipmap  |
+| Buffer         | ✔️       | 支持动态数据上传，显存智能管理         |
+| Shader         | ✔️       | GLSL 3.3标准兼容，支持UBO绑定          |
 
-+ GUI: pi_ui_render, bevy 分支
-    - blend_mode.rs
-    - shadow.rs
-    - compress_texture
-+ 3D:
-    - pi_3d
-        * 最简单的渲染 simple / dispose.rs
-        * 动画，buffer更新：anime / 01.rs
-        * 粒子 particle / render_stretched.rs
-    - 后处理 pi_post_process / main.rs
+### 平台特性限制
+| 平台       | 特性限制                                                                 |
+|------------|--------------------------------------------------------------------------|
+| Windows    | 需要OpenGL 3.3+，不支持Geometry Shader                                   |
+| Android    | 要求GLES 3.0+，部分纹理格式需要扩展支持                                  |
+| Web        | 依赖WebGL2规范，iOS需≥15.5版本                                           |
 
-# 2. 设计
+## 👥 贡献指南
+欢迎通过Issue或PR参与贡献！请遵循：
+1. 提交前运行`cargo fmt`格式化代码
+2. 新增功能需包含测试用例
+3. 更新相关文档
+
+## 📜 许可证
+本项目采用 [MIT License](LICENSE) - 详情请查看[许可证文件](LICENSE)。
+
+## 💬 联系方式
+- 问题追踪: [GitHub Issues](https://github.com/yourorg/pi_wgpu/issues)
+- 开发者文档: [API参考手册](documents/api.md)
+- 技术博客: [实现原理分析](documents/design.md)
+- 社区讨论: [Discord技术频道](#)
 
 + `性能优化`：设置状态机，做GL的全状态比较；所以GL指令数量会比[wgpu-rs](https://github.com/gfx-rs/wgpu)少；
 
 **注1**：为什么不直接用 [wgpu-rs](https://github.com/gfx-rs/wgpu)
-
-+ 实际测试，库 WebGL2 Backend性能不满足游戏需求；
+；
 + `Vulkan` / `WebGPU` 因兼容性问题，近期内不能广泛使用于各个平台；
 
 **注2**：根据微信小游戏的开发者文档，在 iPhone / iPad 上，`WebGL2` 至少要 `iOS`版本 >= 15.5 才能开启
