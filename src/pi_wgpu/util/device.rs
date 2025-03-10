@@ -189,7 +189,7 @@ impl DeviceExt for super::super::Device {
                         bytes_per_row: Some(bytes_per_row),
                         rows_per_image: Some(height_blocks),
                     },
-                    mip_physical,
+                    mip_size,
                 );
 
                 binary_offset = end_offset;
@@ -276,7 +276,7 @@ impl DeviceExt for super::super::Device {
                         bytes_per_row: Some(bytes_per_row),
                         rows_per_image: Some(height_blocks),
                     },
-                    mip_physical,
+                    mip_size,
                 );
                 i += 1;
             }
