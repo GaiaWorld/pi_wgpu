@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.1.43"
+version = "0.2.0"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -20,7 +20,7 @@ use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
 pi_egl = { version = "0.1", registry = "yn" }
-pi_share = "0.4"
+pi_share = "0.5"
 
 glow = { package = "pi_glow", version = "0.13", registry = "yn" }
 naga = { version = "0.19", features = ["clone", "glsl-in", "glsl-out"] }
@@ -40,7 +40,7 @@ profiling = { version = "1", default-features = false }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 pi_time = "0.5"
 pi_hash = "0.1"
-pi_assets = "0.14"
+pi_assets = "0.15"
 derive-deref-rs = "0.1"
 derive_more = {version = "1.0", features=["debug"]}
 
@@ -107,6 +107,6 @@ ndk-glue = "0.7"
 
 
 [patch.yn]
-pi_egl = { path = "../pi_egl" }
-winit = { path = "../winit"}
-glow = { package = "pi_glow", path = "../pi_glow" }
+# pi_egl = { path = "../pi_egl" }
+# winit = { path = "../winit"}
+# glow = { package = "pi_glow", path = "../pi_glow" }
