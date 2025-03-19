@@ -1,6 +1,6 @@
 [package]
 name = "pi_wgpu"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["moyy <myy412001799@gmail.com>"]
 edition = "2021"
 description = "WebGPU implement by single thread in GL-3.3 / GLES-3.0 / WebGL2"
@@ -19,7 +19,7 @@ single_thread = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
-pi_egl = { version = "0.1", registry = "yn" }
+pi_egl = { version = "0.2", registry = "yn" }
 pi_share = "0.5"
 
 glow = { package = "pi_glow", version = "0.13", registry = "yn" }
