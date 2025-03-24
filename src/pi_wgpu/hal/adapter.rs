@@ -8,7 +8,7 @@ use super::{
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
-    pub context: AdapterContext,
+    pub(crate) context: AdapterContext,
 }
 
 impl Adapter {
@@ -227,6 +227,9 @@ impl Adapter {
             Tf::Rgb10a2Uint => renderable,
             Tf::NV12 => empty,
         }
+    }
+    pub(crate) fn unmake_current<'a>(&'a self) {
+        self.context.unmake_current();
     }
 
     /// Returns the capabilities of working with a specified surface.

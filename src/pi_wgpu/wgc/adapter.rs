@@ -29,7 +29,7 @@ pub type RequestAdapterOptions<'a, 'w> = RequestAdapterOptionsBase<&'a Surface<'
 /// Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 #[derive(Debug)]
 pub struct Adapter {
-    pub inner: hal::Adapter,
+    pub(crate) inner: hal::Adapter,
 }
 
 impl PiWgpuAdapter for Adapter {
@@ -87,6 +87,10 @@ impl Adapter {
         };
 
         ready(r)
+    }
+
+    pub fn unmake_current<'a>(&'a self) {
+        self.inner.unmake_current();
     }
 
     /// Returns whether this adapter may present to the passed surface.
