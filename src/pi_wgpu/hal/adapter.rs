@@ -8,7 +8,7 @@ use super::{
 
 #[derive(Debug)]
 pub(crate) struct Adapter {
-    pub(crate) context: AdapterContext,
+    pub context: AdapterContext,
 }
 
 impl Adapter {
