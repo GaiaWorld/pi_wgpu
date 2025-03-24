@@ -29,7 +29,7 @@ pub type RequestAdapterOptions<'a, 'w> = RequestAdapterOptionsBase<&'a Surface<'
 /// Corresponds to [WebGPU `GPUAdapter`](https://gpuweb.github.io/gpuweb/#gpu-adapter).
 #[derive(Debug)]
 pub struct Adapter {
-    pub(crate) inner: hal::Adapter,
+    pub inner: hal::Adapter,
 }
 
 impl PiWgpuAdapter for Adapter {
