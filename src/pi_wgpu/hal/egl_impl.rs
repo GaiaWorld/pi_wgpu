@@ -775,7 +775,7 @@ struct Egl {
 impl Default for Egl {
     fn default() -> Self {
         let is_vsync = true;
-        log::error!("111================");
+
         let instance = match pi_egl::Instance::new(pi_egl::PowerPreference::HighPerformance, is_vsync) {
             Ok(r) => r,
             Err(e) => {
@@ -783,7 +783,7 @@ impl Default for Egl {
                 panic!();
             },
         };
-        log::error!("2222================");
+
         let context = match instance.create_context() {
             Ok(r) => r,
             Err(r) => {
@@ -791,7 +791,7 @@ impl Default for Egl {
                 panic!();
             },
         };
-        log::error!("3333================");
+
         Self {
             instance,
             context,

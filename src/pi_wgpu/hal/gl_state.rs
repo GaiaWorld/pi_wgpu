@@ -2685,8 +2685,9 @@ fn compile_gl_shader(
         gl.create_shader(shader_type)
             .map_err(|e| super::ShaderError::Compilation("gl.create_shader error".to_string()))
     }?;
-
-    unsafe { gl.shader_source(raw, source.as_ref()) };
+    // 微信小游戏ios高性能+模式下 shader编译报错不支持smooth关键字语法
+    let r = source.replace("smooth ", "");
+    unsafe { gl.shader_source(raw, r.as_ref()) };
 
     unsafe { gl.compile_shader(raw) };
 
