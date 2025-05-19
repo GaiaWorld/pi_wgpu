@@ -10,6 +10,7 @@ pub struct BindGroupLayout {
     #[debug("Share::new({entries:?})")]
     pub(crate) entries: Share<[wgt::BindGroupLayoutEntry]>,
 	pub(crate) id: u32,
+    pub(crate) lable: Option<String>,
 }
 
 impl BindGroupLayout {
@@ -17,10 +18,10 @@ impl BindGroupLayout {
         desc: &super::super::BindGroupLayoutDescriptor,
     ) -> Result<Self, super::super::DeviceError> {
         profiling::scope!("hal::BindGroupLayout::new");
-
+        let l = desc.label.map(|op| op.to_string());
         let entries = desc.entries.to_vec().into();
         
-        Ok(Self { entries, id: GROUP_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed) })
+        Ok(Self { entries, id: GROUP_AROM.fetch_add(1, std::sync::atomic::Ordering::Relaxed) , lable: l})
     }
 }
 

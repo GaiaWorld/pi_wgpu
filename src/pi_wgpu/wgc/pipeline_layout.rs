@@ -31,7 +31,7 @@ pub struct PipelineLayoutDescriptor<'a> {
     pub label: Label<'a>,
     /// Bind groups that this pipeline uses. The first entry will provide all the bindings for
     /// "set = 0", second entry will provide all the bindings for "set = 1" etc.
-    #[debug("&[{}]", bind_group_layouts.iter().map(|r| {format!("&bind_group_layout{:?}", r.inner.id)}).collect::<Vec<String>>().join(", "))]  
+    #[debug("&[{}]", bind_group_layouts.iter().map(|r| {format!("&bind_group_layout{:?}, lable: {:?}", r.inner.id, r.inner.lable)}).collect::<Vec<String>>().join(", "))]  
     pub bind_group_layouts: &'a [&'a BindGroupLayout],
     /// Set of push constant ranges this pipeline uses. Each shader stage that uses push constants
     /// must define the range in push constant memory that corresponds to its single `layout(push_constant)`
