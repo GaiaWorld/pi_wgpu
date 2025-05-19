@@ -401,7 +401,7 @@ impl SwapChain {
         let texture_view = texture.create_view(&Default::default());
         // let texture1 = device.create_texture(&TextureDescriptor { label: None, size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: crate::TextureDimension::D2, format: crate::TextureFormat::Rgba8Unorm, usage: crate::TextureUsages::from_bits(20).unwrap()/*TextureUsages(TEXTURE_BINDING | RENDER_ATTACHMENT)*/, view_formats: &[] }); 
         // let texture_view = texture1.create_view(&Default::default());
-        log::warn!("bbbb==========");
+        // log::warn!("bbbb==========");
 
         let bg = device.create_bind_group(&super::super::BindGroupDescriptor {
             label: Some("Flip-Y BindGroup"),
@@ -449,9 +449,9 @@ impl SwapChain {
             let texture_view = self.texture.create_view(&Default::default());
 
 
-            let texture1 = device.create_texture(&TextureDescriptor { label: None, size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: crate::TextureDimension::D2, format: crate::TextureFormat::Rgba8Unorm, usage: crate::TextureUsages::from_bits(20).unwrap()/*TextureUsages(TEXTURE_BINDING | RENDER_ATTACHMENT)*/, view_formats: &[] }); 
-            let texture_view = self.texture.create_view(&Default::default());
-            log::warn!("bbbb==========");
+            // let texture1 = device.create_texture(&TextureDescriptor { label: None, size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: crate::TextureDimension::D2, format: crate::TextureFormat::Rgba8Unorm, usage: crate::TextureUsages::from_bits(20).unwrap()/*TextureUsages(TEXTURE_BINDING | RENDER_ATTACHMENT)*/, view_formats: &[] }); 
+            // let texture_view = self.texture.create_view(&Default::default());
+            // log::warn!("bbbb==========");
             self.bg = device.create_bind_group(&super::super::BindGroupDescriptor {
                 label: Some("Flip-Y BindGroup"),
                 layout: &self.bg_layout,
