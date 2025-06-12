@@ -48,13 +48,13 @@ pub(crate) enum ShaderInput {
     Glsl {
         shader: String,
         stage: naga::ShaderStage,
-        defines: naga::FastHashMap<String, String>,
+        defines: Vec<(String, String)>,
     },
 }
 
 impl From<&ShaderModuleDescriptor<'_>> for ShaderInput {
     #[inline]
-    fn from(value: &ShaderModuleDescriptor) -> Self {
+    fn from(value: & ShaderModuleDescriptor) -> Self {
         match &value.source {
             crate::ShaderSource::Naga(module) => {
                 let module = match module {
@@ -67,10 +67,16 @@ impl From<&ShaderModuleDescriptor<'_>> for ShaderInput {
                 shader,
                 stage,
                 defines,
-            } => Self::Glsl {
-                shader: shader.to_string(),
-                stage: *stage,
-                defines: defines.clone(),
+            } => {
+                let mut temp = vec![];
+                defines.iter().for_each(|(v0, v1)| {
+                    temp.push((v0.to_string(), v1.to_string()))
+                });
+                Self::Glsl {
+                    shader: shader.to_string(),
+                    stage: stage.clone(),
+                    defines: temp,
+                }
             },
         }
     }

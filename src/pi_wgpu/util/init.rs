@@ -1,3 +1,5 @@
+use crate::pi_wgpu::wgt::DxcShaderModel;
+
 use super::super::wgt::{self, Backends, PowerPreference};
 
 /// Always returns WEBGPU on wasm over webgpu.
@@ -30,18 +32,20 @@ pub fn power_preference_from_env() -> Option<PowerPreference> {
 ///
 /// Possible values are `dxc` and `fxc`. Case insensitive.
 pub fn dx12_shader_compiler_from_env() -> Option<wgt::Dx12Compiler> {
-    Some(
-        match std::env::var("WGPU_DX12_COMPILER")
-            .as_deref()
-            .map(str::to_lowercase)
-            .as_deref()
-        {
-            Ok("dxc") => wgt::Dx12Compiler::Dxc {
-                dxil_path: None,
-                dxc_path: None,
-            },
-            Ok("fxc") => wgt::Dx12Compiler::Fxc,
-            _ => return None,
-        },
-    )
+    wgt::Dx12Compiler::from_env()
+    // Some(
+    //     match std::env::var("WGPU_DX12_COMPILER")
+    //         .as_deref()
+    //         .map(str::to_lowercase)
+    //         .as_deref()
+    //     {
+    //         Ok("dxc") => wgt::Dx12Compiler::DynamicDxc {
+    //             dxil_path: String::from(""),
+    //             dxc_path: String::from(""),
+    //             max_shader_model: DxcShaderModel::V6_0,
+    //         },
+    //         Ok("fxc") => wgt::Dx12Compiler::Fxc,
+    //         _ => return None,
+    //     },
+    // )
 }

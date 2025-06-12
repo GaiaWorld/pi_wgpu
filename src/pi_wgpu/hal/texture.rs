@@ -513,13 +513,15 @@ impl Texture {
                 }
                 glow::TEXTURE_CUBE_MAP => {
                     unsafe {
-                        gl.tex_sub_image_2d(
-                            super::CUBEMAP_FACES[size.depth_or_array_layers as usize],
+                        gl.tex_sub_image_3d(
+                            dst_target,
                             copy.mip_level as i32,
                             copy.origin.x as i32,
                             copy.origin.y as i32,
+                            copy.origin.z as i32,
                             size.width as i32,
                             size.height as i32,
+                            size.depth_or_array_layers as i32,
                             format_desc.external,
                             format_desc.data_type,
                             data,

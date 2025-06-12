@@ -173,7 +173,7 @@ impl Adapter {
             Tf::Rgba8Uint => renderable | storage,
             Tf::Rgba8Sint => renderable | storage,
             Tf::Rgb10a2Unorm => filterable_renderable,
-            Tf::Rg11b10Float => filterable | float_renderable,
+            Tf::Rg11b10Ufloat => filterable | float_renderable,
             Tf::Rg32Uint => renderable,
             Tf::Rg32Sint => renderable,
             Tf::Rg32Float => unfilterable | float_renderable | texture_float_linear,
@@ -186,46 +186,47 @@ impl Adapter {
             Tf::Rgba32Sint => renderable | storage,
             Tf::Rgba32Float => unfilterable | storage | float_renderable | texture_float_linear,
             Tf::Stencil8
-            | Tf::Depth16Unorm
-            | Tf::Depth32Float
-            | Tf::Depth32FloatStencil8
-            | Tf::Depth24Plus
-            | Tf::Depth24PlusStencil8 => depth,
+                    | Tf::Depth16Unorm
+                    | Tf::Depth32Float
+                    | Tf::Depth32FloatStencil8
+                    | Tf::Depth24Plus
+                    | Tf::Depth24PlusStencil8 => depth,
             Tf::Rgb9e5Ufloat => filterable,
             Tf::Bc1RgbaUnorm
-            | Tf::Bc1RgbaUnormSrgb
-            | Tf::Bc2RgbaUnorm
-            | Tf::Bc2RgbaUnormSrgb
-            | Tf::Bc3RgbaUnorm
-            | Tf::Bc3RgbaUnormSrgb
-            | Tf::Bc4RUnorm
-            | Tf::Bc4RSnorm
-            | Tf::Bc5RgUnorm
-            | Tf::Bc5RgSnorm
-            | Tf::Bc6hRgbFloat
-            | Tf::Bc6hRgbUfloat
-            | Tf::Bc7RgbaUnorm
-            | Tf::Bc7RgbaUnormSrgb => bcn_features,
+                    | Tf::Bc1RgbaUnormSrgb
+                    | Tf::Bc2RgbaUnorm
+                    | Tf::Bc2RgbaUnormSrgb
+                    | Tf::Bc3RgbaUnorm
+                    | Tf::Bc3RgbaUnormSrgb
+                    | Tf::Bc4RUnorm
+                    | Tf::Bc4RSnorm
+                    | Tf::Bc5RgUnorm
+                    | Tf::Bc5RgSnorm
+                    | Tf::Bc6hRgbFloat
+                    | Tf::Bc6hRgbUfloat
+                    | Tf::Bc7RgbaUnorm
+                    | Tf::Bc7RgbaUnormSrgb => bcn_features,
             Tf::Etc2Rgb8Unorm
-            | Tf::Etc2Rgb8UnormSrgb
-            | Tf::Etc2Rgb8A1Unorm
-            | Tf::Etc2Rgb8A1UnormSrgb
-            | Tf::Etc2Rgba8Unorm
-            | Tf::Etc2Rgba8UnormSrgb
-            | Tf::EacR11Unorm
-            | Tf::EacR11Snorm
-            | Tf::EacRg11Unorm
-            | Tf::EacRg11Snorm => etc2_features,
+                    | Tf::Etc2Rgb8UnormSrgb
+                    | Tf::Etc2Rgb8A1Unorm
+                    | Tf::Etc2Rgb8A1UnormSrgb
+                    | Tf::Etc2Rgba8Unorm
+                    | Tf::Etc2Rgba8UnormSrgb
+                    | Tf::EacR11Unorm
+                    | Tf::EacR11Snorm
+                    | Tf::EacRg11Unorm
+                    | Tf::EacRg11Snorm => etc2_features,
             Tf::Astc {
-                block: _,
-                channel: AstcChannel::Unorm | AstcChannel::UnormSrgb,
-            } => astc_features,
+                        block: _,
+                        channel: AstcChannel::Unorm | AstcChannel::UnormSrgb,
+                    } => astc_features,
             Tf::Astc {
-                block: _,
-                channel: AstcChannel::Hdr,
-            } => astc_hdr_features,
+                        block: _,
+                        channel: AstcChannel::Hdr,
+                    } => astc_hdr_features,
             Tf::Rgb10a2Uint => renderable,
             Tf::NV12 => empty,
+            Tf::R64Uint => todo!(),
         }
     }
     pub(crate) fn unmake_current<'a>(&'a self) {

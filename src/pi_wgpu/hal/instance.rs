@@ -2,6 +2,8 @@ use bitflags::bitflags;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, HasDisplayHandle};
 use thiserror::Error;
 
+use crate::pi_wgpu::wgt::BackendOptions;
+
 use super::super::{hal::AdapterContext, wgt};
 
 #[derive(Debug)]
@@ -124,5 +126,6 @@ impl InstanceFlags {
 pub(crate) struct InstanceDescriptor<'a> {
     pub name: &'a str,
     pub flags: InstanceFlags,
-    pub dx12_shader_compiler: wgt::Dx12Compiler,
+    /// Options the control the behavior of various backends.
+    pub backend_options: BackendOptions,
 }

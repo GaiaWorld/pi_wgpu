@@ -12,7 +12,7 @@ use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,
-    valid::{Capabilities as Caps, ModuleInfo},
+    valid::{Capabilities as Caps, ModuleInfo}, FastHashMap,
 };
 use pi_share::{Share, ShareCell, ShareWeak};
 
@@ -275,7 +275,7 @@ impl GLState {
         version: &glow::Version,
         features: &wgt::Features,
         downlevel: &wgt::DownlevelCapabilities,
-        entry_point: String,
+        entry_point: Option<&str>,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
     ) -> Result<(), super::ShaderError> {
@@ -1382,7 +1382,7 @@ impl GLStateImpl {
         version: &glow::Version,
         features: &wgt::Features,
         downlevel: &wgt::DownlevelCapabilities,
-        entry_point: String,
+        entry_point: Option<&str>,
         multiview: Option<std::num::NonZeroU32>,
         naga_options: &naga::back::glsl::Options,
     ) -> Result<(), super::ShaderError> {
@@ -1390,6 +1390,14 @@ impl GLStateImpl {
         if self.cache.get_shader(shader.id).is_some() {
             return Ok(());
         }
+
+        let entry_point = if let Some(entry_point) = entry_point {
+            entry_point
+        } else {
+            return Err(super::ShaderError::Compilation(
+                "Shader entry point is none".to_string(),
+            ))
+        };
 
         let mut module: Option<naga::Module> = None;
 
@@ -1402,9 +1410,13 @@ impl GLStateImpl {
             } => {
                 assert!(*stage == shader_stage);
 
+                let mut tmp = FastHashMap::default();
+                defines.iter().for_each(|(v0, v1)| {
+                    tmp.insert(v0.clone(), v1.clone());
+                });
                 let options = naga::front::glsl::Options {
                     stage: *stage,
-                    defines: defines.clone(),
+                    defines: tmp,
                 };
                 let mut parser = naga::front::glsl::Frontend::default();
 
@@ -1432,7 +1444,7 @@ impl GLStateImpl {
             version,
             &info,
             shader_stage,
-            entry_point,
+            entry_point.to_string(),
             naga_options,
             multiview,
         )?;
@@ -1440,7 +1452,7 @@ impl GLStateImpl {
         let shader_type = match shader_stage {
             naga::ShaderStage::Vertex => glow::VERTEX_SHADER,
             naga::ShaderStage::Fragment => glow::FRAGMENT_SHADER,
-            naga::ShaderStage::Compute => unreachable!(),
+            _ => unreachable!(),
         };
 
         let raw = compile_gl_shader(gl, gl_str.as_ref(), shader_type)?;
@@ -2596,7 +2608,7 @@ fn get_shader_info(
             .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
     );
     caps.set(
-        Caps::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
+        Caps::UNIFORM_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
         features
             .contains(wgt::Features::UNIFORM_BUFFER_AND_STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
     );
@@ -2649,7 +2661,7 @@ fn compile_naga_shader(
         buffer: BoundsCheckPolicy::Unchecked,
         binding_array: BoundsCheckPolicy::Unchecked,
         image_load: image_check,
-        image_store: image_check,
+        // image_store: image_check,
     };
 
     let pipeline_options = glsl::PipelineOptions {
@@ -2669,9 +2681,23 @@ fn compile_naga_shader(
     )
     .map_err(|e| super::ShaderError::Compilation(format!("glsl::Writer::new() error = {:?}", e)))?;
 
+    //       {
+    // let temp = String::from("temp/");
+    // let root_dir = std::env::current_dir().unwrap();
+    // let mut file_name: String = String::from("aaa.vert");
+    // file_name = temp.clone() + file_name.as_str();
+    // let _ = std::fs::write(root_dir.join(file_name), vs.as_str());
+    //       }  
     let reflection_info = writer.write().map_err(|e| {
         super::ShaderError::Compilation(format!("glsl::Writer::write() error = {:?}", e))
-    })?;
+    })?;  
+        //   {
+    let temp = String::from("temp/");
+    let root_dir = std::env::current_dir().unwrap();
+    let mut file_name: String = String::from("bbb.vert");
+    file_name = temp.clone() + file_name.as_str();
+    let _ = std::fs::write(root_dir.join(file_name), output.as_str());
+        //   }    
 
     Ok((output, reflection_info))
 }

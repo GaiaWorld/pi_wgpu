@@ -17,169 +17,254 @@ use std::hash::{Hash, Hasher};
  use derive_more::Debug;
 
 pub use super::hal::InstanceFlags;
+pub mod env;
+pub mod assertions;
+pub mod math;
+
+// Use this macro instead of the one provided by the bitflags_serde_shim crate
+// because the latter produces an error when deserializing bits that are not
+// specified in the bitflags, while we want deserialization to succeed and
+// and unspecified bits to lead to errors handled in wgpu-core.
+// Note that plainly deriving Serialize and Deserialized would have a similar
+// behavior to this macro (unspecified bit do not produce an error).
+macro_rules! impl_bitflags {
+    ($name:ident) => {
+        #[cfg(feature = "trace")]
+        impl serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.bits().serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "replay")]
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<$name, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = <_ as serde::Deserialize<'de>>::deserialize(deserializer)?;
+                Ok($name::from_bits_retain(value))
+            }
+        }
+
+        impl $name {
+            /// Returns true if the bitflags contains bits that are not part of
+            /// the bitflags definition.
+            pub fn contains_invalid_bits(&self) -> bool {
+                let all = Self::all().bits();
+                (self.bits() | all) != all
+            }
+        }
+    };
+}
+
+/// Integral type used for buffer offsets.
+pub type BufferAddress = u64;
+/// Integral type used for buffer slice sizes.
+pub type BufferSize = std::num::NonZeroU64;
+/// Integral type used for binding locations in shaders.
+pub type ShaderLocation = u32;
+/// Integral type used for dynamic bind group offsets.
+pub type DynamicOffset = u32;
+
+/// Buffer-Texture copies must have [`bytes_per_row`] aligned to this number.
+///
+/// This doesn't apply to [`Queue::write_texture`][Qwt].
+///
+/// [`bytes_per_row`]: ImageDataLayout::bytes_per_row
+/// [Qwt]: ../wgpu/struct.Queue.html#method.write_texture
+pub const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
+/// An offset into the query resolve buffer has to be aligned to this.
+pub const QUERY_RESOLVE_BUFFER_ALIGNMENT: BufferAddress = 256;
+/// Buffer to buffer copy as well as buffer clear offsets and sizes must be aligned to this number.
+pub const COPY_BUFFER_ALIGNMENT: BufferAddress = 4;
+/// Size to align mappings.
+pub const MAP_ALIGNMENT: BufferAddress = 8;
+/// Vertex buffer strides have to be aligned to this number.
+pub const VERTEX_STRIDE_ALIGNMENT: BufferAddress = 4;
+/// Alignment all push constants need
+pub const PUSH_CONSTANT_ALIGNMENT: u32 = 4;
+/// Maximum queries in a query set
+pub const QUERY_SET_MAX_QUERIES: u32 = 8192;
+/// Size of a single piece of query data.
+pub const QUERY_SIZE: u32 = 8;
  
- pub mod assertions;
- pub mod math;
+/// Backends supported by wgpu.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "trace", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub enum Backend {
+    /// Dummy backend, which may be used for testing.
+    ///
+    /// It performs no rendering or computation, but allows creation of stub GPU resource types,
+    /// so that code which manages GPU resources can be tested without an available GPU.
+    /// Specifically, the following operations are implemented:
+    ///
+    /// * Enumerating adapters will always return one noop adapter, which can be used to create
+    ///   devices.
+    /// * Buffers may be created, written, mapped, and copied to other buffers.
+    /// * Command encoders may be created, but only buffer operations are useful.
+    ///
+    /// Other resources can be created but are nonfunctional; notably,
+    ///
+    /// * Render passes and compute passes are not executed.
+    /// * Textures may be created, but do not store any texels.
+    /// * There are no compatible surfaces.
+    ///
+    /// An adapter using the noop backend can only be obtained if [`NoopBackendOptions`]
+    /// enables it, in addition to the ordinary requirement of [`Backends::NOOP`] being set.
+    /// This ensures that applications not desiring a non-functional backend will not receive it.
+    Noop = 0,
+    /// Vulkan API (Windows, Linux, Android, MacOS via `vulkan-portability`/MoltenVK)
+    Vulkan = 1,
+    /// Metal API (Apple platforms)
+    Metal = 2,
+    /// Direct3D-12 (Windows)
+    Dx12 = 3,
+    /// OpenGL 3.3+ (Windows), OpenGL ES 3.0+ (Linux, Android, MacOS via Angle), and WebGL2
+    Gl = 4,
+    /// WebGPU in the browser
+    BrowserWebGpu = 5,
+}
  
- // Use this macro instead of the one provided by the bitflags_serde_shim crate
- // because the latter produces an error when deserializing bits that are not
- // specified in the bitflags, while we want deserialization to succeed and
- // and unspecified bits to lead to errors handled in wgpu-core.
- // Note that plainly deriving Serialize and Deserialized would have a similar
- // behavior to this macro (unspecified bit do not produce an error).
- macro_rules! impl_bitflags {
-     ($name:ident) => {
-         #[cfg(feature = "trace")]
-         impl serde::Serialize for $name {
-             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-             where
-                 S: serde::Serializer,
-             {
-                 self.bits().serialize(serializer)
-             }
-         }
+/// Power Preference when choosing a physical adapter.
+///
+/// Corresponds to [WebGPU `GPUPowerPreference`](
+/// https://gpuweb.github.io/gpuweb/#enumdef-gpupowerpreference).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "trace", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum PowerPreference {
+    /// Adapter that uses the least possible power. This is often an integrated GPU.
+    #[default]
+    #[debug("PowerPreference::LowPower")]
+    LowPower = 0,
+    /// Adapter that has the highest performance. This is often a discrete GPU.
+    #[debug("PowerPreference::HighPerformance")]
+    HighPerformance = 1,
+}
  
-         #[cfg(feature = "replay")]
-         impl<'de> serde::Deserialize<'de> for $name {
-             fn deserialize<D>(deserializer: D) -> Result<$name, D::Error>
-             where
-                 D: serde::Deserializer<'de>,
-             {
-                 let value = <_ as serde::Deserialize<'de>>::deserialize(deserializer)?;
-                 Ok($name::from_bits_retain(value))
-             }
-         }
+bitflags::bitflags! {
+    /// Represents the backends that wgpu will use.
+    #[repr(transparent)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct Backends: u32 {
+    /// [`Backend::Noop`].
+    const NOOP = 1 << Backend::Noop as u32;
+
+    /// [`Backend::Vulkan`].
+    /// Supported on Windows, Linux/Android, and macOS/iOS via Vulkan Portability (with the Vulkan feature enabled)
+    const VULKAN = 1 << Backend::Vulkan as u32;
+
+    /// [`Backend::Gl`].
+    /// Supported on Linux/Android, the web through webassembly via WebGL, and Windows and
+    /// macOS/iOS via ANGLE
+    const GL = 1 << Backend::Gl as u32;
+
+    /// [`Backend::Metal`].
+    /// Supported on macOS and iOS.
+    const METAL = 1 << Backend::Metal as u32;
+
+    /// [`Backend::Dx12`].
+    /// Supported on Windows 10 and later
+    const DX12 = 1 << Backend::Dx12 as u32;
+
+    /// [`Backend::BrowserWebGpu`].
+    /// Supported when targeting the web through WebAssembly with the `webgpu` feature enabled.
+    ///
+    /// The WebGPU backend is special in several ways:
+    /// It is not not implemented by `wgpu_core` and instead by the higher level `wgpu` crate.
+    /// Whether WebGPU is targeted is decided upon the creation of the `wgpu::Instance`,
+    /// *not* upon adapter creation. See `wgpu::Instance::new`.
+    const BROWSER_WEBGPU = 1 << Backend::BrowserWebGpu as u32;
+
+    /// All the apis that wgpu offers first tier of support for.
+    ///
+    /// * [`Backends::VULKAN`]
+    /// * [`Backends::METAL`]
+    /// * [`Backends::DX12`]
+    /// * [`Backends::BROWSER_WEBGPU`]
+    const PRIMARY = Self::VULKAN.bits()
+        | Self::METAL.bits()
+        | Self::DX12.bits()
+        | Self::BROWSER_WEBGPU.bits();
+
+    /// All the apis that wgpu offers second tier of support for. These may
+    /// be unsupported/still experimental.
+    ///
+    /// * [`Backends::GL`]
+    const SECONDARY = Self::GL.bits();
+    }
+}
  
-         impl $name {
-             /// Returns true if the bitflags contains bits that are not part of
-             /// the bitflags definition.
-             pub fn contains_invalid_bits(&self) -> bool {
-                 let all = Self::all().bits();
-                 (self.bits() | all) != all
-             }
-         }
-     };
- }
+impl_bitflags!(Backends);
+
+impl From<Backend> for Backends {
+    fn from(backend: Backend) -> Self {
+        Self::from_bits(1 << backend as u32).unwrap()
+    }
+}
  
- /// Integral type used for buffer offsets.
- pub type BufferAddress = u64;
- /// Integral type used for buffer slice sizes.
- pub type BufferSize = std::num::NonZeroU64;
- /// Integral type used for binding locations in shaders.
- pub type ShaderLocation = u32;
- /// Integral type used for dynamic bind group offsets.
- pub type DynamicOffset = u32;
- 
- /// Buffer-Texture copies must have [`bytes_per_row`] aligned to this number.
- ///
- /// This doesn't apply to [`Queue::write_texture`][Qwt].
- ///
- /// [`bytes_per_row`]: ImageDataLayout::bytes_per_row
- /// [Qwt]: ../wgpu/struct.Queue.html#method.write_texture
- pub const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = 256;
- /// An offset into the query resolve buffer has to be aligned to this.
- pub const QUERY_RESOLVE_BUFFER_ALIGNMENT: BufferAddress = 256;
- /// Buffer to buffer copy as well as buffer clear offsets and sizes must be aligned to this number.
- pub const COPY_BUFFER_ALIGNMENT: BufferAddress = 4;
- /// Size to align mappings.
- pub const MAP_ALIGNMENT: BufferAddress = 8;
- /// Vertex buffer strides have to be aligned to this number.
- pub const VERTEX_STRIDE_ALIGNMENT: BufferAddress = 4;
- /// Alignment all push constants need
- pub const PUSH_CONSTANT_ALIGNMENT: u32 = 4;
- /// Maximum queries in a query set
- pub const QUERY_SET_MAX_QUERIES: u32 = 8192;
- /// Size of a single piece of query data.
- pub const QUERY_SIZE: u32 = 8;
- 
- /// Backends supported by wgpu.
- #[repr(u8)]
- #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
- #[cfg_attr(feature = "trace", derive(Serialize))]
- #[cfg_attr(feature = "replay", derive(Deserialize))]
- pub enum Backend {
-     /// Dummy backend, used for testing.
-     #[debug("Backend::Empty")]
-     Empty = 0,
-     /// Vulkan API
-     #[debug("Backend::Vulkan")]
-     Vulkan = 1,
-     /// Metal API (Apple platforms)
-     #[debug("Backend::Metal")]
-     Metal = 2,
-     /// Direct3D-12 (Windows)
-     #[debug("Backend::Dx12")]
-     Dx12 = 3,
-     /// Direct3D-11 (Windows)
-     #[debug("Backend::Dx11")]
-     Dx11 = 4,
-     /// OpenGL ES-3 (Linux, Android)
-     #[debug("Backend::Gl")]
-     Gl = 5,
-     /// WebGPU in the browser
-     #[debug("Backend::BrowserWebGpu")]
-     BrowserWebGpu = 6,
- }
- 
- /// Power Preference when choosing a physical adapter.
- ///
- /// Corresponds to [WebGPU `GPUPowerPreference`](
- /// https://gpuweb.github.io/gpuweb/#enumdef-gpupowerpreference).
- #[repr(C)]
- #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
- #[cfg_attr(feature = "trace", derive(Serialize))]
- #[cfg_attr(feature = "replay", derive(Deserialize))]
- #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
- pub enum PowerPreference {
-     /// Adapter that uses the least possible power. This is often an integrated GPU.
-     #[default]
-     #[debug("PowerPreference::LowPower")]
-     LowPower = 0,
-     /// Adapter that has the highest performance. This is often a discrete GPU.
-     #[debug("PowerPreference::HighPerformance")]
-     HighPerformance = 1,
- }
- 
- bitflags::bitflags! {
-     /// Represents the backends that wgpu will use.
-     #[repr(transparent)]
-     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-     pub struct Backends: u32 {
-         /// Supported on Windows, Linux/Android, and macOS/iOS via Vulkan Portability (with the Vulkan feature enabled)
-         const VULKAN = 1 << Backend::Vulkan as u32;
-         /// Supported on Linux/Android, the web through webassembly via WebGL, and Windows and
-         /// macOS/iOS via ANGLE
-         const GL = 1 << Backend::Gl as u32;
-         /// Supported on macOS/iOS
-         const METAL = 1 << Backend::Metal as u32;
-         /// Supported on Windows 10
-         const DX12 = 1 << Backend::Dx12 as u32;
-         /// Supported on Windows 7+
-         const DX11 = 1 << Backend::Dx11 as u32;
-         /// Supported when targeting the web through webassembly
-         const BROWSER_WEBGPU = 1 << Backend::BrowserWebGpu as u32;
-         /// All the apis that wgpu offers first tier of support for.
-         ///
-         /// Vulkan + Metal + DX12 + Browser WebGPU
-         const PRIMARY = Self::VULKAN.bits()
-             | Self::METAL.bits()
-             | Self::DX12.bits()
-             | Self::BROWSER_WEBGPU.bits();
-         /// All the apis that wgpu offers second tier of support for. These may
-         /// be unsupported/still experimental.
-         ///
-         /// OpenGL + DX11
-         const SECONDARY = Self::GL.bits() | Self::DX11.bits();
-     }
- }
- 
- impl_bitflags!(Backends);
- 
- impl From<Backend> for Backends {
-     fn from(backend: Backend) -> Self {
-         Self::from_bits(1 << backend as u32).unwrap()
-     }
- }
+impl Backends {
+    /// Gets a set of backends from the environment variable `WGPU_BACKEND`.
+    ///
+    /// See [`Self::from_comma_list()`] for the format of the string.
+    pub fn from_env() -> Option<Self> {
+        let env = env::var("WGPU_BACKEND")?;
+        Some(Self::from_comma_list(&env))
+    }
+
+    /// Takes the given options, modifies them based on the `WGPU_BACKEND` environment variable, and returns the result.
+    pub fn with_env(&self) -> Self {
+        if let Some(env) = Self::from_env() {
+            env
+        } else {
+            *self
+        }
+    }
+
+    /// Generates a set of backends from a comma separated list of case-insensitive backend names.
+    ///
+    /// Whitespace is stripped, so both 'gl, dx12' and 'gl,dx12' are valid.
+    ///
+    /// Always returns WEBGPU on wasm over webgpu.
+    ///
+    /// Names:
+    /// - vulkan = "vulkan" or "vk"
+    /// - dx12   = "dx12" or "d3d12"
+    /// - metal  = "metal" or "mtl"
+    /// - gles   = "opengl" or "gles" or "gl"
+    /// - webgpu = "webgpu"
+    pub fn from_comma_list(string: &str) -> Self {
+        let mut backends = Self::empty();
+        for backend in string.to_lowercase().split(',') {
+            backends |= match backend.trim() {
+                "vulkan" | "vk" => Self::VULKAN,
+                "dx12" | "d3d12" => Self::DX12,
+                "metal" | "mtl" => Self::METAL,
+                "opengl" | "gles" | "gl" => Self::GL,
+                "webgpu" => Self::BROWSER_WEBGPU,
+                "noop" => Self::NOOP,
+                b => {
+                    log::warn!("unknown backend string '{}'", b);
+                    continue;
+                }
+            }
+        }
+
+        if backends.is_empty() {
+            log::warn!("no valid backend strings found!");
+        }
+
+        backends
+    }
+}
  
  /// Options for requesting adapter.
  ///
@@ -343,7 +428,7 @@ pub use super::hal::InstanceFlags;
         // ? const 32BIT_FORMAT_MULTISAMPLE = 1 << 21; (https://github.com/gpuweb/gpuweb/issues/3844)
         // ? const 32BIT_FORMAT_RESOLVE = 1 << 22; (https://github.com/gpuweb/gpuweb/issues/3844)
 
-        /// Allows for usage of textures of format [`TextureFormat::Rg11b10Float`] as a render target
+        /// Allows for usage of textures of format [`TextureFormat::Rg11b10Ufloat`] as a render target
         ///
         /// Supported platforms:
         /// - Vulkan
@@ -931,6 +1016,15 @@ pub struct Limits {
     pub max_storage_textures_per_shader_stage: u32,
     /// Amount of uniform buffers visible in a single shader stage. Defaults to 12. Higher is "better".
     pub max_uniform_buffers_per_shader_stage: u32,
+    /// Amount of individual resources within binding arrays that can be accessed in a single shader stage. Applies
+    /// to all types of bindings except samplers.
+    ///
+    /// This "defaults" to 0. However if binding arrays are supported, all devices can support 500,000. Higher is "better".
+    pub max_binding_array_elements_per_shader_stage: u32,
+    /// Amount of individual samplers within binding arrays that can be accessed in a single shader stage.
+    ///
+    /// This "defaults" to 0. However if binding arrays are supported, all devices can support 1,000. Higher is "better".
+    pub max_binding_array_sampler_elements_per_shader_stage: u32,
     /// Maximum size in bytes of a binding to a uniform buffer. Defaults to 64 KiB. Higher is "better".
     pub max_uniform_buffer_binding_size: u32,
     /// Maximum size in bytes of a binding to a storage buffer. Defaults to 128 MiB. Higher is "better".
@@ -963,6 +1057,14 @@ pub struct Limits {
     /// inter-stage communication (vertex outputs to fragment inputs). Defaults to 60.
     /// Higher is "better".
     pub max_inter_stage_shader_components: u32,
+    /// The maximum allowed number of color attachments.
+    pub max_color_attachments: u32,
+    /// The maximum number of bytes necessary to hold one sample (pixel or subpixel) of render
+    /// pipeline output data, across all color attachments as described by [`TextureFormat::target_pixel_byte_cost`]
+    /// and [`TextureFormat::target_component_alignment`]. Defaults to 32. Higher is "better".
+    ///
+    /// ⚠️ `Rgba8Unorm`/`Rgba8Snorm`/`Bgra8Unorm`/`Bgra8Snorm` are deceptively 8 bytes per sample. ⚠️
+    pub max_color_attachment_bytes_per_sample: u32,
     /// Maximum number of bytes used for workgroup memory in a compute entry point. Defaults to
     /// 16352. Higher is "better".
     pub max_compute_workgroup_storage_size: u32,
@@ -981,6 +1083,11 @@ pub struct Limits {
     /// The maximum value for each dimension of a `ComputePass::dispatch(x, y, z)` operation.
     /// Defaults to 65535. Higher is "better".
     pub max_compute_workgroups_per_dimension: u32,
+    
+    /// Minimal number of invocations in a subgroup. Higher is "better".
+    pub min_subgroup_size: u32,
+    /// Maximal number of invocations in a subgroup. Lower is "better".
+    pub max_subgroup_size: u32,
     /// Amount of storage available for push constants in bytes. Defaults to 0. Higher is "better".
     /// Requesting more than 0 during device creation requires [`Features::PUSH_CONSTANTS`] to be enabled.
     ///
@@ -1015,21 +1122,27 @@ impl Default for Limits {
             max_storage_buffers_per_shader_stage: 8,
             max_storage_textures_per_shader_stage: 4,
             max_uniform_buffers_per_shader_stage: 12,
-            max_uniform_buffer_binding_size: 64 << 10,
-            max_storage_buffer_binding_size: 128 << 20,
+            max_binding_array_elements_per_shader_stage: 0,
+            max_binding_array_sampler_elements_per_shader_stage: 0,
+            max_uniform_buffer_binding_size: 64 << 10, // (64 KiB)
+            max_storage_buffer_binding_size: 128 << 20, // (128 MiB)
             max_vertex_buffers: 8,
-            max_buffer_size: 256 << 20,
+            max_buffer_size: 256 << 20, // (256 MiB)
             max_vertex_attributes: 16,
             max_vertex_buffer_array_stride: 2048,
             min_uniform_buffer_offset_alignment: 256,
             min_storage_buffer_offset_alignment: 256,
             max_inter_stage_shader_components: 60,
+            max_color_attachments: 8,
+            max_color_attachment_bytes_per_sample: 32,
             max_compute_workgroup_storage_size: 16384,
             max_compute_invocations_per_workgroup: 256,
             max_compute_workgroup_size_x: 256,
             max_compute_workgroup_size_y: 256,
             max_compute_workgroup_size_z: 64,
             max_compute_workgroups_per_dimension: 65535,
+            min_subgroup_size: 0,
+            max_subgroup_size: 0,
             max_push_constant_size: 0,
             max_non_sampler_bindings: 1_000_000,
         }
@@ -1037,11 +1150,13 @@ impl Default for Limits {
 }
  
  impl Limits {
-    pub fn downlevel_defaults() -> Self {
+    // Rust doesn't allow const in trait implementations, so we break this out
+    // to allow reusing these defaults in const contexts like `downlevel_defaults`
+    const fn defaults() -> Self {
         Self {
-            max_texture_dimension_1d: 2048,
-            max_texture_dimension_2d: 2048,
-            max_texture_dimension_3d: 256,
+            max_texture_dimension_1d: 8192,
+            max_texture_dimension_2d: 8192,
+            max_texture_dimension_3d: 2048,
             max_texture_array_layers: 256,
             max_bind_groups: 4,
             max_bindings_per_bind_group: 1000,
@@ -1049,47 +1164,71 @@ impl Default for Limits {
             max_dynamic_storage_buffers_per_pipeline_layout: 4,
             max_sampled_textures_per_shader_stage: 16,
             max_samplers_per_shader_stage: 16,
-            max_storage_buffers_per_shader_stage: 4,
+            max_storage_buffers_per_shader_stage: 8,
             max_storage_textures_per_shader_stage: 4,
             max_uniform_buffers_per_shader_stage: 12,
-            max_uniform_buffer_binding_size: 16 << 10,
-            max_storage_buffer_binding_size: 128 << 20,
+            max_binding_array_elements_per_shader_stage: 0,
+            max_binding_array_sampler_elements_per_shader_stage: 0,
+            max_uniform_buffer_binding_size: 64 << 10, // (64 KiB)
+            max_storage_buffer_binding_size: 128 << 20, // (128 MiB)
             max_vertex_buffers: 8,
+            max_buffer_size: 256 << 20, // (256 MiB)
             max_vertex_attributes: 16,
             max_vertex_buffer_array_stride: 2048,
-            max_push_constant_size: 0,
             min_uniform_buffer_offset_alignment: 256,
             min_storage_buffer_offset_alignment: 256,
             max_inter_stage_shader_components: 60,
-            max_compute_workgroup_storage_size: 16352,
+            max_color_attachments: 8,
+            max_color_attachment_bytes_per_sample: 32,
+            max_compute_workgroup_storage_size: 16384,
             max_compute_invocations_per_workgroup: 256,
             max_compute_workgroup_size_x: 256,
             max_compute_workgroup_size_y: 256,
             max_compute_workgroup_size_z: 64,
             max_compute_workgroups_per_dimension: 65535,
-            max_buffer_size: 256 << 20,
+            min_subgroup_size: 0,
+            max_subgroup_size: 0,
+            max_push_constant_size: 0,
             max_non_sampler_bindings: 1_000_000,
+        }
+    }
+    pub fn downlevel_defaults() -> Self {
+        Self {
+            max_texture_dimension_1d: 2048,
+            max_texture_dimension_2d: 2048,
+            max_texture_dimension_3d: 256,
+            max_storage_buffers_per_shader_stage: 4,
+            max_uniform_buffer_binding_size: 16 << 10, // (16 KiB)
+            max_color_attachments: 4,
+            // see: https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf#page=7
+            max_compute_workgroup_storage_size: 16352,
+            ..Self::defaults()
         }
     }
  
      /// These default limits are guaranteed to be compatible with GLES-3.0, and D3D11, and WebGL2
      pub fn downlevel_webgl2_defaults() -> Self {
          Self {
-             max_uniform_buffers_per_shader_stage: 11,
-             max_storage_buffers_per_shader_stage: 0,
-             max_storage_textures_per_shader_stage: 0,
-             max_dynamic_storage_buffers_per_pipeline_layout: 0,
-             max_storage_buffer_binding_size: 0,
-             max_vertex_buffer_array_stride: 255,
-             max_compute_workgroup_storage_size: 0,
-             max_compute_invocations_per_workgroup: 0,
-             max_compute_workgroup_size_x: 0,
-             max_compute_workgroup_size_y: 0,
-             max_compute_workgroup_size_z: 0,
-             max_compute_workgroups_per_dimension: 0,
- 
-             // Most of the values should be the same as the downlevel defaults
-             ..Self::downlevel_defaults()
+            max_uniform_buffers_per_shader_stage: 11,
+            max_storage_buffers_per_shader_stage: 0,
+            max_storage_textures_per_shader_stage: 0,
+            max_dynamic_storage_buffers_per_pipeline_layout: 0,
+            max_storage_buffer_binding_size: 0,
+            max_vertex_buffer_array_stride: 255,
+            max_compute_workgroup_storage_size: 0,
+            max_compute_invocations_per_workgroup: 0,
+            max_compute_workgroup_size_x: 0,
+            max_compute_workgroup_size_y: 0,
+            max_compute_workgroup_size_z: 0,
+            max_compute_workgroups_per_dimension: 0,
+            min_subgroup_size: 0,
+            max_subgroup_size: 0,
+
+            // Value supported by Intel Celeron B830 on Windows (OpenGL 3.1)
+            max_inter_stage_shader_components: 31,
+
+            // Most of the values should be the same as the downlevel defaults
+            ..Self::downlevel_defaults()
          }
      }
  
@@ -1420,6 +1559,39 @@ impl Default for Limits {
      pub backend: Backend,
  }
  
+/// Hints to the device about the memory allocation strategy.
+///
+/// Some backends may ignore these hints.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum MemoryHints {
+    /// Favor performance over memory usage (the default value).
+    #[default]
+    Performance,
+    /// Favor memory usage over performance.
+    MemoryUsage,
+    /// Applications that have control over the content that is rendered
+    /// (typically games) may find an optimal compromise between memory
+    /// usage and performance by specifying the allocation configuration.
+    Manual {
+        /// Defines the range of allowed memory block sizes for sub-allocated
+        /// resources.
+        ///
+        /// The backend may attempt to group multiple resources into fewer
+        /// device memory blocks (sub-allocation) for performance reasons.
+        /// The start of the provided range specifies the initial memory
+        /// block size for sub-allocated resources. After running out of
+        /// space in existing memory blocks, the backend may chose to
+        /// progressively increase the block size of subsequent allocations
+        /// up to a limit specified by the end of the range.
+        ///
+        /// This does not limit resource sizes. If a resource does not fit
+        /// in the specified range, it will typically be placed in a dedicated
+        /// memory block.
+        suballocated_device_memory_block_size: Range<u64>,
+    },
+}
+
  /// Describes a [`Device`](../wgpu/struct.Device.html).
  ///
  /// Corresponds to [WebGPU `GPUDeviceDescriptor`](
@@ -1443,6 +1615,11 @@ impl Default for Limits {
     /// Exactly the specified limits, and no better or worse,
     /// will be allowed in validation of API calls on the resulting device.
     pub required_limits: Limits,
+    /// Hints for memory allocation strategies.
+    pub memory_hints: MemoryHints,
+    /// Whether API tracing for debugging is enabled,
+    /// and where the trace is written if so.
+    pub trace: Trace,
  }
  
  impl<L> DeviceDescriptor<L> {
@@ -1452,9 +1629,32 @@ impl Default for Limits {
             label: fun(&self.label),
             required_features: self.required_features,
             required_limits: self.required_limits.clone(),
+            memory_hints: self.memory_hints.clone(),
+            trace: self.trace.clone(),
         }
      }
  }
+ 
+/// Controls API call tracing and specifies where the trace is written.
+///
+/// **Note:** Tracing is currently unavailable.
+/// See [issue 5974](https://github.com/gfx-rs/wgpu/issues/5974) for updates.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+// This enum must be non-exhaustive so that enabling the "trace" feature is not a semver break.
+#[non_exhaustive]
+pub enum Trace {
+    /// Tracing disabled.
+    #[default]
+    Off,
+
+    /// Tracing enabled.
+    #[cfg(feature = "trace")]
+    // This must be owned rather than `&'a Path`, because if it were that, then the lifetime
+    // parameter would be unused when the "trace" feature is disabled, which is prohibited.
+    Directory(std::path::PathBuf),
+}
+
  
  bitflags::bitflags! {
      /// Describes the shader stages that a binding will be visible from.
@@ -2174,10 +2374,13 @@ pub enum TextureFormat {
     #[debug("TextureFormat::Rgb10a2Unorm")]
     Rgb10a2Unorm,
     /// Red, green, and blue channels. 11 bit float with no sign bit for RG channels. 10 bit float with no sign bit for blue channel. Float in shader.
-    #[debug("TextureFormat::Rg11b10Float")]
-    Rg11b10Float,
+    Rg11b10Ufloat,
 
     // Normal 64 bit formats
+    /// Red channel only. 64 bit integer per channel. Unsigned in shader.
+    ///
+    /// [`Features::TEXTURE_INT64_ATOMIC`] must be enabled to use this texture format.
+    R64Uint,
     /// Red and green channels. 32 bit integer per channel. Unsigned in shader.
     #[debug("TextureFormat::Rg32Uint")]
     Rg32Uint,
@@ -2492,7 +2695,7 @@ pub enum TextureFormat {
                      "bgra8unorm" => TextureFormat::Bgra8Unorm,
                      "bgra8unorm-srgb" => TextureFormat::Bgra8UnormSrgb,
                      "rgb10a2unorm" => TextureFormat::Rgb10a2Unorm,
-                     "rg11b10ufloat" => TextureFormat::Rg11b10Float,
+                     "rg11b10ufloat" => TextureFormat::Rg11b10Ufloat,
                      "rg32uint" => TextureFormat::Rg32Uint,
                      "rg32sint" => TextureFormat::Rg32Sint,
                      "rg32float" => TextureFormat::Rg32Float,
@@ -2618,7 +2821,7 @@ pub enum TextureFormat {
              TextureFormat::Bgra8Unorm => "bgra8unorm",
              TextureFormat::Bgra8UnormSrgb => "bgra8unorm-srgb",
              TextureFormat::Rgb10a2Unorm => "rgb10a2unorm",
-             TextureFormat::Rg11b10Float => "rg11b10ufloat",
+             TextureFormat::Rg11b10Ufloat => "rg11b10ufloat",
              TextureFormat::Rg32Uint => "rg32uint",
              TextureFormat::Rg32Sint => "rg32sint",
              TextureFormat::Rg32Float => "rg32float",
@@ -2690,6 +2893,7 @@ pub enum TextureFormat {
              }
             TextureFormat::Rgb10a2Uint => "rgb10a2uint",
             TextureFormat::NV12 => "nv12",
+            _ => todo!(),
          };
          serializer.serialize_str(name)
      }
@@ -2807,98 +3011,171 @@ pub enum TextureFormat {
     pub fn block_dimensions(&self) -> (u32, u32) {
         match *self {
             Self::R8Unorm
-            | Self::R8Snorm
-            | Self::R8Uint
-            | Self::R8Sint
-            | Self::R16Uint
-            | Self::R16Sint
-            | Self::R16Unorm
-            | Self::R16Snorm
-            | Self::R16Float
-            | Self::Rg8Unorm
-            | Self::Rg8Snorm
-            | Self::Rg8Uint
-            | Self::Rg8Sint
-            | Self::R32Uint
-            | Self::R32Sint
-            | Self::R32Float
-            | Self::Rg16Uint
-            | Self::Rg16Sint
-            | Self::Rg16Unorm
-            | Self::Rg16Snorm
-            | Self::Rg16Float
-            | Self::Rgba8Unorm
-            | Self::Rgba8UnormSrgb
-            | Self::Rgba8Snorm
-            | Self::Rgba8Uint
-            | Self::Rgba8Sint
-            | Self::Bgra8Unorm
-            | Self::Bgra8UnormSrgb
-            | Self::Rgb9e5Ufloat
-            | Self::Rgb10a2Uint
-            | Self::Rgb10a2Unorm
-            | Self::Rg11b10Float
-            | Self::Rg32Uint
-            | Self::Rg32Sint
-            | Self::Rg32Float
-            | Self::Rgba16Uint
-            | Self::Rgba16Sint
-            | Self::Rgba16Unorm
-            | Self::Rgba16Snorm
-            | Self::Rgba16Float
-            | Self::Rgba32Uint
-            | Self::Rgba32Sint
-            | Self::Rgba32Float
-            | Self::Stencil8
-            | Self::Depth16Unorm
-            | Self::Depth24Plus
-            | Self::Depth24PlusStencil8
-            | Self::Depth32Float
-            | Self::Depth32FloatStencil8
-            | Self::NV12 => (1, 1),
-
+                    | Self::R8Snorm
+                    | Self::R8Uint
+                    | Self::R8Sint
+                    | Self::R16Uint
+                    | Self::R16Sint
+                    | Self::R16Unorm
+                    | Self::R16Snorm
+                    | Self::R16Float
+                    | Self::Rg8Unorm
+                    | Self::Rg8Snorm
+                    | Self::Rg8Uint
+                    | Self::Rg8Sint
+                    | Self::R32Uint
+                    | Self::R32Sint
+                    | Self::R32Float
+                    | Self::Rg16Uint
+                    | Self::Rg16Sint
+                    | Self::Rg16Unorm
+                    | Self::Rg16Snorm
+                    | Self::Rg16Float
+                    | Self::Rgba8Unorm
+                    | Self::Rgba8UnormSrgb
+                    | Self::Rgba8Snorm
+                    | Self::Rgba8Uint
+                    | Self::Rgba8Sint
+                    | Self::Bgra8Unorm
+                    | Self::Bgra8UnormSrgb
+                    | Self::Rgb9e5Ufloat
+                    | Self::Rgb10a2Uint
+                    | Self::Rgb10a2Unorm
+                    | Self::Rg11b10Ufloat
+                    | Self::Rg32Uint
+                    | Self::Rg32Sint
+                    | Self::Rg32Float
+                    | Self::Rgba16Uint
+                    | Self::Rgba16Sint
+                    | Self::Rgba16Unorm
+                    | Self::Rgba16Snorm
+                    | Self::Rgba16Float
+                    | Self::Rgba32Uint
+                    | Self::Rgba32Sint
+                    | Self::Rgba32Float
+                    | Self::Stencil8
+                    | Self::Depth16Unorm
+                    | Self::Depth24Plus
+                    | Self::Depth24PlusStencil8
+                    | Self::Depth32Float
+                    | Self::Depth32FloatStencil8
+                    | Self::NV12 => (1, 1),
             Self::Bc1RgbaUnorm
-            | Self::Bc1RgbaUnormSrgb
-            | Self::Bc2RgbaUnorm
-            | Self::Bc2RgbaUnormSrgb
-            | Self::Bc3RgbaUnorm
-            | Self::Bc3RgbaUnormSrgb
-            | Self::Bc4RUnorm
-            | Self::Bc4RSnorm
-            | Self::Bc5RgUnorm
-            | Self::Bc5RgSnorm
-            | Self::Bc6hRgbUfloat
-            | Self::Bc6hRgbFloat
-            | Self::Bc7RgbaUnorm
-            | Self::Bc7RgbaUnormSrgb => (4, 4),
-
+                    | Self::Bc1RgbaUnormSrgb
+                    | Self::Bc2RgbaUnorm
+                    | Self::Bc2RgbaUnormSrgb
+                    | Self::Bc3RgbaUnorm
+                    | Self::Bc3RgbaUnormSrgb
+                    | Self::Bc4RUnorm
+                    | Self::Bc4RSnorm
+                    | Self::Bc5RgUnorm
+                    | Self::Bc5RgSnorm
+                    | Self::Bc6hRgbUfloat
+                    | Self::Bc6hRgbFloat
+                    | Self::Bc7RgbaUnorm
+                    | Self::Bc7RgbaUnormSrgb => (4, 4),
             Self::Etc2Rgb8Unorm
-            | Self::Etc2Rgb8UnormSrgb
-            | Self::Etc2Rgb8A1Unorm
-            | Self::Etc2Rgb8A1UnormSrgb
-            | Self::Etc2Rgba8Unorm
-            | Self::Etc2Rgba8UnormSrgb
-            | Self::EacR11Unorm
-            | Self::EacR11Snorm
-            | Self::EacRg11Unorm
-            | Self::EacRg11Snorm => (4, 4),
-
+                    | Self::Etc2Rgb8UnormSrgb
+                    | Self::Etc2Rgb8A1Unorm
+                    | Self::Etc2Rgb8A1UnormSrgb
+                    | Self::Etc2Rgba8Unorm
+                    | Self::Etc2Rgba8UnormSrgb
+                    | Self::EacR11Unorm
+                    | Self::EacR11Snorm
+                    | Self::EacRg11Unorm
+                    | Self::EacRg11Snorm => (4, 4),
             Self::Astc { block, .. } => match block {
-                AstcBlock::B4x4 => (4, 4),
-                AstcBlock::B5x4 => (5, 4),
-                AstcBlock::B5x5 => (5, 5),
-                AstcBlock::B6x5 => (6, 5),
-                AstcBlock::B6x6 => (6, 6),
-                AstcBlock::B8x5 => (8, 5),
-                AstcBlock::B8x6 => (8, 6),
-                AstcBlock::B8x8 => (8, 8),
-                AstcBlock::B10x5 => (10, 5),
-                AstcBlock::B10x6 => (10, 6),
-                AstcBlock::B10x8 => (10, 8),
-                AstcBlock::B10x10 => (10, 10),
-                AstcBlock::B12x10 => (12, 10),
-                AstcBlock::B12x12 => (12, 12),
-            },
+                        AstcBlock::B4x4 => (4, 4),
+                        AstcBlock::B5x4 => (5, 4),
+                        AstcBlock::B5x5 => (5, 5),
+                        AstcBlock::B6x5 => (6, 5),
+                        AstcBlock::B6x6 => (6, 6),
+                        AstcBlock::B8x5 => (8, 5),
+                        AstcBlock::B8x6 => (8, 6),
+                        AstcBlock::B8x8 => (8, 8),
+                        AstcBlock::B10x5 => (10, 5),
+                        AstcBlock::B10x6 => (10, 6),
+                        AstcBlock::B10x8 => (10, 8),
+                        AstcBlock::B10x10 => (10, 10),
+                        AstcBlock::B12x10 => (12, 10),
+                        AstcBlock::B12x12 => (12, 12),
+                    },
+            TextureFormat::R8Unorm => todo!(),
+            TextureFormat::R8Snorm => todo!(),
+            TextureFormat::R8Uint => todo!(),
+            TextureFormat::R8Sint => todo!(),
+            TextureFormat::R16Uint => todo!(),
+            TextureFormat::R16Sint => todo!(),
+            TextureFormat::R16Unorm => todo!(),
+            TextureFormat::R16Snorm => todo!(),
+            TextureFormat::R16Float => todo!(),
+            TextureFormat::Rg8Unorm => todo!(),
+            TextureFormat::Rg8Snorm => todo!(),
+            TextureFormat::Rg8Uint => todo!(),
+            TextureFormat::Rg8Sint => todo!(),
+            TextureFormat::R32Uint => todo!(),
+            TextureFormat::R32Sint => todo!(),
+            TextureFormat::R32Float => todo!(),
+            TextureFormat::Rg16Uint => todo!(),
+            TextureFormat::Rg16Sint => todo!(),
+            TextureFormat::Rg16Unorm => todo!(),
+            TextureFormat::Rg16Snorm => todo!(),
+            TextureFormat::Rg16Float => todo!(),
+            TextureFormat::Rgba8Unorm => todo!(),
+            TextureFormat::Rgba8UnormSrgb => todo!(),
+            TextureFormat::Rgba8Snorm => todo!(),
+            TextureFormat::Rgba8Uint => todo!(),
+            TextureFormat::Rgba8Sint => todo!(),
+            TextureFormat::Bgra8Unorm => todo!(),
+            TextureFormat::Bgra8UnormSrgb => todo!(),
+            TextureFormat::Rgb9e5Ufloat => todo!(),
+            TextureFormat::Rgb10a2Uint => todo!(),
+            TextureFormat::Rgb10a2Unorm => todo!(),
+            TextureFormat::Rg11b10Ufloat => todo!(),
+            TextureFormat::R64Uint => todo!(),
+            TextureFormat::Rg32Uint => todo!(),
+            TextureFormat::Rg32Sint => todo!(),
+            TextureFormat::Rg32Float => todo!(),
+            TextureFormat::Rgba16Uint => todo!(),
+            TextureFormat::Rgba16Sint => todo!(),
+            TextureFormat::Rgba16Unorm => todo!(),
+            TextureFormat::Rgba16Snorm => todo!(),
+            TextureFormat::Rgba16Float => todo!(),
+            TextureFormat::Rgba32Uint => todo!(),
+            TextureFormat::Rgba32Sint => todo!(),
+            TextureFormat::Rgba32Float => todo!(),
+            TextureFormat::Stencil8 => todo!(),
+            TextureFormat::Depth16Unorm => todo!(),
+            TextureFormat::Depth24Plus => todo!(),
+            TextureFormat::Depth24PlusStencil8 => todo!(),
+            TextureFormat::Depth32Float => todo!(),
+            TextureFormat::Depth32FloatStencil8 => todo!(),
+            TextureFormat::NV12 => todo!(),
+            TextureFormat::Bc1RgbaUnorm => todo!(),
+            TextureFormat::Bc1RgbaUnormSrgb => todo!(),
+            TextureFormat::Bc2RgbaUnorm => todo!(),
+            TextureFormat::Bc2RgbaUnormSrgb => todo!(),
+            TextureFormat::Bc3RgbaUnorm => todo!(),
+            TextureFormat::Bc3RgbaUnormSrgb => todo!(),
+            TextureFormat::Bc4RUnorm => todo!(),
+            TextureFormat::Bc4RSnorm => todo!(),
+            TextureFormat::Bc5RgUnorm => todo!(),
+            TextureFormat::Bc5RgSnorm => todo!(),
+            TextureFormat::Bc6hRgbUfloat => todo!(),
+            TextureFormat::Bc6hRgbFloat => todo!(),
+            TextureFormat::Bc7RgbaUnorm => todo!(),
+            TextureFormat::Bc7RgbaUnormSrgb => todo!(),
+            TextureFormat::Etc2Rgb8Unorm => todo!(),
+            TextureFormat::Etc2Rgb8UnormSrgb => todo!(),
+            TextureFormat::Etc2Rgb8A1Unorm => todo!(),
+            TextureFormat::Etc2Rgb8A1UnormSrgb => todo!(),
+            TextureFormat::Etc2Rgba8Unorm => todo!(),
+            TextureFormat::Etc2Rgba8UnormSrgb => todo!(),
+            TextureFormat::EacR11Unorm => todo!(),
+            TextureFormat::EacR11Snorm => todo!(),
+            TextureFormat::EacRg11Unorm => todo!(),
+            TextureFormat::EacRg11Snorm => todo!(),
+            TextureFormat::Astc { block, channel } => todo!(),
         }
     }
 
@@ -2937,7 +3214,7 @@ pub enum TextureFormat {
             | Self::Rgb9e5Ufloat
             | Self::Rgb10a2Uint
             | Self::Rgb10a2Unorm
-            | Self::Rg11b10Float
+            | Self::Rg11b10Ufloat
             | Self::Rg32Uint
             | Self::Rg32Sint
             | Self::Rg32Float
@@ -2994,6 +3271,7 @@ pub enum TextureFormat {
                 AstcChannel::Hdr => Features::TEXTURE_COMPRESSION_ASTC_HDR,
                 AstcChannel::Unorm | AstcChannel::UnormSrgb => Features::TEXTURE_COMPRESSION_ASTC,
             },
+            _ => todo!()
         }
     }
 
@@ -3055,7 +3333,7 @@ pub enum TextureFormat {
             Self::Bgra8UnormSrgb =>       (msaa_resolve, attachment),
             Self::Rgb10a2Uint =>          (        msaa, attachment),
             Self::Rgb10a2Unorm =>         (msaa_resolve, attachment),
-            Self::Rg11b10Float =>         (        msaa,   rg11b10f),
+            Self::Rg11b10Ufloat =>         (        msaa,   rg11b10f),
             Self::Rg32Uint =>             (        noaa,  all_flags),
             Self::Rg32Sint =>             (        noaa,  all_flags),
             Self::Rg32Float =>            (        noaa,  all_flags),
@@ -3112,6 +3390,7 @@ pub enum TextureFormat {
             Self::EacRg11Snorm =>         (        noaa,      basic),
 
             Self::Astc { .. } =>          (        noaa,      basic),
+            _ => todo!(),
         };
 
         // Get whether the format is filterable, taking features into account
@@ -3165,7 +3444,7 @@ pub enum TextureFormat {
             | Self::Rg16Float
             | Self::Rgba16Float
             | Self::Rgb10a2Unorm
-            | Self::Rg11b10Float => Some(float),
+            | Self::Rg11b10Ufloat => Some(float),
 
             Self::R32Float | Self::Rg32Float | Self::Rgba32Float => Some(float32_sample_type),
 
@@ -3241,6 +3520,7 @@ pub enum TextureFormat {
             | Self::EacRg11Snorm => Some(float),
 
             Self::Astc { .. } => Some(float),
+            _ => todo!(),
         }
     }
 
@@ -3295,7 +3575,7 @@ pub enum TextureFormat {
             | Self::Rg16Sint
             | Self::Rg16Float => Some(4),
             Self::R32Uint | Self::R32Sint | Self::R32Float => Some(4),
-            Self::Rgb9e5Ufloat | Self::Rgb10a2Uint | Self::Rgb10a2Unorm | Self::Rg11b10Float => {
+            Self::Rgb9e5Ufloat | Self::Rgb10a2Uint | Self::Rgb10a2Unorm | Self::Rg11b10Ufloat => {
                 Some(4)
             }
 
@@ -3355,6 +3635,7 @@ pub enum TextureFormat {
             | Self::EacRg11Snorm => Some(16),
 
             Self::Astc { .. } => Some(16),
+            _ => todo!(),
         }
     }
 
@@ -3410,7 +3691,7 @@ pub enum TextureFormat {
             | Self::Rgba32Sint
             | Self::Rgba32Float => 4,
 
-            Self::Rgb9e5Ufloat | Self::Rg11b10Float => 3,
+            Self::Rgb9e5Ufloat | Self::Rg11b10Ufloat => 3,
             Self::Rgb10a2Uint | Self::Rgb10a2Unorm => 4,
 
             Self::Stencil8 | Self::Depth16Unorm | Self::Depth24Plus | Self::Depth32Float => 1,
@@ -3447,6 +3728,7 @@ pub enum TextureFormat {
             | Self::Etc2Rgba8UnormSrgb => 4,
 
             Self::Astc { .. } => 4,
+            _ => todo!(),
         }
     }
 
@@ -3621,7 +3903,7 @@ pub enum TextureFormat {
          "\"rgb10a2unorm\"".to_string()
      );
      assert_eq!(
-         serde_json::to_string(&TextureFormat::Rg11b10Float).unwrap(),
+         serde_json::to_string(&TextureFormat::Rg11b10Ufloat).unwrap(),
          "\"rg11b10ufloat\"".to_string()
      );
      assert_eq!(
@@ -3914,7 +4196,7 @@ pub enum TextureFormat {
      );
      assert_eq!(
          serde_json::from_str::<TextureFormat>("\"rg11b10ufloat\"").unwrap(),
-         TextureFormat::Rg11b10Float
+         TextureFormat::Rg11b10Ufloat
      );
      assert_eq!(
          serde_json::from_str::<TextureFormat>("\"rg32uint\"").unwrap(),
@@ -4562,140 +4844,141 @@ pub enum TextureFormat {
  #[cfg_attr(feature = "replay", derive(Deserialize))]
  #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
  pub enum VertexFormat {
-     /// Two unsigned bytes (u8). `uvec2` in shaders.
-     #[debug("VertexFormat::Uint8x2")]
-     Uint8x2 = 0,
-     /// Four unsigned bytes (u8). `uvec4` in shaders.
-     #[debug("VertexFormat::Uint8x4")]
-     Uint8x4 = 1,
-     /// Two signed bytes (i8). `ivec2` in shaders.
-     #[debug("VertexFormat::Sint8x2")]
-     Sint8x2 = 2,
-     /// Four signed bytes (i8). `ivec4` in shaders.
-     #[debug("VertexFormat::Sint8x4")]
-     Sint8x4 = 3,
-     /// Two unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec2` in shaders.
-     #[debug("VertexFormat::Unorm8x2")]
-     Unorm8x2 = 4,
-     /// Four unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec4` in shaders.
-     #[debug("VertexFormat::Unorm8x4")]
-     Unorm8x4 = 5,
-     /// Two signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec2` in shaders.
-     #[debug("VertexFormat::Snorm8x2")]
-     Snorm8x2 = 6,
-     /// Four signed bytes (i8). [-127, 127] converted to float [-1, 1] `vec4` in shaders.
-     #[debug("VertexFormat::Snorm8x4")]
-     Snorm8x4 = 7,
-     /// Two unsigned shorts (u16). `uvec2` in shaders.
-     #[debug("VertexFormat::Uint16x2")]
-     Uint16x2 = 8,
-     /// Four unsigned shorts (u16). `uvec4` in shaders.
-     #[debug("VertexFormat::Uint16x4")]
-     Uint16x4 = 9,
-     /// Two signed shorts (i16). `ivec2` in shaders.
-     #[debug("VertexFormat::Sint16x2")]
-     Sint16x2 = 10,
-     /// Four signed shorts (i16). `ivec4` in shaders.
-     #[debug("VertexFormat::Sint16x4")]
-     Sint16x4 = 11,
-     /// Two unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec2` in shaders.
-     #[debug("VertexFormat::Unorm16x2")]
-     Unorm16x2 = 12,
-     /// Four unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec4` in shaders.
-     #[debug("VertexFormat::Unorm16x4")]
-     Unorm16x4 = 13,
-     /// Two signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec2` in shaders.
-     #[debug("VertexFormat::Snorm16x2")]
-     Snorm16x2 = 14,
-     /// Four signed shorts (i16). [-32767, 32767] converted to float [-1, 1] `vec4` in shaders.
-     #[debug("VertexFormat::Snorm16x4")]
-     Snorm16x4 = 15,
-     /// Two half-precision floats (no Rust equiv). `vec2` in shaders.
-     #[debug("VertexFormat::Float16x2")]
-     Float16x2 = 16,
-     /// Four half-precision floats (no Rust equiv). `vec4` in shaders.
-     #[debug("VertexFormat::Float16x4")]
-     Float16x4 = 17,
-     /// One single-precision float (f32). `float` in shaders.
-     #[debug("VertexFormat::Float32")]
-     Float32 = 18,
-     /// Two single-precision floats (f32). `vec2` in shaders.
-     #[debug("VertexFormat::Float32x2")]
-     Float32x2 = 19,
-     /// Three single-precision floats (f32). `vec3` in shaders.
-     #[debug("VertexFormat::Float32x3")]
-     Float32x3 = 20,
-     /// Four single-precision floats (f32). `vec4` in shaders.
-     #[debug("VertexFormat::Float32x4")]
-     Float32x4 = 21,
-     /// One unsigned int (u32). `uint` in shaders.
-     #[debug("VertexFormat::Uint32")]
-     Uint32 = 22,
-     /// Two unsigned ints (u32). `uvec2` in shaders.
-     #[debug("VertexFormat::Uint32x2")]
-     Uint32x2 = 23,
-     /// Three unsigned ints (u32). `uvec3` in shaders.
-     #[debug("VertexFormat::Uint32x3")]
-     Uint32x3 = 24,
-     /// Four unsigned ints (u32). `uvec4` in shaders.
-     #[debug("VertexFormat::Uint32x4")]
-     Uint32x4 = 25,
-     /// One signed int (i32). `int` in shaders.
-     #[debug("VertexFormat::Sint32")]
-     Sint32 = 26,
-     /// Two signed ints (i32). `ivec2` in shaders.
-     #[debug("VertexFormat::Sint32x2")]
-     Sint32x2 = 27,
-     /// Three signed ints (i32). `ivec3` in shaders.
-     #[debug("VertexFormat::Sint32x3")]
-     Sint32x3 = 28,
-     /// Four signed ints (i32). `ivec4` in shaders.
-     #[debug("VertexFormat::Sint32x4")]
-     Sint32x4 = 29,
-     /// One double-precision float (f64). `double` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
-     #[debug("VertexFormat::Float64")]
-     Float64 = 30,
-     /// Two double-precision floats (f64). `dvec2` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
-     #[debug("VertexFormat::Float64x2")]
-     Float64x2 = 31,
-     /// Three double-precision floats (f64). `dvec3` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
-     #[debug("VertexFormat::Float64x3")]
-     Float64x3 = 32,
-     /// Four double-precision floats (f64). `dvec4` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
-     #[debug("VertexFormat::Float64x4")]
-     Float64x4 = 33,
+    /// One unsigned byte (u8). `u32` in shaders.
+    Uint8 = 0,
+    /// Two unsigned bytes (u8). `vec2<u32>` in shaders.
+    Uint8x2 = 1,
+    /// Four unsigned bytes (u8). `vec4<u32>` in shaders.
+    Uint8x4 = 2,
+    /// One signed byte (i8). `i32` in shaders.
+    Sint8 = 3,
+    /// Two signed bytes (i8). `vec2<i32>` in shaders.
+    Sint8x2 = 4,
+    /// Four signed bytes (i8). `vec4<i32>` in shaders.
+    Sint8x4 = 5,
+    /// One unsigned byte (u8). [0, 255] converted to float [0, 1] `f32` in shaders.
+    Unorm8 = 6,
+    /// Two unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec2<f32>` in shaders.
+    Unorm8x2 = 7,
+    /// Four unsigned bytes (u8). [0, 255] converted to float [0, 1] `vec4<f32>` in shaders.
+    Unorm8x4 = 8,
+    /// One signed byte (i8). [&minus;127, 127] converted to float [&minus;1, 1] `f32` in shaders.
+    Snorm8 = 9,
+    /// Two signed bytes (i8). [&minus;127, 127] converted to float [&minus;1, 1] `vec2<f32>` in shaders.
+    Snorm8x2 = 10,
+    /// Four signed bytes (i8). [&minus;127, 127] converted to float [&minus;1, 1] `vec4<f32>` in shaders.
+    Snorm8x4 = 11,
+    /// One unsigned short (u16). `u32` in shaders.
+    Uint16 = 12,
+    /// Two unsigned shorts (u16). `vec2<u32>` in shaders.
+    Uint16x2 = 13,
+    /// Four unsigned shorts (u16). `vec4<u32>` in shaders.
+    Uint16x4 = 14,
+    /// One signed short (u16). `i32` in shaders.
+    Sint16 = 15,
+    /// Two signed shorts (i16). `vec2<i32>` in shaders.
+    Sint16x2 = 16,
+    /// Four signed shorts (i16). `vec4<i32>` in shaders.
+    Sint16x4 = 17,
+    /// One unsigned short (u16). [0, 65535] converted to float [0, 1] `f32` in shaders.
+    Unorm16 = 18,
+    /// Two unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec2<f32>` in shaders.
+    Unorm16x2 = 19,
+    /// Four unsigned shorts (u16). [0, 65535] converted to float [0, 1] `vec4<f32>` in shaders.
+    Unorm16x4 = 20,
+    /// One signed short (i16). [&minus;32767, 32767] converted to float [&minus;1, 1] `f32` in shaders.
+    Snorm16 = 21,
+    /// Two signed shorts (i16). [&minus;32767, 32767] converted to float [&minus;1, 1] `vec2<f32>` in shaders.
+    Snorm16x2 = 22,
+    /// Four signed shorts (i16). [&minus;32767, 32767] converted to float [&minus;1, 1] `vec4<f32>` in shaders.
+    Snorm16x4 = 23,
+    /// One half-precision float (no Rust equiv). `f32` in shaders.
+    Float16 = 24,
+    /// Two half-precision floats (no Rust equiv). `vec2<f32>` in shaders.
+    Float16x2 = 25,
+    /// Four half-precision floats (no Rust equiv). `vec4<f32>` in shaders.
+    Float16x4 = 26,
+    /// One single-precision float (f32). `f32` in shaders.
+    Float32 = 27,
+    /// Two single-precision floats (f32). `vec2<f32>` in shaders.
+    Float32x2 = 28,
+    /// Three single-precision floats (f32). `vec3<f32>` in shaders.
+    Float32x3 = 29,
+    /// Four single-precision floats (f32). `vec4<f32>` in shaders.
+    Float32x4 = 30,
+    /// One unsigned int (u32). `u32` in shaders.
+    Uint32 = 31,
+    /// Two unsigned ints (u32). `vec2<u32>` in shaders.
+    Uint32x2 = 32,
+    /// Three unsigned ints (u32). `vec3<u32>` in shaders.
+    Uint32x3 = 33,
+    /// Four unsigned ints (u32). `vec4<u32>` in shaders.
+    Uint32x4 = 34,
+    /// One signed int (i32). `i32` in shaders.
+    Sint32 = 35,
+    /// Two signed ints (i32). `vec2<i32>` in shaders.
+    Sint32x2 = 36,
+    /// Three signed ints (i32). `vec3<i32>` in shaders.
+    Sint32x3 = 37,
+    /// Four signed ints (i32). `vec4<i32>` in shaders.
+    Sint32x4 = 38,
+    /// One double-precision float (f64). `f32` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64 = 39,
+    /// Two double-precision floats (f64). `vec2<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x2 = 40,
+    /// Three double-precision floats (f64). `vec3<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x3 = 41,
+    /// Four double-precision floats (f64). `vec4<f32>` in shaders. Requires [`Features::VERTEX_ATTRIBUTE_64BIT`].
+    Float64x4 = 42,
+    /// Three unsigned 10-bit integers and one 2-bit integer, packed into a 32-bit integer (u32). [0, 1024] converted to float [0, 1] `vec4<f32>` in shaders.
+    #[cfg_attr(feature = "serde", serde(rename = "unorm10-10-10-2"))]
+    Unorm10_10_10_2 = 43,
+    /// Four unsigned 8-bit integers, packed into a 32-bit integer (u32). [0, 255] converted to float [0, 1] `vec4<f32>` in shaders.
+    #[cfg_attr(feature = "serde", serde(rename = "unorm8x4-bgra"))]
+    Unorm8x4Bgra = 44,
  }
  
  impl VertexFormat {
      /// Returns the byte size of the format.
      pub const fn size(&self) -> u64 {
-         match self {
-             Self::Uint8x2 | Self::Sint8x2 | Self::Unorm8x2 | Self::Snorm8x2 => 2,
-             Self::Uint8x4
-             | Self::Sint8x4
-             | Self::Unorm8x4
-             | Self::Snorm8x4
-             | Self::Uint16x2
-             | Self::Sint16x2
-             | Self::Unorm16x2
-             | Self::Snorm16x2
-             | Self::Float16x2
-             | Self::Float32
-             | Self::Uint32
-             | Self::Sint32 => 4,
-             Self::Uint16x4
-             | Self::Sint16x4
-             | Self::Unorm16x4
-             | Self::Snorm16x4
-             | Self::Float16x4
-             | Self::Float32x2
-             | Self::Uint32x2
-             | Self::Sint32x2
-             | Self::Float64 => 8,
-             Self::Float32x3 | Self::Uint32x3 | Self::Sint32x3 => 12,
-             Self::Float32x4 | Self::Uint32x4 | Self::Sint32x4 | Self::Float64x2 => 16,
-             Self::Float64x3 => 24,
-             Self::Float64x4 => 32,
+        match self {
+            Self::Uint8 | Self::Sint8 | Self::Unorm8 | Self::Snorm8 => 1,
+            Self::Uint8x2
+            | Self::Sint8x2
+            | Self::Unorm8x2
+            | Self::Snorm8x2
+            | Self::Uint16
+            | Self::Sint16
+            | Self::Unorm16
+            | Self::Snorm16
+            | Self::Float16 => 2,
+            Self::Uint8x4
+            | Self::Sint8x4
+            | Self::Unorm8x4
+            | Self::Snorm8x4
+            | Self::Uint16x2
+            | Self::Sint16x2
+            | Self::Unorm16x2
+            | Self::Snorm16x2
+            | Self::Float16x2
+            | Self::Float32
+            | Self::Uint32
+            | Self::Sint32
+            | Self::Unorm10_10_10_2
+            | Self::Unorm8x4Bgra => 4,
+            Self::Uint16x4
+            | Self::Sint16x4
+            | Self::Unorm16x4
+            | Self::Snorm16x4
+            | Self::Float16x4
+            | Self::Float32x2
+            | Self::Uint32x2
+            | Self::Sint32x2
+            | Self::Float64 => 8,
+            Self::Float32x3 | Self::Uint32x3 | Self::Sint32x3 => 12,
+            Self::Float32x4 | Self::Uint32x4 | Self::Sint32x4 | Self::Float64x2 => 16,
+            Self::Float64x3 => 24,
+            Self::Float64x4 => 32,
          }
      }
  }
@@ -6756,38 +7039,6 @@ pub enum BindingType {
          Self::new()
      }
  }
- 
- /// Selects which DX12 shader compiler to use.
- ///
- /// If the `wgpu-hal/dx12-shader-compiler` feature isn't enabled then this will fall back
- /// to the Fxc compiler at runtime and log an error.
- /// This feature is always enabled when using `wgpu`.
- ///
- /// If the `Dxc` option is selected, but `dxcompiler.dll` and `dxil.dll` files aren't found,
- /// then this will fall back to the Fxc compiler at runtime and log an error.
- ///
- /// `wgpu::utils::init::dx12_shader_compiler_from_env` can be used to set the compiler
- /// from the `WGPU_DX12_SHADER_COMPILER` environment variable, but this should only be used for testing.
- #[derive(Clone, Debug, Default)]
- pub enum Dx12Compiler {
-     /// The Fxc compiler (default) is old, slow and unmaintained.
-     ///
-     /// However, it doesn't require any additional .dlls to be shipped with the application.
-     #[default]
-     #[debug("Dx12Compiler::Fxc")]
-     Fxc,
-     /// The Dxc compiler is new, fast and maintained.
-     ///
-     /// However, it requires both `dxcompiler.dll` and `dxil.dll` to be shipped with the application.
-     /// These files can be downloaded from <https://github.com/microsoft/DirectXShaderCompiler/releases>.
-     #[debug("Dx12Compiler::Dxc {{ dxil_path: {dxil_path:?}, dxc_path: {dxc_path:?} }}")]
-     Dxc {
-         /// Path to the `dxcompiler.dll` file. Passing `None` will use standard platform specific dll loading rules.
-         dxil_path: Option<PathBuf>,
-         /// Path to the `dxil.dll` file. Passing `None` will use standard platform specific dll loading rules.
-         dxc_path: Option<PathBuf>,
-     },
- }
 
 /// Selects which OpenGL ES 3 minor version to request.
 ///
@@ -6807,7 +7058,194 @@ pub enum Gles3MinorVersion {
     /// Request an ES 3.2 context.
     Version2,
 }
+
+impl Gles3MinorVersion {
+    /// Choose which minor OpenGL ES version to use from the environment variable `WGPU_GLES_MINOR_VERSION`.
+    ///
+    /// Possible values are `0`, `1`, `2` or `automatic`. Case insensitive.
+    ///
+    /// Use with `unwrap_or_default()` to get the default value if the environment variable is not set.
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
+        let value = env::var("WGPU_GLES_MINOR_VERSION")
+            .as_deref()?
+            .to_lowercase();
+        match value.as_str() {
+            "automatic" => Some(Self::Automatic),
+            "0" => Some(Self::Version0),
+            "1" => Some(Self::Version1),
+            "2" => Some(Self::Version2),
+            _ => None,
+        }
+    }
+
+    /// Takes the given compiler, modifies it based on the `WGPU_GLES_MINOR_VERSION` environment variable, and returns the result.
+    ///
+    /// See `from_env` for more information.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        if let Some(compiler) = Self::from_env() {
+            compiler
+        } else {
+            self
+        }
+    }
+}
  
+/// Configuration for the OpenGL/OpenGLES backend.
+///
+/// Part of [`BackendOptions`].
+#[derive(Clone, Debug, Default)]
+pub struct GlBackendOptions {
+    /// Which OpenGL ES 3 minor version to request, if using OpenGL ES.
+    pub gles_minor_version: Gles3MinorVersion,
+    /// Behavior of OpenGL fences. Affects how `on_completed_work_done` and `device.poll` behave.
+    pub fence_behavior: GlFenceBehavior,
+}
+
+impl GlBackendOptions {
+    /// Choose OpenGL backend options by calling `from_env` on every field.
+    ///
+    /// See those methods for more information.
+    #[must_use]
+    pub fn from_env_or_default() -> Self {
+        let gles_minor_version = Gles3MinorVersion::from_env().unwrap_or_default();
+        Self {
+            gles_minor_version,
+            fence_behavior: GlFenceBehavior::Normal,
+        }
+    }
+
+    /// Takes the given options, modifies them based on the environment variables, and returns the result.
+    ///
+    /// This is equivalent to calling `with_env` on every field.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        let gles_minor_version = self.gles_minor_version.with_env();
+        let short_circuit_fences = self.fence_behavior.with_env();
+        Self {
+            gles_minor_version,
+            fence_behavior: short_circuit_fences,
+        }
+    }
+}
+
+/// Configuration for the DX12 backend.
+///
+/// Part of [`BackendOptions`].
+#[derive(Clone, Debug, Default)]
+pub struct Dx12BackendOptions {
+    /// Which DX12 shader compiler to use.
+    pub shader_compiler: Dx12Compiler,
+}
+
+impl Dx12BackendOptions {
+    /// Choose DX12 backend options by calling `from_env` on every field.
+    ///
+    /// See those methods for more information.
+    #[must_use]
+    pub fn from_env_or_default() -> Self {
+        let compiler = Dx12Compiler::from_env().unwrap_or_default();
+        Self {
+            shader_compiler: compiler,
+        }
+    }
+
+    /// Takes the given options, modifies them based on the environment variables, and returns the result.
+    ///
+    /// This is equivalent to calling `with_env` on every field.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        let shader_compiler = self.shader_compiler.with_env();
+        Self { shader_compiler }
+    }
+}
+
+/// Configuration for the noop backend.
+///
+/// Part of [`BackendOptions`].
+#[derive(Clone, Debug, Default)]
+pub struct NoopBackendOptions {
+    /// Whether to allow the noop backend to be used.
+    ///
+    /// The noop backend stubs out all operations except for buffer creation and mapping, so
+    /// it must not be used when not expected. Therefore, it will not be used unless explicitly
+    /// enabled.
+    pub enable: bool,
+}
+
+impl NoopBackendOptions {
+    /// Choose whether the noop backend is enabled from the environment.
+    ///
+    /// It will be enabled if the environment variable `WGPU_NOOP_BACKEND` has the value `1`
+    /// and not otherwise. Future versions may assign other meanings to other values.
+    #[must_use]
+    pub fn from_env_or_default() -> Self {
+        Self {
+            enable: Self::enable_from_env().unwrap_or(false),
+        }
+    }
+
+    /// Takes the given options, modifies them based on the environment variables, and returns the
+    /// result.
+    ///
+    /// See [`from_env_or_default()`](Self::from_env_or_default) for the interpretation.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        Self {
+            enable: Self::enable_from_env().unwrap_or(self.enable),
+        }
+    }
+
+    fn enable_from_env() -> Option<bool> {
+        let value = env::var("WGPU_NOOP_BACKEND")?;
+        match value.as_str() {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        }
+    }
+}
+
+/// Options that are passed to a given backend.
+///
+/// Part of [`InstanceDescriptor`].
+#[derive(Clone, Debug, Default)]
+pub struct BackendOptions {
+    /// Options for the OpenGL/OpenGLES backend, [`Backend::Gl`].
+    pub gl: GlBackendOptions,
+    /// Options for the DX12 backend, [`Backend::Dx12`].
+    pub dx12: Dx12BackendOptions,
+    /// Options for the noop backend, [`Backend::Noop`].
+    pub noop: NoopBackendOptions,
+}
+
+impl BackendOptions {
+    /// Choose backend options by calling `from_env` on every field.
+    ///
+    /// See those methods for more information.
+    #[must_use]
+    pub fn from_env_or_default() -> Self {
+        Self {
+            gl: GlBackendOptions::from_env_or_default(),
+            dx12: Dx12BackendOptions::from_env_or_default(),
+            noop: NoopBackendOptions::from_env_or_default(),
+        }
+    }
+
+    /// Takes the given options, modifies them based on the environment variables, and returns the result.
+    ///
+    /// This is equivalent to calling `with_env` on every field.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        Self {
+            gl: self.gl.with_env(),
+            dx12: self.dx12.with_env(),
+            noop: self.noop.with_env(),
+        }
+    }
+}
+
  /// Options for creating an instance.
  #[derive(Debug)]
  pub struct InstanceDescriptor {
@@ -6815,10 +7253,8 @@ pub enum Gles3MinorVersion {
     pub backends: Backends,
     /// Flags to tune the behavior of the instance.
     pub flags: InstanceFlags,
-    /// Which DX12 shader compiler to use.
-    pub dx12_shader_compiler: Dx12Compiler,
-    /// Which OpenGL ES 3 minor version to request.
-    pub gles_minor_version: Gles3MinorVersion,
+    /// Options the control the behavior of various backends.
+    pub backend_options: BackendOptions,
 }
 
 impl Default for InstanceDescriptor {
@@ -6826,10 +7262,164 @@ impl Default for InstanceDescriptor {
         Self {
             backends: Backends::all(),
             flags: InstanceFlags::default(),
-            dx12_shader_compiler: Dx12Compiler::default(),
-            gles_minor_version: Gles3MinorVersion::default(),
+            backend_options: BackendOptions::default(),
         }
     }
 }
 
  
+
+/// Dictate the behavior of fences in OpenGL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GlFenceBehavior {
+    /// Fences in OpenGL behave normally. If you don't know what to pick, this is what you want.
+    #[default]
+    Normal,
+    /// Fences in OpenGL are short-circuited to always return `true` immediately.
+    ///
+    /// This solves a very specific issue that arose due to a bug in wgpu-core that made
+    /// many WebGL programs work when they "shouldn't" have. If you have code that is trying
+    /// to call `device.poll(wgpu::PollType::Wait)` on WebGL, you need to enable this option
+    /// for the "Wait" to behave how you would expect.
+    ///
+    /// Previously all `poll(Wait)` acted like the OpenGL fences were signalled even if they weren't.
+    /// See <https://github.com/gfx-rs/wgpu/issues/4589> for more information.
+    ///
+    /// When this is set `Queue::on_completed_work_done` will always return the next time the device
+    /// is maintained, not when the work is actually done on the GPU.
+    AutoFinish,
+}
+
+impl GlFenceBehavior {
+    /// Returns true if the fence behavior is `AutoFinish`.
+    pub fn is_auto_finish(&self) -> bool {
+        matches!(self, Self::AutoFinish)
+    }
+
+    /// Returns true if the fence behavior is `Normal`.
+    pub fn is_normal(&self) -> bool {
+        matches!(self, Self::Normal)
+    }
+
+    /// Choose which minor OpenGL ES version to use from the environment variable `WGPU_GL_FENCE_BEHAVIOR`.
+    ///
+    /// Possible values are `Normal` or `AutoFinish`. Case insensitive.
+    ///
+    /// Use with `unwrap_or_default()` to get the default value if the environment variable is not set.
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
+        let value = env::var("WGPU_GL_FENCE_BEHAVIOR")
+            .as_deref()?
+            .to_lowercase();
+        match value.as_str() {
+            "normal" => Some(Self::Normal),
+            "autofinish" => Some(Self::AutoFinish),
+            _ => None,
+        }
+    }
+
+    /// Takes the given compiler, modifies it based on the `WGPU_GL_FENCE_BEHAVIOR` environment variable, and returns the result.
+    ///
+    /// See `from_env` for more information.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        if let Some(fence) = Self::from_env() {
+            fence
+        } else {
+            self
+        }
+    }
+}
+
+
+/// Selects which DX12 shader compiler to use.
+///
+/// If the `DynamicDxc` option is selected, but `dxcompiler.dll` and `dxil.dll` files aren't found,
+/// then this will fall back to the Fxc compiler at runtime and log an error.
+#[derive(Clone, Debug, Default)]
+pub enum Dx12Compiler {
+    /// The Fxc compiler (default) is old, slow and unmaintained.
+    ///
+    /// However, it doesn't require any additional .dlls to be shipped with the application.
+    #[default]
+    Fxc,
+    /// The Dxc compiler is new, fast and maintained.
+    ///
+    /// However, it requires both `dxcompiler.dll` and `dxil.dll` to be shipped with the application.
+    /// These files can be downloaded from <https://github.com/microsoft/DirectXShaderCompiler/releases>.
+    ///
+    /// Minimum supported version: [v1.5.2010](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.5.2010)
+    ///
+    /// It also requires WDDM 2.1 (Windows 10 version 1607).
+    DynamicDxc {
+        /// Path to `dxcompiler.dll`.
+        dxc_path: String,
+        /// Path to `dxil.dll`.
+        dxil_path: String,
+        /// Maximum shader model the given dll supports.
+        max_shader_model: DxcShaderModel,
+    },
+    /// The statically-linked variant of Dxc.
+    ///
+    /// The `static-dxc` feature is required for this setting to be used successfully on DX12.
+    /// Not available on `windows-aarch64-pc-*` targets.
+    StaticDxc,
+}
+
+/// DXC shader model.
+#[derive(Clone, Debug)]
+#[allow(missing_docs)]
+pub enum DxcShaderModel {
+    V6_0,
+    V6_1,
+    V6_2,
+    V6_3,
+    V6_4,
+    V6_5,
+    V6_6,
+    V6_7,
+}
+
+impl Dx12Compiler {
+    /// Helper function to construct a `DynamicDxc` variant with default paths.
+    ///
+    /// The dll must support at least shader model 6.5.
+    pub fn default_dynamic_dxc() -> Self {
+        Self::DynamicDxc {
+            dxc_path: String::from("dxcompiler.dll"),
+            dxil_path: String::from("dxil.dll"),
+            max_shader_model: DxcShaderModel::V6_5,
+        }
+    }
+
+    /// Choose which DX12 shader compiler to use from the environment variable `WGPU_DX12_COMPILER`.
+    ///
+    /// Valid values, case insensitive:
+    /// - `Fxc`
+    /// - `Dxc` or `DynamicDxc`
+    /// - `StaticDxc`
+    #[must_use]
+    pub fn from_env() -> Option<Self> {
+        let value = env::var("WGPU_DX12_COMPILER")
+            .as_deref()?
+            .to_lowercase();
+        match value.as_str() {
+            "dxc" | "dynamicdxc" => Some(Self::default_dynamic_dxc()),
+            "staticdxc" => Some(Self::StaticDxc),
+            "fxc" => Some(Self::Fxc),
+            _ => None,
+        }
+    }
+
+    /// Takes the given compiler, modifies it based on the `WGPU_DX12_COMPILER` environment variable, and returns the result.
+    ///
+    /// See `from_env` for more information.
+    #[must_use]
+    pub fn with_env(self) -> Self {
+        if let Some(compiler) = Self::from_env() {
+            compiler
+        } else {
+            self
+        }
+    }
+}

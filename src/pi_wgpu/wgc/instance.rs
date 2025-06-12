@@ -3,7 +3,7 @@ use std::{future::{ready, Future}, marker::PhantomData};
 use pi_share::Share;
 use raw_window_handle::{DisplayHandle, HasDisplayHandle, HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, WindowHandle};
 
-use crate::{pi_wgpu::wgt::Gles3MinorVersion, SurfaceTarget};
+use crate::{pi_wgpu::wgt::{BackendOptions, Gles3MinorVersion}, SurfaceTarget};
 
 use super::super::{
     hal, wgt, Backends, CreateSurfaceError, InstanceDescriptor, PowerPreference, Surface,
@@ -27,11 +27,12 @@ impl Default for Instance {
     ///
     /// Backends are set to `Backends::all()`, and FXC is chosen as the `dx12_shader_compiler`.
     fn default() -> Self {
-        Instance::new(InstanceDescriptor {
+        Instance::new(&InstanceDescriptor {
             backends: Backends::GL,
-            dx12_shader_compiler: wgt::Dx12Compiler::default(),
+            // dx12_shader_compiler: wgt::Dx12Compiler::default(),
             flags: Default::default(),
-            gles_minor_version: Gles3MinorVersion::Automatic,
+            backend_options: BackendOptions::default(),
+            // gles_minor_version: Gles3MinorVersion::Automatic,
         })
     }
 }
@@ -43,13 +44,13 @@ impl Instance {
     ///
     /// - `instance_desc` - Has fields for which [backends][Backends] wgpu will choose
     ///   during instantiation, and which [DX12 shader compiler][Dx12Compiler] wgpu will use.
-    pub fn new(mut instance_desc: InstanceDescriptor) -> Self {
+    pub fn new(instance_desc: &InstanceDescriptor) -> Self {
         profiling::scope!("Instance::new");
 
         log::trace!("pi_wgpu::Instance::new, instance_desc{:?}", instance_desc);
 
-        // assert!(instance_desc.backends.contains(Backends::GL));
-        instance_desc.backends = Backends::GL;
+        // // assert!(instance_desc.backends.contains(Backends::GL));
+        // instance_desc.backends = Backends::GL;
 
         let mut flags = hal::InstanceFlags::empty();
         if cfg!(debug_assertions) {
@@ -62,7 +63,7 @@ impl Instance {
         let hal_desc = hal::InstanceDescriptor {
             name: "pi_wgpu:gl",
             flags,
-            dx12_shader_compiler: instance_desc.dx12_shader_compiler.clone(),
+            backend_options: instance_desc.backend_options.clone(),
         };
 
         let imp = hal::Instance::init(&hal_desc).unwrap();

@@ -24,6 +24,7 @@ mod bind_group_layout;
 mod pipeline_layout;
 
 mod render_pipeline;
+mod common_pipeline;
 
 pub use adapter::*;
 pub use device::*;
@@ -44,4 +45,5 @@ pub use bind_group_layout::*;
 pub use pipeline_layout::*;
 
 pub use render_pipeline::*;
+pub use common_pipeline::*;
 

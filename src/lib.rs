@@ -28,6 +28,6 @@ impl PiWgpuAdapter for Adapter {
         desc: &DeviceDescriptor,
         _trace_path: Option<&std::path::Path>,
     ) -> impl Future<Output = Result<(Device, Queue), RequestDeviceError>> + Send {
-        self.request_device(desc, _trace_path)
+        self.request_device(desc)
     }
 }

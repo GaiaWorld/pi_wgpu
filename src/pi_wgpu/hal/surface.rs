@@ -340,7 +340,7 @@ impl SwapChain {
             layout: Some(&pipeline_layout),
             vertex: super::super::VertexState {
                 module: &vs,
-                entry_point: "main",
+                entry_point: Some("main"),
                 buffers: &[super::super::VertexBufferLayout {
                     array_stride: std::mem::size_of::<BlitVertex>() as super::super::BufferAddress,
                     step_mode: super::super::VertexStepMode::Vertex,
@@ -357,6 +357,7 @@ impl SwapChain {
                         },
                     ],
                 }],
+                compilation_options: crate::PipelineCompilationOptions::default(),
             },
             primitive: super::super::PrimitiveState {
                 topology: super::super::PrimitiveTopology::TriangleList,
@@ -371,14 +372,16 @@ impl SwapChain {
             multisample: super::super::MultisampleState::default(),
             fragment: Some(super::super::FragmentState {
                 module: &fs,
-                entry_point: "main",
+                entry_point: Some("main"),
                 targets: &[Some(super::super::ColorTargetState {
                     format,
                     blend: None,
                     write_mask: super::super::ColorWrites::ALL,
                 })],
+                compilation_options: crate::PipelineCompilationOptions::default(),
             }),
             multiview: None,
+            cache: None,
         });
 
         let sampler = device.create_sampler(&super::super::SamplerDescriptor {
@@ -513,7 +516,7 @@ impl SwapChain {
         rp.set_vertex_buffer(0, self.vb.slice(..));
         rp.draw(0..6, 0..1);
         
-        rp.flush();
+        // rp.flush();
     }
 
     #[inline]

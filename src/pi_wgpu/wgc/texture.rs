@@ -204,6 +204,7 @@ pub struct TextureViewDescriptor<'a> {
     /// If `Some(count)`, `base_array_layer + count` must be less or equal to the underlying array count.
     /// If `None`, considered to include the rest of the array layers, but at least 1 in total.
     pub array_layer_count: Option<u32>,
+    pub usage: Option<TextureUsages>,
 }
 
 /// Describes a [`Texture`].

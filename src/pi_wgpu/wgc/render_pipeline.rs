@@ -1,5 +1,7 @@
 use derive_more::derive::Debug;
 
+use crate::{pi_wgpu::hal::PipelineCache, PipelineCompilationOptions};
+
 use super::super::{
     hal, BufferAddress, ColorTargetState, DepthStencilState, Label,
     MultisampleState, PipelineLayout, PrimitiveState, ShaderModule, VertexAttribute,
@@ -51,6 +53,8 @@ pub struct RenderPipelineDescriptor<'a> {
     /// If the pipeline will be used with a multiview render pass, this indicates how many array
     /// layers the attachments will have.
     pub multiview: Option<NonZeroU32>,
+    /// The pipeline cache to use when creating this pipeline.
+    pub cache: Option<&'a PipelineCache>,
 }
 
 /// Describes the vertex processing in a render pipeline.
@@ -66,10 +70,11 @@ pub struct VertexState<'a> {
     pub module: &'a ShaderModule,
     /// The name of the entry point in the compiled shader. There must be a function with this name
     /// in the shader.
-    pub entry_point: &'a str,
+    pub entry_point: Option<&'a str>,
     /// The format of any vertex buffers used with this pipeline
     #[debug("&{buffers:?}")]
     pub buffers: &'a [VertexBufferLayout<'a>],
+    pub compilation_options: PipelineCompilationOptions<'a>,
 }
 
 
@@ -103,8 +108,9 @@ pub struct FragmentState<'a> {
     pub module: &'a ShaderModule,
     /// The name of the entry point in the compiled shader. There must be a function with this name
     /// in the shader.
-    pub entry_point: &'a str,
+    pub entry_point: Option<&'a str>,
     /// The color state of the render targets.
     #[debug("&{targets:?}")]
     pub targets: &'a [Option<ColorTargetState>],
+    pub compilation_options: PipelineCompilationOptions<'a>,
 }

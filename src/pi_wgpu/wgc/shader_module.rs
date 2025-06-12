@@ -48,7 +48,7 @@ pub enum ShaderSource<'a> {
         /// The shader stage that the shader targets. For example, `naga::ShaderStage::Vertex`
         stage: naga::ShaderStage,
         /// Defines to unlock configured shader features.
-        defines: naga::FastHashMap<String, String>,
+        defines: &'a [(&'a str, &'a str)],
     },
 }
 

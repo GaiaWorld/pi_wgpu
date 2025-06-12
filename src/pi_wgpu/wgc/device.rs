@@ -243,6 +243,8 @@ impl Device {
 /// Corresponds to [WebGPU `GPUDeviceDescriptor`](
 /// https://gpuweb.github.io/gpuweb/#dictdef-gpudevicedescriptor).
 pub type DeviceDescriptor<'a> = wgt::DeviceDescriptor<Label<'a>>;
+pub type MemoryHints = wgt::MemoryHints;
+pub type Trace = wgt::Trace;
 
 /// Requesting a device failed.
 #[derive(Clone, PartialEq, Eq, Debug)]

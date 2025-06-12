@@ -85,7 +85,7 @@ impl PipelineLayout {
             version: adapter.shading_language_version(),
             writer_flags,
             binding_map,
-            zero_initialize_workgroup_memory: true,
+            zero_initialize_workgroup_memory: false,
         };
 
         let group_infos = desc
@@ -103,6 +103,9 @@ impl PipelineLayout {
         })
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct PipelineCache;
 
 #[derive(Debug, Clone)]
 pub(crate) struct RenderPipeline(pub(crate) Share<RenderPipelineImpl>);
@@ -162,7 +165,7 @@ impl RenderPipelineImpl {
                     &version,
                     device_features,
                     &adapter.downlevel(),
-                    vs.entry_point.to_string(),
+                    vs.entry_point,
                     desc.multiview,
                     naga_options,
                 )
@@ -178,7 +181,7 @@ impl RenderPipelineImpl {
                     &version,
                     device_features,
                     &adapter.downlevel(),
-                    fs.entry_point.to_string(),
+                    fs.entry_point,
                     desc.multiview,
                     naga_options,
                 )
