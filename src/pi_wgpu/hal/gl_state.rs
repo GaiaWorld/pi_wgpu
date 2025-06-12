@@ -2690,14 +2690,7 @@ fn compile_naga_shader(
     //       }  
     let reflection_info = writer.write().map_err(|e| {
         super::ShaderError::Compilation(format!("glsl::Writer::write() error = {:?}", e))
-    })?;  
-        //   {
-    let temp = String::from("temp/");
-    let root_dir = std::env::current_dir().unwrap();
-    let mut file_name: String = String::from("bbb.vert");
-    file_name = temp.clone() + file_name.as_str();
-    let _ = std::fs::write(root_dir.join(file_name), output.as_str());
-        //   }    
+    })?; 
 
     Ok((output, reflection_info))
 }
