@@ -22,7 +22,7 @@ use super::{
 
 #[derive(Clone)]
 pub(crate) struct GLState {
-    imp: Share<ShareCell<GLStateImpl>>,
+    pub(crate) imp: Share<ShareCell<GLStateImpl>>,
     pub(crate) is_ios18: bool,
 }
 
@@ -759,7 +759,7 @@ impl GLState {
 pub(crate) struct GLStateImpl {
     pub(crate) is_ios18: bool, // ios18.0， 不支持sampler， 将sampler的描述设置在texture上
 
-    cache: GLCache,
+    pub(crate) cache: GLCache,
     global_shader_id: ShaderID,
     last_vbs: Option<Box<[Option<VBState>]>>,
 
@@ -1420,9 +1420,11 @@ impl GLStateImpl {
                 };
                 let mut parser = naga::front::glsl::Frontend::default();
 
-                let m = parser.parse(&options, shader).map_err(|e| {
+                let mut m = parser.parse(&options, shader).map_err(|e| {
                     super::ShaderError::Compilation(format!("naga compile shader err = {:?}", e))
                 })?;
+
+                naga::compact::compact(&mut m);
 
                 module = Some(m);
                 module.as_ref().unwrap()
@@ -1439,6 +1441,7 @@ impl GLStateImpl {
 
         let info = get_shader_info(module_ref, features, downlevel)?;
 
+        // naga::proc::
         let (gl_str, reflection_info) = compile_naga_shader(
             module_ref,
             version,
@@ -2633,7 +2636,7 @@ fn get_shader_info(
             .contains(wgt::DownlevelFlags::MULTISAMPLED_SHADING),
     );
 
-    naga::valid::Validator::new(naga::valid::ValidationFlags::all(), caps)
+    naga::valid::Validator::new(naga::valid::ValidationFlags::BINDINGS, caps)
         .validate(&module)
         .map_err(|e| super::ShaderError::Compilation(e.to_string()))
 }
@@ -2671,11 +2674,15 @@ fn compile_naga_shader(
     };
 
     let mut output = String::new();
+    let mut naga_options = naga_options.clone();
+    naga_options.zero_initialize_workgroup_memory =  false;
+    #[cfg(feature = "webgl_context")]
+    naga_options.writer_flags.set(glsl::WriterFlags::ADJUST_COORDINATE_SPACE, false);
     let mut writer = glsl::Writer::new(
         &mut output,
         &module,
         &module_info,
-        naga_options,
+        &naga_options,
         &pipeline_options,
         policies,
     )
@@ -2688,9 +2695,18 @@ fn compile_naga_shader(
     // file_name = temp.clone() + file_name.as_str();
     // let _ = std::fs::write(root_dir.join(file_name), vs.as_str());
     //       }  
+
     let reflection_info = writer.write().map_err(|e| {
         super::ShaderError::Compilation(format!("glsl::Writer::write() error = {:?}", e))
-    })?; 
+    })?;
+
+        //   {
+    // let temp = String::from("temp/");
+    // let root_dir = std::env::current_dir().unwrap();
+    // let mut file_name: String = String::from("bbb.vert");
+    // file_name = temp.clone() + file_name.as_str();
+    // let _ = std::fs::write(root_dir.join(file_name), output.as_str());
+        //   }    
 
     Ok((output, reflection_info))
 }

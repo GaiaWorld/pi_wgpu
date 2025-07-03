@@ -2,7 +2,7 @@ use pi_share::{Share, ShareCell};
 use raw_window_handle::{ HasWindowHandle, HasDisplayHandle};
 use thiserror::Error;
 
-use crate::{Color, Extent3d, TextureDescriptor};
+use crate::{pi_wgpu::hal::{GLTextureInfo, TextureInner}, Color, Extent3d, TextureDescriptor, TextureView};
 
 use super::{
     super::{util::DeviceExt, wgt, DeviceError, MissingDownlevelFlags},
@@ -157,11 +157,18 @@ impl SurfaceImpl {
 
     #[inline]
     fn present(&mut self) {
-        self.sc.as_mut().map(|sc| {
-            sc.draw_y_flip();
-        });
+        // self.sc.as_mut().map(|sc| {
+        //     sc.draw_y_flip();
+        // });
 
-        self.adapter.present(&self.raw);
+        if let Some(sc) = &self.sc {
+            let texinfo: GLTextureInfo = GLTextureInfo::from(&sc.texture_view);
+            let width = sc.texture.width() as i32;
+            let height = sc.texture.height() as i32;
+            self.adapter.present(&self.raw, width, height, Some((&sc.texture, texinfo)));
+        } else {
+            self.adapter.present(&self.raw, 0, 0, None);
+        }
 
         self.sc.as_mut().map(|sc| {
             sc.update_current_texture();
@@ -224,6 +231,7 @@ struct SwapChain {
     bg: crate::BindGroup,
 
     native_texture: crate::Texture,
+    texture_view: TextureView,
     // 初始化 有值
     // 每次 acquire_texture 就为 None
     // present 后 会重新 有值
@@ -405,7 +413,6 @@ impl SwapChain {
         // let texture1 = device.create_texture(&TextureDescriptor { label: None, size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: crate::TextureDimension::D2, format: crate::TextureFormat::Rgba8Unorm, usage: crate::TextureUsages::from_bits(20).unwrap()/*TextureUsages(TEXTURE_BINDING | RENDER_ATTACHMENT)*/, view_formats: &[] }); 
         // let texture_view = texture1.create_view(&Default::default());
         // log::warn!("bbbb==========");
-
         let bg = device.create_bind_group(&super::super::BindGroupDescriptor {
             label: Some("Flip-Y BindGroup"),
             layout: &bg_layout,
@@ -437,6 +444,7 @@ impl SwapChain {
             current_texture,
 
             native_texture,
+            texture_view
         }
     }
 
@@ -515,7 +523,7 @@ impl SwapChain {
         rp.set_bind_group(0, &self.bg, &[]);
         rp.set_vertex_buffer(0, self.vb.slice(..));
         rp.draw(0..6, 0..1);
-        
+
         // rp.flush();
     }
 

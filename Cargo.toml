@@ -16,11 +16,13 @@ webgpu = []
 gl = []
 geterror = []
 single_thread = []
+webgl_context = []
 use_wgpu = ["wgpu", "wgpu/glsl"]
 
 [dependencies]
 pi_egl = { version = "0.2", registry = "yn" }
 pi_share = "0.5"
+# spirv-tools = "*"
 
 glow = { package = "pi_glow", version = "0.13", registry = "yn" }
 naga = { version = "25.0.*", features = ["glsl-in", "glsl-out"] }
@@ -52,6 +54,9 @@ web-sys = { version = "0.3", features = [
 ] }
 js-sys = "0.3"
 
+[patch.crates-io]
+naga = { path = "../wgpu/naga" }
+
 # DEV dependencies
 
 # [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
@@ -65,9 +70,8 @@ env_logger = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 glow = { package = "pi_glow", version = "0.13", registry = "yn" }
-winit = { registry = "yn", version = "0.27" }
 pollster = "0.3"
-naga = { version = "25.0.*", features = ["glsl-in", "glsl-out"] }
+naga = { version = "25.0.*", features = ["glsl-in", "glsl-out", "compact"] }
 bytemuck = { version = "1.4", features = ["derive"] }
 glam = "0.24"
 

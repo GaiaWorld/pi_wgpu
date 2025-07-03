@@ -3,22 +3,22 @@ use std::{
     time::Duration,
 };
 
-use glow::HasContext;
+use glow::{HasContext};
 use pi_share::{cell::Ref, Share, ShareCell};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::{db, PrivateCapabilities};
 use crate::{
-    pi_wgpu::wgt,
+    pi_wgpu::{hal::{GLTextureInfo, TextureInner}, wgt},
     util::{ReentrantMutexGuardWrap, ReentrantMutexWrap},
-    AdapterInfo,
+    AdapterInfo, Texture,
 };
 
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
     lock_: ReentrantMutexWrap<()>,
     reentrant_count: Share<AtomicUsize>,
-    egl: Share<ShareCell<Egl>>,
+    pub(crate) egl: Share<ShareCell<Egl>>,
     pub(crate) imp: Share<ShareCell<Option<AdapterContextImpl>>>,
 }
 
@@ -58,10 +58,65 @@ impl Default for AdapterContext {
 
 impl AdapterContext {
     #[inline]
-    pub(crate) fn present(&self, surface: &pi_egl::Surface) {
+    pub(crate) fn present(&self, surface: &pi_egl::Surface, width: i32, height: i32, tex: Option<(&Texture, GLTextureInfo)>) {
         let _lock = self.lock(Some(surface));
-
+        if let Some((tex, info)) = tex {
+            let gl = _lock.get_glow();
+            match &tex.inner.0.inner {
+                TextureInner::Renderbuffer { state, adapter, raw } => {
+                    let cache = &mut state.imp.as_ref().borrow_mut().cache;
+                    let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: info });
+                    Self::blit_framebuffer(&gl, fbo, widt, height);
+                },
+                TextureInner::Texture { state, adapter, raw, target } =>{
+                    let cache = &mut state.imp.as_ref().borrow_mut().cache;
+                    let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: GLTextureInfo::Texture(*raw) });
+                    Self::blit_framebuffer(&gl, fbo, widt, height);
+                },
+                TextureInner::NativeRenderBuffer => {
+                    log::error!("FBO IS Native");
+                }
+            }
+        }
         self.egl.as_ref().borrow().present(surface);
+    }
+
+    fn blit_framebuffer(gl: &glow::Context, fbo: Option<glow::Framebuffer>, width: i32, height: i32) {
+        unsafe { gl.disable(glow::SCISSOR_TEST) };
+        unsafe { gl.color_mask(true, true, true, true) };
+
+        unsafe { gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None) };
+        unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, fbo) };
+
+        // if !matches!(self.srgb_kind, SrgbFrameBufferKind::None) {
+        //     // Disable sRGB conversions for `glBlitFramebuffer` as behavior does diverge between
+        //     // drivers and formats otherwise and we want to ensure no sRGB conversions happen.
+        //     unsafe { gl.disable(glow::FRAMEBUFFER_SRGB) };
+        // }
+
+        // Note the Y-flipping here. GL's presentation is not flipped,
+        // but main rendering is. Therefore, we Y-flip the output positions
+        // in the shader, and also this blit.
+        unsafe {
+            gl.blit_framebuffer(
+                0,
+                height as i32,
+                width as i32,
+                0,
+                0,
+                0,
+                width as i32,
+                height as i32,
+                glow::COLOR_BUFFER_BIT,
+                glow::NEAREST,
+            )
+        };
+
+        // if !matches!(self.srgb_kind, SrgbFrameBufferKind::None) {
+        //     unsafe { gl.enable(glow::FRAMEBUFFER_SRGB) };
+        // }
+
+        unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None) };
     }
 
     #[inline]
@@ -868,7 +923,7 @@ impl Egl {
     }
 
     #[inline]
-    fn get_glow(&self) -> &glow::Context {
+    pub(crate) fn get_glow(&self) -> &glow::Context {
         self.instance.get_glow()
     }
 

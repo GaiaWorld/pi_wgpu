@@ -8,7 +8,7 @@ use pi_time::Instant;
 use std::{hash::{Hash, Hasher}, time::Duration};
 
 use pi_hash::{DefaultHasher, XHashMap, XHashSet};
-use glow::HasContext;
+use glow::{HasContext};
 use pi_share::{cell::TrustCell, Share, ShareWeak};
 use pi_assets::asset::{Asset, Garbageer, Size};
 
@@ -253,16 +253,18 @@ impl GLCache {
         self.program_map.insert(id, Share::downgrade(&program.0));
     }
 
-    pub(crate) fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) {
+    pub(crate) fn bind_fbo(&mut self, gl: &glow::Context, render_target: &RenderTarget) -> Option<glow::Framebuffer> {
         profiling::scope!("hal::GLCache::bind_fbo");
 
         match self.fbo_map.get(render_target) {
             Some(fbo) => unsafe {
                 gl.bind_framebuffer(glow::FRAMEBUFFER, Some(*fbo));
+                Some(*fbo)
             },
             None => unsafe {
                 if let hal::GLTextureInfo::NativeRenderBuffer = &render_target.colors {
                     gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                    None
                 } else {
                     let fbo = gl.create_framebuffer().unwrap();
 
@@ -317,6 +319,7 @@ impl GLCache {
                     }
 
                     self.fbo_map.insert(render_target.clone(), fbo);
+                    Some(fbo)
                 }
             },
         }

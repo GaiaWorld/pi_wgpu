@@ -40,6 +40,8 @@ impl PipelineLayout {
         // We always force point size to be written and it will be ignored by the driver if it's not a point list primitive.
         // https://github.com/gfx-rs/wgpu/pull/3440/files#r1095726950
         writer_flags.set(glsl::WriterFlags::FORCE_POINT_SIZE, true);
+        #[cfg(feature = "webgl_context")]
+        writer_flags.set(glsl::WriterFlags::ADJUST_COORDINATE_SPACE, false);
 
         let mut num_samplers = 0u8;
         let mut num_textures = 0u8;
