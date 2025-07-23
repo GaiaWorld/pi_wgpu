@@ -66,12 +66,12 @@ impl AdapterContext {
                 TextureInner::Renderbuffer { state, adapter, raw } => {
                     let cache = &mut state.imp.as_ref().borrow_mut().cache;
                     let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: info });
-                    Self::blit_framebuffer(&gl, fbo, widt, height);
+                    Self::blit_framebuffer(&gl, fbo, width, height);
                 },
                 TextureInner::Texture { state, adapter, raw, target } =>{
                     let cache = &mut state.imp.as_ref().borrow_mut().cache;
                     let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: GLTextureInfo::Texture(*raw) });
-                    Self::blit_framebuffer(&gl, fbo, widt, height);
+                    Self::blit_framebuffer(&gl, fbo, width, height);
                 },
                 TextureInner::NativeRenderBuffer => {
                     log::error!("FBO IS Native");
