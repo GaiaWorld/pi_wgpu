@@ -780,6 +780,7 @@ pub(crate) struct GLStateImpl {
     clear_color: wgt::Color,
     clear_depth: f32,
     clear_stencil: u32,
+    clear_mask: u32,
 
     // begin_pass 时，会自动设置为渲染目标的 宽 / 高
     viewport: Viewport,
@@ -887,6 +888,7 @@ impl GLStateImpl {
             clear_color: super::super::Color::default(),
             clear_depth: 1.0,
             clear_stencil: 0,
+            clear_mask: 0,
 
             blend_color: [0.0; 4],
             stencil_ref: 0,
@@ -1056,6 +1058,8 @@ impl GLStateImpl {
         // TODO 不支持 多目标 渲染
         assert!(desc.color_attachments.len() == 1);
 
+        self.clear_mask = 0;
+
         let color = desc.color_attachments[0].as_ref().unwrap();
 
         // TODO 不支持 多重采样
@@ -1087,10 +1091,10 @@ impl GLStateImpl {
 
         self.cache.bind_fbo(gl, &render_target);
 
-        // 视口 & 裁剪
-        let size = color.view.get_size();
-        self.set_viewport(gl, 0, 0, size.0 as i32, size.1 as i32);
-        self.set_scissor(gl, 0, 0, size.0 as i32, size.1 as i32);
+        // // 视口 & 裁剪
+        // let size = color.view.get_size();
+        // self.set_viewport(gl, 0, 0, size.0 as i32, size.1 as i32);
+        // self.set_scissor(gl, 0, 0, size.0 as i32, size.1 as i32);
 
         // 清屏
         self.clear_render_target(
@@ -1320,6 +1324,13 @@ impl GLStateImpl {
 
         // if x != s.x || y != s.y || w != s.w || h != s.h {
             unsafe { gl.scissor(x, y, w, h) };
+
+            
+            if self.clear_mask != 0 {
+                unsafe {
+                    gl.clear(self.clear_mask);
+                }
+            }
 
             s.x = x;
             s.y = y;
@@ -2049,24 +2060,25 @@ impl GLStateImpl {
             }
         }
 
-        if clear_mask != 0 {
-            // if self.scissor.is_enable {
-            //     unsafe {
-            //         // 清屏 受到 裁剪的影响，而 wgpu 的接口预期 清 全屏
-            //         gl.disable(glow::SCISSOR_TEST);
-            //     }
-            // }
+        // if clear_mask != 0 {
+        //     // if self.scissor.is_enable {
+        //     //     unsafe {
+        //     //         // 清屏 受到 裁剪的影响，而 wgpu 的接口预期 清 全屏
+        //     //         gl.disable(glow::SCISSOR_TEST);
+        //     //     }
+        //     // }
 
-            unsafe {
-                gl.clear(clear_mask);
-            }
+        //     unsafe {
+        //         gl.clear(clear_mask);
+        //     }
 
-            // if self.scissor.is_enable {
-            //     unsafe {
-            //         gl.enable(glow::SCISSOR_TEST);
-            //     }
-            // }
-        }
+        //     // if self.scissor.is_enable {
+        //     //     unsafe {
+        //     //         gl.enable(glow::SCISSOR_TEST);
+        //     //     }
+        //     // }
+        // }
+        self.clear_mask = clear_mask;
 
         if clear_mask & glow::COLOR_BUFFER_BIT != 0 {
             if let Some((_, color_writes)) = state {
