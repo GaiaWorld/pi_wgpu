@@ -8,7 +8,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use pi_assets::allocator::Allocator;
 use pi_hash::XHashMap;
 
-use glow::HasContext;
+use glow::{HasContext, NativeTexture};
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,
@@ -388,6 +388,14 @@ impl GLState {
             .as_ref()
             .borrow_mut()
             .restore_current_texture(gl, unit, target);
+    }
+
+    #[inline]
+    pub(crate) fn bind_texture(&self, gl: &glow::Context, unit: u32, target: u32, texture: NativeTexture) {
+        self.imp
+            .as_ref()
+            .borrow_mut()
+            .bind_texture(gl, unit, target, texture);
     }
 
     #[inline]
@@ -1773,6 +1781,25 @@ impl GLStateImpl {
                 gl.active_texture(glow::TEXTURE0 + unit);
                 gl.bind_texture(*target, Some(*raw));
             },
+        }
+    }
+    
+    fn bind_texture(&mut self, gl: &glow::Context, unit: u32, target: u32, raw: NativeTexture) {
+        let need_update = match self.textures[unit as usize] {
+            (None, _) => true,
+            (Some((old_target, old_texture)), _) => {
+                old_target != target || old_texture != raw
+            }
+        };
+        if need_update {
+            self.textures[unit as usize].0 =
+                Some((target, raw));
+
+            if self.active_texture_unit != unit {
+                self.active_texture_unit = unit;
+                unsafe { gl.active_texture(glow::TEXTURE0 + unit) };
+            }
+            unsafe{ gl.bind_texture(target, Some(raw));}
         }
     }
 

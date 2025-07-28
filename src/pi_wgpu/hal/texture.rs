@@ -115,10 +115,12 @@ impl Texture {
             }
             let (target, is_3d, is_cubemap) = Texture::get_info_from_desc(&mut copy_size, desc);
 
-            unsafe {
-                // gl.active_texture(glow::TEXTURE0);
-                gl.bind_texture(target, Some(raw));
-            };
+            state.bind_texture(&*gl, 0, target, raw);
+            // unsafe {
+            //     gl.active_texture(glow::TEXTURE0);
+            //     gl.bind_texture(target, Some(raw));
+            //     state
+            // };
             #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
             unsafe {
                 match gl.get_error() {
@@ -371,6 +373,7 @@ impl Texture {
         let  gl = lock.get_glow();
 
         unsafe {
+            state.bind_texture(&*gl, 0, dst_target, raw);
             // gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(dst_target, Some(raw));
             #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
@@ -657,7 +660,8 @@ impl Texture {
 
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(dst_target, None);
+            // gl.bind_texture(dst_target, None);
+            // state.bind_texture(gl, 0, target, raw);
         }
         #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
         unsafe {
@@ -698,7 +702,8 @@ impl Texture {
 
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(dst_target, Some(raw));
+            // gl.bind_texture(dst_target, Some(raw));
+            state.bind_texture(gl, 0, target, raw);
             #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
             unsafe {
                 match gl.get_error() {
@@ -795,7 +800,7 @@ impl Texture {
         }
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(dst_target, None);
+            // gl.bind_texture(dst_target, None);
         }
         #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
         unsafe {
@@ -865,7 +870,8 @@ impl Texture {
 
         unsafe {
             // gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(dst_target, Some(raw));
+            // gl.bind_texture(dst_target, Some(raw));
+            state.bind_texture(gl, 0, target, raw);
             #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
             unsafe {
                 match gl.get_error() {
@@ -1005,7 +1011,8 @@ impl Texture {
         }
 
         unsafe {
-        gl.bind_texture(dst_target, None);
+            // gl.active_texture(glow::TEXTURE0);
+            // gl.bind_texture(dst_target, None);
         }
         #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
         unsafe {
