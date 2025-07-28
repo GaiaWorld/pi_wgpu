@@ -8,7 +8,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use pi_assets::allocator::Allocator;
 use pi_hash::XHashMap;
 
-use glow::{HasContext, NativeTexture};
+use glow::HasContext;
 use naga::{
     back::glsl::{self, ReflectionInfo},
     proc::BoundsCheckPolicy,
@@ -391,7 +391,7 @@ impl GLState {
     }
 
     #[inline]
-    pub(crate) fn bind_texture(&self, gl: &glow::Context, unit: u32, target: u32, texture: NativeTexture) {
+    pub(crate) fn bind_texture(&self, gl: &glow::Context, unit: u32, target: u32, texture: <glow::Context as HasContext>::Texture) {
         self.imp
             .as_ref()
             .borrow_mut()
@@ -1784,7 +1784,7 @@ impl GLStateImpl {
         }
     }
     
-    fn bind_texture(&mut self, gl: &glow::Context, unit: u32, target: u32, raw: NativeTexture) {
+    fn bind_texture(&mut self, gl: &glow::Context, unit: u32, target: u32, raw: <glow::Context as HasContext>::Texture) {
         let need_update = match self.textures[unit as usize] {
             (None, _) => true,
             (Some((old_target, old_texture)), _) => {
