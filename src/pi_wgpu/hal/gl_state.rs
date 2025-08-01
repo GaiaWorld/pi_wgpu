@@ -938,6 +938,7 @@ impl GLStateImpl {
             gl.clear_stencil(0);
         }
         self.clear_stencil = 0;
+        self.clear_mask = 0;
 
         self.viewport = Default::default();
         self.scissor = Default::default();
@@ -1362,6 +1363,8 @@ impl GLStateImpl {
                 unsafe {
                     gl.clear(self.clear_mask);
                 }
+
+                self.clear_mask = 0;
                 
                 // 还原color_mask和depth_mask， 与当前pipeline保持一致
                 if color_writes != ColorWrites::ALL {
