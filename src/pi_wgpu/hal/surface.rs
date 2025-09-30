@@ -119,7 +119,7 @@ impl SurfaceImpl {
         handle: &W,
     ) -> Result<Self, super::InstanceError> {
         let raw = adapter.create_surface(&handle)?;
-
+    
         Ok(Self {
             raw,
             adapter,
@@ -216,7 +216,7 @@ struct BlitVertex {
     pos: [f32; 2],
     uv: [f32; 2],
 }
-
+static PIXEL_RATIO: f32  = 0.5;
 #[derive(Debug)]
 struct SwapChain {
     encoder: crate::CommandEncoder,
@@ -230,7 +230,7 @@ struct SwapChain {
     texture: crate::Texture,
     bg: crate::BindGroup,
 
-    native_texture: crate::Texture,
+    // native_texture: crate::Texture,
     texture_view: TextureView,
     // 初始化 有值
     // 每次 acquire_texture 就为 None
@@ -406,8 +406,8 @@ impl SwapChain {
         let texture =
             Self::create_surface_texture(device, config.width, config.height, config.format);
 
-        let native_texture =
-            device.create_texture_from_surface(config.width, config.height, config.format);
+        // let native_texture =
+        //     device.create_texture_from_surface((config.width as f32 * PIXEL_RATIO) as u32, (config.height as f32 * PIXEL_RATIO) as u32, config.format);
 
         let texture_view = texture.create_view(&Default::default());
         // let texture1 = device.create_texture(&TextureDescriptor { label: None, size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1, dimension: crate::TextureDimension::D2, format: crate::TextureFormat::Rgba8Unorm, usage: crate::TextureUsages::from_bits(20).unwrap()/*TextureUsages(TEXTURE_BINDING | RENDER_ATTACHMENT)*/, view_formats: &[] }); 
@@ -443,7 +443,7 @@ impl SwapChain {
             texture,
             current_texture,
 
-            native_texture,
+            // native_texture,
             texture_view
         }
     }
@@ -455,8 +455,8 @@ impl SwapChain {
         if need_update_texture {
             self.texture =
                 Self::create_surface_texture(device, config.width, config.height, config.format);
-            self.native_texture =
-                device.create_texture_from_surface(config.width, config.height, config.format);
+            // self.native_texture =
+            //     device.create_texture_from_surface((config.width as f32 * PIXEL_RATIO) as u32, (config.height as f32 * PIXEL_RATIO) as u32, config.format);
             let texture_view = self.texture.create_view(&Default::default());
 
 
@@ -484,45 +484,46 @@ impl SwapChain {
 
     fn draw_y_flip(&mut self) {
         // log::warn!("aaaa==========");
-        let view = self.native_texture.create_view(&Default::default());
-        {
-            self
-            .encoder
-            .begin_render_pass(&super::super::RenderPassDescriptor {
-                label: Some("Flip-Y RenderPass"),
-                color_attachments: &[Some(super::super::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: super::super::Operations {
-                        load: super::super::LoadOp::Clear(Color::TRANSPARENT),
-                        store: crate::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
-        let mut rp = self
-            .encoder
-            .begin_render_pass(&super::super::RenderPassDescriptor {
-                label: Some("Flip-Y RenderPass"),
-                color_attachments: &[Some(super::super::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: super::super::Operations {
-                        load: super::super::LoadOp::Load,
-                        store: crate::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        rp.set_pipeline(&self.rp);
-        rp.set_bind_group(0, &self.bg, &[]);
-        rp.set_vertex_buffer(0, self.vb.slice(..));
-        rp.draw(0..6, 0..1);
+        // let view = self.native_texture.create_view(&Default::default());
+        // {
+        //     self
+        //     .encoder
+        //     .begin_render_pass(&super::super::RenderPassDescriptor {
+        //         label: Some("Flip-Y RenderPass"),
+        //         color_attachments: &[Some(super::super::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None,
+        //             ops: super::super::Operations {
+        //                 load: super::super::LoadOp::Clear(Color::TRANSPARENT),
+        //                 store: crate::StoreOp::Store,
+        //             },
+        //         })],
+        //         depth_stencil_attachment: None,
+        //         timestamp_writes: None,
+        //         occlusion_query_set: None,
+        //     });
+        // }
+        // let mut rp = self
+        //     .encoder
+        //     .begin_render_pass(&super::super::RenderPassDescriptor {
+        //         label: Some("Flip-Y RenderPass"),
+        //         color_attachments: &[Some(super::super::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None,
+        //             ops: super::super::Operations {
+        //                 load: super::super::LoadOp::Load,
+        //                 store: crate::StoreOp::Store,
+        //             },
+        //         })],
+        //         depth_stencil_attachment: None,
+        //         timestamp_writes: None,
+        //         occlusion_query_set: None,
+        //     });
+        // rp.set_pipeline(&self.rp);
+        // // rp.set_viewport(x, y, w, h, min_depth, max_depth);
+        // rp.set_bind_group(0, &self.bg, &[]);
+        // rp.set_vertex_buffer(0, self.vb.slice(..));
+        // rp.draw(0..6, 0..1);
 
         // rp.flush();
     }

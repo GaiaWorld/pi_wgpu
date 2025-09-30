@@ -59,6 +59,8 @@ impl Default for AdapterContext {
 impl AdapterContext {
     #[inline]
     pub(crate) fn present(&self, surface: &pi_egl::Surface, width: i32, height: i32, tex: Option<(&Texture, GLTextureInfo)>) {
+        let window_width = surface.width;
+        let window_height = surface.height;
         let _lock = self.lock(Some(surface));
         if let Some((tex, info)) = tex {
             let gl = _lock.get_glow();
@@ -66,12 +68,12 @@ impl AdapterContext {
                 TextureInner::Renderbuffer { state, adapter, raw } => {
                     let cache = &mut state.imp.as_ref().borrow_mut().cache;
                     let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: info });
-                    Self::blit_framebuffer(&gl, fbo, width, height);
+                    Self::blit_framebuffer(&gl, fbo, width, height, window_width, window_height);
                 },
                 TextureInner::Texture { state, adapter, raw, target } =>{
                     let cache = &mut state.imp.as_ref().borrow_mut().cache;
                     let fbo = cache.bind_fbo(&gl, &super::RenderTarget { depth_stencil: None, colors: GLTextureInfo::Texture(*raw) });
-                    Self::blit_framebuffer(&gl, fbo, width, height);
+                    Self::blit_framebuffer(&gl, fbo, width, height, window_width, window_height);
                 },
                 TextureInner::NativeRenderBuffer => {
                     log::error!("FBO IS Native");
@@ -81,7 +83,7 @@ impl AdapterContext {
         self.egl.as_ref().borrow().present(surface);
     }
 
-    fn blit_framebuffer(gl: &glow::Context, fbo: Option<glow::Framebuffer>, width: i32, height: i32) {
+    fn blit_framebuffer(gl: &glow::Context, fbo: Option<glow::Framebuffer>, width: i32, height: i32, window_width: i32, window_height: i32,) {
         unsafe { gl.disable(glow::SCISSOR_TEST) };
         unsafe { gl.color_mask(true, true, true, true) };
 
@@ -105,10 +107,10 @@ impl AdapterContext {
                 0,
                 0,
                 0,
-                width as i32,
-                height as i32,
+                window_width,
+                window_height,
                 glow::COLOR_BUFFER_BIT,
-                glow::NEAREST,
+                glow::LINEAR,
             )
         };
 
