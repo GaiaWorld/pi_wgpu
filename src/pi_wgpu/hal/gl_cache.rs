@@ -291,28 +291,28 @@ impl GLCache {
                         }
                     }
 
-                    // if let Some(depth_stencil) = &render_target.depth_stencil {
-                    //     match depth_stencil {
-                    //         hal::GLTextureInfo::NativeRenderBuffer => unreachable!(),
-                    //         hal::GLTextureInfo::Renderbuffer(raw) => {
-                    //             gl.framebuffer_renderbuffer(
-                    //                 glow::FRAMEBUFFER,
-                    //                 glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
-                    //                 glow::RENDERBUFFER,
-                    //                 Some(*raw),
-                    //             );
-                    //         }
-                    //         hal::GLTextureInfo::Texture(raw) => {
-                    //             gl.framebuffer_texture_2d(
-                    //                 glow::FRAMEBUFFER,
-                    //                 glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
-                    //                 glow::TEXTURE_2D,
-                    //                 Some(*raw),
-                    //                 0,
-                    //             );
-                    //         }
-                    //     }
-                    // }
+                    if let Some(depth_stencil) = &render_target.depth_stencil {
+                        match depth_stencil {
+                            hal::GLTextureInfo::NativeRenderBuffer => unreachable!(),
+                            hal::GLTextureInfo::Renderbuffer(raw) => {
+                                gl.framebuffer_renderbuffer(
+                                    glow::FRAMEBUFFER,
+                                    glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
+                                    glow::RENDERBUFFER,
+                                    Some(*raw),
+                                );
+                            }
+                            hal::GLTextureInfo::Texture(raw) => {
+                                gl.framebuffer_texture_2d(
+                                    glow::FRAMEBUFFER,
+                                    glow::DEPTH_ATTACHMENT, // GL_STENCIL_ATTACHMENT 会 自动绑定
+                                    glow::TEXTURE_2D,
+                                    Some(*raw),
+                                    0,
+                                );
+                            }
+                        }
+                    }
                     let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                     if status != glow::FRAMEBUFFER_COMPLETE {
                         panic!("bind_fbo error, reason = {}, colors: {:?}, depth: {:?}", status, &render_target.colors, &render_target.depth_stencil);
