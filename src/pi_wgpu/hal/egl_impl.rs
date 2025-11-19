@@ -1,5 +1,5 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -13,7 +13,7 @@ use crate::{
     util::{ReentrantMutexGuardWrap, ReentrantMutexWrap},
     AdapterInfo, Texture,
 };
-
+pub static IS_QUALCOMM: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
 pub(crate) struct AdapterContext {
     lock_: ReentrantMutexWrap<()>,
@@ -367,8 +367,9 @@ impl AdapterContextImpl {
 
             (vendor, renderer)
         };
-        // log::info!("GL Renderer: {}", renderer);
-        // log::info!("GL Vendor: {}", vendor);
+        log::info!("GL Renderer: {}", renderer);
+        log::info!("GL Vendor: {}", vendor);
+        IS_QUALCOMM.store(renderer.contains("adreno") || renderer.contains("Adreno"), Ordering::Relaxed); 
 
         // ========== 3. glsl shader 版本
 

@@ -1,8 +1,10 @@
+use std::sync::atomic::Ordering;
 use std::{ops::Range, sync::atomic::AtomicU32};
 
 use glow::HasContext;
 use pi_share::Share;
 
+use crate::pi_wgpu::hal::IS_QUALCOMM;
 use crate::TextureFormat;
 
 use super::super::{hal::gl_conv as conv, wgt};
@@ -544,6 +546,7 @@ impl Texture {
             unsafe { gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4) };   
         } else {
             let data = glow::CompressedPixelUnpackData::Slice(data1);
+            let pixel_size = get_pixel_size(data1.len() as i32, size.width as i32, size.height as i32,copy.origin.y as i32, format_desc.internal);
             match dst_target {
                 glow::TEXTURE_3D | glow::TEXTURE_CUBE_MAP_ARRAY | glow::TEXTURE_2D_ARRAY => {
                     
@@ -586,6 +589,7 @@ impl Texture {
                             size.height as i32,
                             size.depth_or_array_layers as i32,
                             format_desc.internal,
+                            pixel_size,
                             data,
                         );
                         #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
@@ -607,6 +611,7 @@ impl Texture {
                             size.width as i32,
                             size.height as i32,
                             format_desc.internal,
+                            pixel_size,
                             data,
                         )
                     };
@@ -635,6 +640,7 @@ impl Texture {
                             size.width as i32,
                             size.height as i32,
                             format_desc.internal,
+                            pixel_size,
                             data,
                         );
                         #[cfg(all(target_arch = "wasm32", feature = "geterror"))]
@@ -1247,5 +1253,22 @@ fn is_layered_target(target: u32) -> bool {
         glow::TEXTURE_2D | glow::TEXTURE_CUBE_MAP => false,
         glow::TEXTURE_2D_ARRAY | glow::TEXTURE_3D => true,
         _ => unreachable!(),
+    }
+}
+
+fn get_pixel_size(original_size: i32, width: i32, height: i32, y_offset: i32, format: u32) -> i32 {
+    // 高通gpu单独做处理
+    if IS_QUALCOMM.load(Ordering::Relaxed) {
+        match format {
+            glow::COMPRESSED_RGBA_ASTC_4x4_KHR => ((y_offset + height) / 4) * (width / 4) * 16,
+            glow::COMPRESSED_RGBA_ASTC_5x5_KHR => ((y_offset + height) / 5) * (width / 5) * 16,
+            glow::COMPRESSED_RGBA_ASTC_6x6_KHR => ((y_offset + height) / 6) * (width / 6) * 16,
+            glow::COMPRESSED_RGBA_ASTC_8x8_KHR => ((y_offset + height) / 8) * (width / 8) * 16,
+            glow::COMPRESSED_RGBA_ASTC_10x10_KHR => ((y_offset + height) / 10) * (width / 10) * 16,
+            glow::COMPRESSED_RGBA_ASTC_12x12_KHR => ((y_offset + height) / 12) * (width / 12) * 16,
+            _ => panic!("not surpport compressed texture {}", format),
+        }
+    } else {
+        original_size
     }
 }
