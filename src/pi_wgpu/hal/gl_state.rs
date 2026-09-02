@@ -365,6 +365,10 @@ impl GLState {
 
     pub(crate) fn remove_buffer(&self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
         profiling::scope!("hal::GLState::remove_buffer");
+        // println!(
+        //     "[VAO-DIAG] GLState::remove_buffer: raw={}, target=0x{:04X}",
+        //     buffer.0, bind_target
+        // );
 
         // log::trace!(
         //     "========== GLState::remove_buffer 2 lock, thread_id = {:?}",
@@ -815,6 +819,8 @@ pub(crate) struct GLStateImpl {
     >,
 
     group_dirty: usize,
+    is_first: bool,
+    clear_depth_count: u32,
 }
 
 
@@ -906,6 +912,8 @@ impl GLStateImpl {
             ubos: ubos.into_boxed_slice(),
             textures: textures.into_boxed_slice(),
             group_dirty: 0,
+            is_first: true,
+            clear_depth_count: 0,
         }
     }
 
@@ -1363,7 +1371,50 @@ impl GLStateImpl {
                 unsafe {
                     gl.clear(self.clear_mask);
                 }
+                if self.clear_mask == glow::DEPTH_BUFFER_BIT {
+                    self.clear_depth_count += 1;
+                }
+                // unsafe {
+                //     let err = gl.get_error();
+                //     if err != 0 && self.is_first {
+                //         // self.is_first = false;
+                //         if self.clear_mask == glow::DEPTH_BUFFER_BIT{
+                //             // self.clear_depth
+                //             log::error!("gl.clear!! DEPTH_BUFFER_BIT: {}; COLOR_BUFFER_BIT: {}; clear_mask: {}, value: {}, count: {}",glow::DEPTH_BUFFER_BIT,  glow::COLOR_BUFFER_BIT,self.clear_mask, self.clear_depth, self.clear_depth_count);
+                //         } else {
+                //             log::error!("gl.clear!! DEPTH_BUFFER_BIT: {}; COLOR_BUFFER_BIT: {}; clear_mask: {}, value: {:?}",glow::DEPTH_BUFFER_BIT,  glow::COLOR_BUFFER_BIT,self.clear_mask, self.clear_color);
+                //         }
+                        
+                //         log::error!("======= gl.clear error: {}", err);
+                //         log::error!("当前绘制的FBO: {}", gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING));
+                //         log::error!("当前读取的FBO: {}", gl.get_parameter_i32(glow::READ_FRAMEBUFFER_BINDING));
+                //         let current_fbo= gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING);
+                //         log::error!("当前绑定的FBO: {}", current_fbo);
 
+                //         // let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+                //         // match status {
+                //         //     glow::FRAMEBUFFER_COMPLETE=>log::error!("FBO完整。"),
+                //         //     glow::FRAMEBUFFER_INCOMPLETE_ATTACHMENT=>log::error!("一个或多个附件不完整。"),
+                //         //     glow::FRAMEBUFFER_INCOMPLETE_DIMENSIONS =>log::error!("所有附件必须有相同的宽度和高度。"),
+                //         //     glow::FRAMEBUFFER_UNSUPPORTED =>log::error!("附件的格式组合不受支持。（这是常见原因）"),
+                //         //     _=>log::error!("FBO不完整，未知状态: {}", status),
+                //         // }
+                //         // gl.clear(self.clear_mask);
+                //         // let err = gl.get_error();
+                //         // log::error!("======== 再次尝试 clear {} error : {}", self.clear_mask, err);
+                //         // if err != 0 {
+                //         //     gl.bind_framebuffer(glow::FRAMEBUFFER, None); // 绑定到默认缓冲区
+                //         //     gl.clear(self.clear_mask);
+                //         //     let err = gl.get_error();
+                //         //     if err != 0 {
+                //         //         log::error!("======== 解绑fbo后 clear {} error : {}", self.clear_mask, err);
+                //         //     }else{
+                //         //         log::error!("======== 解绑fbo后 clear {} succeed!!!", self.clear_mask,);
+                //         //     }
+                //         //     self.is_first = false;
+                //         // } 
+                //     }
+                // }
                 self.clear_mask = 0;
                 
                 // 还原color_mask和depth_mask， 与当前pipeline保持一致
@@ -1782,6 +1833,10 @@ impl GLStateImpl {
     }
 
     fn remove_buffer(&mut self, gl: &glow::Context, bind_target: u32, buffer: glow::Buffer) {
+        // println!(
+        //     "[VAO-DIAG] GLStateImpl::remove_buffer: raw={}, target=0x{:04X}",
+        //     buffer.0, bind_target
+        // );
         if bind_target == glow::UNIFORM_BUFFER {
             for ubo in self.ubos.iter_mut() {
                 let need_update = if let Some(u) = ubo {
@@ -1795,6 +1850,7 @@ impl GLStateImpl {
                 }
             }
         } else {
+            // println!("[VAO-DIAG] GLStateImpl::remove_buffer: calling cache.remove_buffer raw={}", buffer.0);
             self.cache.remove_buffer(gl, bind_target, buffer);
         }
     }
@@ -2486,14 +2542,20 @@ impl Default for Scissor {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct VBState {
     pub(crate) raw: glow::Buffer,
     pub(crate) offset: i32,
     pub(crate) size: i32,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+impl Hash for VBState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct IBState {
     pub(crate) raw: glow::Buffer,
 
@@ -2502,6 +2564,12 @@ pub(crate) struct IBState {
 
     pub(crate) size: i32,
     pub(crate) offset: i32,
+}
+
+impl Hash for IBState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

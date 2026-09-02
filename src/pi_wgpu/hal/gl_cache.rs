@@ -13,7 +13,7 @@ use pi_share::{cell::TrustCell, Share, ShareWeak};
 use pi_assets::asset::{Asset, Garbageer, Size};
 
 use super::{
-    super::hal, AttributeState, BlendState, BlendStateImpl, DepthState, DepthStateImpl,
+    super::hal, AttributeState, AttributeInfo, BlendState, BlendStateImpl, DepthState, DepthStateImpl,
     RasterState, RasterStateImpl, RenderTarget, ShaderID, StencilState, StencilStateImpl, VBState,
 };
 
@@ -45,6 +45,8 @@ pub(crate) struct GLCache {
 
     // vao: Option<Handle<VertexArrayAsset>>,
     vao: Option<glow::VertexArray>,
+    vao_states: [Option<AttributeInfo>;16],
+    first_instance: u32,
 
     shader_binding_map: super::ShaderBindingMap,
     // vao_map: Share<AssetMgr<VertexArrayAsset, VaoGarbage>>,
@@ -71,7 +73,8 @@ impl GLCache {
         let vao_map = XHashMap::default();
         Self {
             vao: None,
-
+            first_instance: 0,
+            vao_states: [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None],
             last_clear_time: Instant::now(),
             vao_map,
             garbage_vao,
@@ -341,6 +344,7 @@ impl GLCache {
         profiling::scope!("hal::GLCache::bind_vao");
 
         let hash = geometry.hash;
+        let mut diff_vao_state = false;
 
         match self.vao_map.get(&hash) {
             Some(vao) => unsafe {
@@ -353,14 +357,27 @@ impl GLCache {
                     gl.bind_vertex_array(Some(*vao));
                     self.vao = Some(*vao);
                 }
+
             },
             None => unsafe {
+                diff_vao_state = true;
                 let vao = gl.create_vertex_array().unwrap();
                 gl.bind_vertex_array(Some(vao));
 
                 // let vao = self.vao_map.insert(hash, VertexArrayAsset(vao)).unwrap();
                 self.vao_map.insert(hash, vao.clone());
                 self.vao = Some(vao);
+                let vao_cache_len = self.vao_map.len();
+                if vao_cache_len % 10 == 0 {
+                    log::warn!(
+                        "[VAO-DIAG] cache miss: cache_size={}, hash={}, first_instance={}, vertex_buffers={}, index_buffer={}",
+                        vao_cache_len,
+                        hash,
+                        geometry.first_instance,
+                        geometry.vbs.len(),
+                        geometry.ib.is_some(),
+                    );
+                }
 
                 
 
@@ -373,72 +390,78 @@ impl GLCache {
                         std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
                     };
                 }
-                
+            },
+        }
+        unsafe {
 
-                for (i, attrib) in geometry.attributes.info.iter().enumerate() {
-                    let i = i as u32;
+        for (i, attrib) in geometry.attributes.info.iter().enumerate() {
+            let i = i as u32;
 
-                    match attrib {
-                        None => {
-                            // TODO 有些低端的Android机子，可能需要显示设置
-                            // gl.disable_vertex_attrib_array(i);
-                        }
-                        Some(attrib) => {
-                            gl.enable_vertex_attrib_array(i);
-                            let vb = geometry.vbs[attrib.buffer_slot].as_ref().unwrap();
+            diff_vao_state = true; // diff_vao_state || self.vao_states.get(i).is_none() != attrib;
+            if diff_vao_state {
+                // self.vao_states[i as usize] = attrib.clone();
+                match attrib {
+                    None => {
+                        // TODO 有些低端的Android机子，可能需要显示设置
+                        // gl.disable_vertex_attrib_array(i);
+                    }
+                    Some(attrib) => {
+                        gl.enable_vertex_attrib_array(i);
+                        let vb = geometry.vbs[attrib.buffer_slot].as_ref().unwrap();
 
-                            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vb.raw));
+                        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vb.raw));
 
-                            // 创建vb与vao之间的关系
-                            match self.buffer_vao_map.entry(vb.raw) {
-                                std::collections::hash_map::Entry::Occupied(mut r) => {
-                                    let rr = r.get_mut();
-                                    if let Some(r) = rr.last() {
-                                        if *r != hash {
-                                            // log::warn!("Creating new VAO: {:?}, first_instance: {:?},  len: {:?},  ib: {:?}, vbs: {:?}", hash, geometry.first_instance, rr.len(), &geometry.ib,  &vb);
-                                            rr.push(hash);
-                                        }
+                        // 创建vb与vao之间的关系
+                        match self.buffer_vao_map.entry(vb.raw) {
+                            std::collections::hash_map::Entry::Occupied(mut r) => {
+                                let rr = r.get_mut();
+                                if let Some(r) = rr.last() {
+                                    if *r != hash {
+                                        // log::warn!("Creating new VAO: {:?}, first_instance: {:?},  len: {:?},  ib: {:?}, vbs: {:?}", hash, geometry.first_instance, rr.len(), &geometry.ib,  &vb);
+                                        rr.push(hash);
                                     }
-                                },
-                                std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
-                            };
-
-                            let mut offset = attrib.attrib_offset + vb.offset;
-                            if attrib.is_buffer_instance {
-                                offset +=  geometry.first_instance as i32 * attrib.attrib_stride;
-                            }
-
-                            // log::warn!("bind buffer: {:?}", (offset, i, attrib.attrib_stride, attrib.element_count, &attrib.attrib_kind, vb.raw));
-
-                            match attrib.attrib_kind {
-                                super::VertexAttribKind::Float => {
-                                    gl.vertex_attrib_pointer_f32(
-                                        i,
-                                        attrib.element_count,
-                                        attrib.element_format,
-                                        true, // always normalized
-                                        attrib.attrib_stride,
-                                        offset,
-                                    );
                                 }
-                                super::VertexAttribKind::Integer => {
-                                    gl.vertex_attrib_pointer_i32(
-                                        i,
-                                        attrib.element_count,
-                                        attrib.element_format,
-                                        attrib.attrib_stride,
-                                        offset,
-                                    );
-                                }
-                            }
+                            },
+                            std::collections::hash_map::Entry::Vacant(r) => {r.insert(vec![hash]);},
+                        };
 
-                            // 实例化
-                            let step = if attrib.is_buffer_instance { 1 } else { 0 };
-                            gl.vertex_attrib_divisor(i, step);
+                        let mut offset = attrib.attrib_offset + vb.offset;
+                        if attrib.is_buffer_instance {
+                            offset +=  geometry.first_instance as i32 * attrib.attrib_stride;
                         }
+
+                        // log::warn!("bind buffer: {:?}", (offset, i, attrib.attrib_stride, attrib.element_count, &attrib.attrib_kind, vb.raw));
+
+                        match attrib.attrib_kind {
+                            super::VertexAttribKind::Float => {
+                                gl.vertex_attrib_pointer_f32(
+                                    i,
+                                    attrib.element_count,
+                                    attrib.element_format,
+                                    true, // always normalized
+                                    attrib.attrib_stride,
+                                    offset,
+                                );
+                            }
+                            super::VertexAttribKind::Integer => {
+                                gl.vertex_attrib_pointer_i32(
+                                    i,
+                                    attrib.element_count,
+                                    attrib.element_format,
+                                    attrib.attrib_stride,
+                                    offset,
+                                );
+                            }
+                        }
+
+                        // 实例化
+                        let step = if attrib.is_buffer_instance { 1 } else { 0 };
+                        gl.vertex_attrib_divisor(i, step);
                     }
                 }
-            },
+            }
+        }
+
         }
     }
 
@@ -509,8 +532,17 @@ impl GLCache {
         buffer: glow::Buffer,
     ) {
         profiling::scope!("hal::GLCache::remove_buffer");
+        log::warn!(
+            "[VAO-DIAG] GLCache::remove_buffer: raw={}, target=0x{:04X}, cache_size={}",
+            111,
+            bind_target,
+            self.vao_map.len(),
+        );
         if bind_target == glow::ARRAY_BUFFER || bind_target == glow::ELEMENT_ARRAY_BUFFER {
             if let Some(r) = self.buffer_vao_map.remove(&buffer) {
+                let associated_key_count = r.len();
+                let mut removed_vao_count = 0;
+                let mut count = 0;
                 for hash in r.into_iter() {
                     if let Some(vao) = self.vao_map.get(&hash) {
                         unsafe {
@@ -525,8 +557,20 @@ impl GLCache {
                         }
 
                         self.vao_map.remove(&hash);
+                        removed_vao_count += 1;
+                        count += 1;
                     }
                 }
+                log::warn!(
+                    "[VAO-DIAG] remove_buffer: target=0x{:04X}, associated_keys={}, removed_vaos={}, cache_size={}, count= {}",
+                    bind_target,
+                    associated_key_count,
+                    removed_vao_count,
+                    self.vao_map.len(),
+                    count
+                );
+            } else {
+                log::warn!("[VAO-DIAG] GLCache::remove_buffer: no associated VAO raw={}", 2222);
             }
         } else {
             unreachable!();
@@ -600,7 +644,7 @@ impl GeometryState {
         attributes.hash(&mut state);
         vbs.hash(&mut state);
         ib.hash(&mut state);
-        first_instance.hash(&mut state);
+        // first_instance.hash(&mut state);
 
         Self {
             attributes,

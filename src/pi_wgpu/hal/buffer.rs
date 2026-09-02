@@ -71,6 +71,10 @@ impl Drop for BufferImpl {
     fn drop(&mut self) {
         let lock = self.adapter.lock(None);
         let gl = lock.get_glow();
+        // println!(
+        //     "[VAO-DIAG] buffer drop: raw={}, target=0x{:04X}",
+        //     self.raw.0, self.gl_target
+        // );
 
         #[cfg(not(target_arch = "wasm32"))]
         log::trace!("{{let _a = buffer{:?};}}", self.raw.0);
@@ -79,6 +83,7 @@ impl Drop for BufferImpl {
             gl.delete_buffer(self.raw);
         }
 
+        // println!("[VAO-DIAG] buffer drop: calling state.remove_buffer raw={}", self.raw.0);
         self.state.remove_buffer(&gl, self.gl_target, self.raw);
     }
 }
