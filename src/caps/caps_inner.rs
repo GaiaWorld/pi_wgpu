@@ -3,6 +3,8 @@
 //! 特判表=全库唯一「按设备名打补丁」容器：新增问题驱动特判只在 SPECIAL_ROWS 加一行——
 //! probe 据此写快照标志位、fill 据此算降级清除位，两处消费同源于表，禁止调用点散写。
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
 use pi_glow::HasContext;
 
 use crate::caps::Caps;
@@ -44,6 +46,66 @@ const FEAT_TEXTURE_COMPRESSION_ETC2: u64 = 1 << 4;
 const FEAT_TEXTURE_COMPRESSION_ASTC: u64 = 1 << 5;
 /// FLOAT32_FILTERABLE：官方位 1<<11。
 const FEAT_FLOAT32_FILTERABLE: u64 = 1 << 11;
+
+/// —— 最近一次探测快照缓存（芯内驻留；probe 写·formats 等实现批门控读）——
+/// 能力位 family 读数（CAP_* 全位域，含形态标记位）。写序：family→meta→READY(release)。
+static CAPS_FAMILY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// 元读数打包：主版低 8 | 次版 8..16 | embedded 1<<16 | qualcomm 1<<17 | ios18 1<<18。
+static CAPS_META: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// 快照有效标志：false=尚未 attach 后即探（消费端=断言，不静默放行）。
+static CAPS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 探测快照的锁外轻量读数（门控消费形制；权威仍是 Caps 快照本体——此处为同值副本）。
+pub(crate) struct LatestCaps {
+    /// 能力位 family（含形态标记位）。
+    pub(crate) family: u64,
+    /// 核心版本对（主, 次）。
+    pub(crate) version: (u32, u32),
+    /// 形态标记：GLES/WebGL2。
+    pub(crate) es: bool,
+}
+
+/// probe 末尾写入缓存（release 序：读者见 READY=true 时 family/meta 必然同代）。
+fn store_latest(c: &Caps) {
+    CAPS_FAMILY.store(c._ext_family, Ordering::Release);
+    let meta: u64 = (c._gl_version.0 as u64 & 0xFF)
+        | ((c._gl_version.1 as u64 & 0xFF) << 8)
+        | (if (c._ext_family & CAP_EMBEDDED) != 0 { 1 << 16 } else { 0 })
+        | (if c._qualcomm { 1 << 17 } else { 0 })
+        | (if c._ios18 { 1 << 18 } else { 0 });
+    CAPS_META.store(meta, Ordering::Release);
+    CAPS_READY.store(true, Ordering::Release);
+}
+
+/// 锁外读最近快照；未探=None（消费端断言话术自带上下文）。
+pub(crate) fn latest_caps() -> Option<LatestCaps> {
+    if !CAPS_READY.load(Ordering::Acquire) {
+        return None;
+    }
+    let family = CAPS_FAMILY.load(Ordering::Acquire);
+    let meta = CAPS_META.load(Ordering::Acquire);
+    Some(LatestCaps {
+        family,
+        version: ((meta as u32) & 0xFF, ((meta >> 8) as u32) & 0xFF),
+        es: (meta & (1 << 16)) != 0,
+    })
+}
+
+/// 测试注入口：无 GL 环境验证门控表路径（仅测试构型可见，产品路径由 probe 写）。
+#[cfg(test)]
+pub(crate) fn inject_latest(family: u64, version: (u32, u32), es: bool) {
+    let mut f = family;
+    if es {
+        f |= CAP_EMBEDDED;
+    }
+    let mut c = Caps { _gl_version: version, _qualcomm: false, _ios18: false, _ext_family: f };
+    if es {
+        c._ext_family |= CAP_EMBEDDED;
+    } else {
+        c._ext_family &= !CAP_EMBEDDED;
+    }
+    store_latest(&c);
+}
 
 /// 特判标志路由：命中特判行=置 Caps 快照的哪个布尔位（与壳快照字段一一对应）。
 enum JudgmentFlag {
@@ -200,7 +262,9 @@ pub(crate) fn probe_impl() -> Caps {
             exts.len()
         );
         let _ = vendor;
-        Caps { _gl_version: (ver.major, ver.minor), _qualcomm: qualcomm, _ios18: ios18, _ext_family: family }
+        let caps = Caps { _gl_version: (ver.major, ver.minor), _qualcomm: qualcomm, _ios18: ios18, _ext_family: family };
+        store_latest(&caps);
+        caps
     })
 }
 
