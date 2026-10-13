@@ -4,7 +4,14 @@
 
 /// 附着体=库内私有句柄包装：EGL 显示/上下文/表面三元组与 GL 入口的聚合（Web 形态退化为画布上下文变体）。
 /// 不变量：generation 全局单调增；任何驱动调用只允许在重入锁内发生。 @internal
-#[derive(Debug)] pub struct Attachment { pub(crate) _raw: (), pub(crate) generation: u32 }
+#[derive(Debug)]
+pub struct Attachment {
+    /// 附着体代表占位（骨架期 ()）：真实附着资源驻留 context 芯全局槽，本结构=代号读数载体；
+    /// 官方挂接批如引入跨线程引用链在此形制换位（签名不变表示替换=合法）。
+    pub(crate) _raw: (),
+    /// 读取时的附着代号（失配判定基准；单调增）。
+    pub(crate) generation: u32,
+}
 /// 附着槽占位声明：实现批改为共享引用链（EGL 实例/上下文/表面 + GL 入口 + 重入锁 + 代号）；
 /// Web 形态按 cfg 换画布内变体。骨架期用 Option<Attachment> 维持引用网。 @internal
 pub type AttachmentSlot = Option<Attachment>;

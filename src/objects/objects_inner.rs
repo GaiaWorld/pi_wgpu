@@ -160,7 +160,7 @@ pub(crate) fn mark_dead_impl(h: &mut DirectHandle) {
 
 // 1. 只改记账、不调驱动（上下文已丢，删除无意义）：缓存全项名置空、计数归零；驻留计数表清空。
 // 2. 死名刷失集整面清空（旧世代名集在新附着下无意义）。
-// 3. 镜像直接字段作废（当前壳字段面=program）；幂等——重复调用与单次效果相同。
+// 3. 镜像整面重置（芯 reset_all，字段面随 state 壳展齐演进）+ 死名登记表整面清空；幂等——重复调用与单次效果相同。
 pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
     for (_k, row) in c.map.iter_mut() {
         for item in row.iter_mut() {

@@ -13,11 +13,14 @@ pub struct Caps {
     pub(crate) _qualcomm: bool,
     /// 特判位=iOS18/Safari 系设备：按特判表命中时置位，其 ASTC 位降级消费在 fill 投影处单点执行。
     pub(crate) _ios18: bool,
-    /// 扩展能力位掩码：probe 按扩展表/版本判定逐项写入（芯内 CAP_* 词汇，未检出恒 0）；fill 投影为官方 Features 同名位。建后只读。
+    /// 扩展能力位掩码：probe 按扩展表/版本判定逐项写入（芯内 CAP_* 词汇，未检出恒 0）；fill 投影为官方 Features 同名位。
+    /// 含形态标记位（CAP_EMBEDDED=bit8，非能力位——fill 投影经快照缓存的 es 读数消费，不出官方位）；probe 末尾另驻留
+    /// 「最近快照」（latest_caps 锁外门控读：未探先查=消费端断言）。建后本结构只读。
     pub(crate) _ext_family: u64,
 }
 
-/// 探测入口：附着建立后运行一次（唯一合法调用时机；早于附着=断言）。 @internal
+/// 探测入口：附着建立后运行一次（唯一合法调用时机；早于附着=断言）。末尾副作用=写入芯内最近快照缓存
+/// （latest_caps；供 formats 等实现批门控读，锁外原子读数）。 @internal
 pub(crate) fn probe() -> Caps { crate::caps_inner::probe_impl() }
 /// 快照→对外 Features 位词汇表的投影（纯函数，不失败）。 @internal
 pub(crate) fn fill_features(c: &Caps) -> crate::types::Features { crate::caps_inner::fill_impl(c) }

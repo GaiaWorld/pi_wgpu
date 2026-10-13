@@ -554,12 +554,12 @@ pub(crate) fn set_sample_mask(m: &mut StateMirror, mask: u64) {
 pub(crate) fn flush_impl(m: &mut StateMirror) {
     with_gl(|gl| unsafe {
         // —— 程序组属整发档：GL_CURRENT_PROGRAM 无 glGetIntegerv 回读路径（规范未提供）——
-        // 期望比对不可行：恒向驱动刷镜像名（幂等）；死名记录随整发销记。
+        // 期望比对不可行：恒向驱动刷镜像名（幂等）。
         apply_program(m);
-        let exp_prog = name_of(m.program);
-        if exp_prog != 0 {
-            forget_removed(0, exp_prog);
-        }
+        // 死名登记表的域=objects kind_num_*（0..3 复用域、4..6 直建域）。
+        // 整发档已把镜像全期望重刷给驱动（绑定=重指到镜像名，被删名已不可能进驱动当前态），
+        // 故末尾整面清表：登记使命（强制本次重发）已兑现，防名单调增长（B6 消费前收口）。
+        clear_removed();
         let exp_active = m.active_texture_unit.unwrap_or(0);
         let real_active = (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
         if exp_active != real_active {
