@@ -37,5 +37,5 @@ pi_glow = { path = "../pi_glow" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas", "ImageBitmap"] }
+web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas", "ImageBitmap", "Window", "Navigator"] }
 js-sys = "0.3"

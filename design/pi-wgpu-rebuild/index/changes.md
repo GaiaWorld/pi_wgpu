@@ -29,3 +29,6 @@
 | 2026-10-13 | L7 | 芯壳文案全量重写（用户判=注释/伪码质量差；门禁确认三口径）：去册内代号（链N/决定⑧/账本⑦/FR-13/结果面①/相-2 等）与指向 design/ 的悬空指针；同句样板拆为逐方法具体不变量+失败后状态；芯伪码一行箭头串升级为编号步块（校验→驱动→镜像改时→失败残留+形态分支）；types 85 项逐条用途/字段域/默认语义；@public 重复清零；伞面/防呆锁注释自含化；落批修复接线（entry/surface import、context 芯 gen_bump 返回补 u32=连带），公开签名未触（仅 context 三个 @internal 函数随注释改名） | 07-design 四册契约格已转指针，壳面即真相源；待 L9 复审 |
 | 2026-10-13 | L9 | 独立子代理二复审=有条件放行；8❌+附注全部同场修复（trace 落点/entry 恰一/链号口径/④记号/lost 账目=invalidate_generations 加 cache 参改显式预清+request_adapter 公开再入合同/binds TODO/utils 委托实体移 impl DeviceExt for Device（trait 签名不变）/types has_dynamic_offset 矛盾/Cargo 代号话术）；cargo 三组合零新增复验；09-review.md 落盘 | 待用户结论确认→tableDone+提交块渲染 |
 | 2026-10-13 | 收尾 | 经用户确认删除归档件 09-review.2026-10-13.superseded.md（旧轮审卷审计痕迹，用户判无追溯价值；设计已定稿完成） | design/pi-wgpu-rebuild/ 仅存活文件：09-review.md 为定稿版，目录零归档残留 |
+| 2026-10-13 | L7 | 壳解冻重落（用户口头批准 A 项，本条后补登记）：Caps 快照增能力位载体字段 _ext_family: u64，struct 四字段全量补注释；attach/probe/fill 签名与全部不变量未动 | 解锁 B2 能力位判定与 B3 formats 直载查位；L9 判卷面含此行 |
+| 2026-10-13 | L7 | 落壳口径补充（用户拍板）：每个类型/字段/常量/静态量/接口必须带注释，壳芯同规；已落面回补=context 芯注释全量补齐+Caps struct 逐字段注释 | B3 起各块壳芯注释密度按此判 |
+| 2026-10-13 | B1 | 实现批事实修正：WGL 隐窗 DC 属创建线程资源，该线程终止后其他线程再 attach 会被 pi_egl make_current 断言拒（诊断坐实=同线程/存活线程跨绑均通过，唯创建线程死亡后跨绑失败）；跨线程搬运合同的未成文前提=附着创建线程存活 | 测试收拢为单线程 GL 状态机用例解锁 B2；attach 壳注释增补条款提案待门禁拍板 |
