@@ -1,0 +1,142 @@
+// 设计：pi-wgpu-rebuild
+//! entry · 公开对象面：上层拿到的全部对象与方法。方法体都是一句委托（实现芯或对应模块芯）；
+//! 契约的权威文本住本面注释。失败封闭原则：除三个显式 Result 面（request_device / create_surface /
+//! get_current_texture）外，一切操作要么不失败、要么以断言失败——描述符违约在创建边界一次校验。
+use crate::draw::RenderPass;
+use std::path::Path;
+
+/// request_device 的失败信号（封闭类型）：请求的能力/上限超出适配器快照。
+/// 失败后设备未建，同一 Adapter 不受影响、可反复重试。 @public
+#[derive(Debug)] pub struct RequestDeviceError;
+/// create_surface 的失败信号（封闭类型）：附着目标类型不符或当前无附着。
+/// 失败后不留半附着体，可修正输入后重试。 @public
+#[derive(Debug)] pub struct CreateSurfaceError;
+
+// TODO-DECL：根错误聚合枚举为伞面兼容保留——当前零签名引用、不导出；挂接批按官方错误面对表决定收编范围。
+
+/// 聚合入口。表示=唯一附着槽：GL 上下文的生死随它一体。创建期全部校验/探测完成，
+/// 任一违约=断言且不留残留体。 @public
+#[derive(Debug)] pub struct Instance { pub(crate) _attach: crate::context::AttachmentSlot }
+/// 适配器=探测时刻的能力不可变快照。此后所有查询面读的都是这份快照；
+/// 可对同一 Adapter 反复 request_device，失败不产生任何副作用。 @public
+#[derive(Debug)] pub struct Adapter { pub(crate) _caps: crate::caps::Caps }
+/// 设备句柄：全量持有三件套——驱动状态镜像、可复用对象缓存、绑定槽表。
+/// 引用链为 Share（被否方案：Rc——违反单线程合同）。 @public
+#[derive(Debug)] pub struct Device { pub(crate) _state: crate::state::StateMirror, pub(crate) _cache: crate::objects::HandleCache, pub(crate) _slots: crate::binds::SlotTable }
+/// 队列=随设备创建的伴生面。提交点语义为空壳：本库「录制即执行」，
+/// submit 不做任何事，上层不得依赖提交批生效时机（保留官方伞面形状的兼容面）。 @public
+#[derive(Debug)] pub struct Queue { pub(crate) _dev: Option<Device> }
+/// 命令编码器=通道开关守卫。不变量：任意时刻至多一个开启中的 RenderPass；
+/// 嵌套 begin_render_pass=断言，且不会产生第二个通道。 @public
+#[derive(Debug)] pub struct CommandEncoder { pub(crate) _opened_pass: bool }
+/// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
+#[derive(Debug)] pub struct CommandBuffer;
+/// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=断言；
+/// Drop 即调驱动删除，并通知镜像刷失相关字段。 @public
+#[derive(Debug)] pub struct Buffer { pub(crate) _h: crate::objects::DirectHandle }
+/// 一对一直建的 GL 纹理。句柄契约同 Buffer：Drop 即删驱动资源、死句柄使用=断言。 @public
+#[derive(Debug)] pub struct Texture { pub(crate) _h: crate::objects::DirectHandle }
+/// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。 @public
+#[derive(Debug)] pub struct TextureView { pub(crate) _tex: Option<Texture> }
+/// 一对一直建的 GL 采样器。句柄契约同 Buffer。 @public
+#[derive(Debug)] pub struct Sampler { pub(crate) _h: crate::objects::DirectHandle }
+/// 绑定组布局：持有解析后的条目强链（合法性已在创建边界全部检查，此后不再复查）。
+/// 生命周期合同：布局必须先于使用它的绑定组/管线布局销毁。 @public
+#[derive(Debug)] pub struct BindGroupLayout { pub(crate) _entries: Vec<BindGroupLayoutEntry> }
+/// 绑定组：对各绑定资源的强引用句柄集——被绑资源先于绑定组销毁=断言。
+/// 动态偏移的条目计数在此登记，set_bind_group 时按声明序消耗对表。 @public
+#[derive(Debug)] pub struct BindGroup { pub(crate) _held: Vec<crate::objects::DirectHandle> }
+/// 管线布局：持成员绑定组布局强链。set 归属域 0-3 且成员不重复，创建时校验。 @public
+#[derive(Debug)] pub struct PipelineLayout { pub(crate) _bgls: Vec<BindGroupLayout> }
+/// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）与顶点属性布局（复用键=布局哈希）。
+/// 复用对象引用归零时物理删除并刷失镜像，由对象层保证。 @public
+#[derive(Debug)] pub struct RenderPipeline { pub(crate) _program: crate::objects::Reusable }
+/// 着色器模块：持反射登记表——(set,binding)↔location/name 映射，与转译哈希键同生命周期。 @public
+#[derive(Debug)] pub struct ShaderModule { pub(crate) _refl: crate::shader::ReflectionTable }
+
+/// Instance 的创建与顶层查询入口。 @public
+impl Instance {
+    /// 建实例：描述符校验→取唯一上下文附着→能力探测→装配。违约=断言；失败后无任何残留体。 @public
+    pub fn new(descriptor: &InstanceDescriptor) -> Self { crate::entry_inner::new_impl(descriptor) }
+    /// 附着呈现目标。失败（Err=目标类型不符/无附着）后不留半附着、可直接重试——用户输入面走错误值不走断言。 @public
+    pub fn create_surface<'s>(&'s self, target: impl Into<crate::surface::SurfaceTarget<'s>>) -> Result<crate::surface::Surface<'s>, CreateSurfaceError> { crate::entry_inner::create_surface_impl(target.into()) }
+    /// 适配器选择：官方 Future 形状的同步包装，恒等返回即时有值。
+    /// None=当前无可用附着/探测未过，实例不受影响可再试。单卡面（EGL 恒一块：被否多卡枚举）；
+    /// options 的选择字段记录不路由。Lost 后的重建回路以此为重入点：代号推进完成后对同一 Instance 再次调用（内部自动重建附着并重探测），无需重建 Instance。 @public
+    pub async fn request_adapter<'s>(&self, options: &RequestAdapterOptions<'s>) -> Option<Adapter> { crate::entry_inner::request_adapter_impl(options) }
+}
+
+/// Adapter 的查询面与设备创建面。 @public
+impl Adapter {
+    /// 按描述符建设备。校验=对照本适配器能力快照逐项全量检查；任一超出=Err，
+    /// 设备未建且 Adapter 仍可用。失败面仅此一种；成功后三件套完整装配。
+    /// trace_path 维持官方双参形状、语义为仅记录不产出。 @public
+    pub async fn request_device<'p>(&'p self, desc: &'p DeviceDescriptor<'p>, trace_path: Option<&'p Path>) -> std::result::Result<(Device, Queue), RequestDeviceError> { crate::entry_inner::request_device_impl(self, desc, trace_path) }
+    /// 能力查询：纯读快照，永不失败。 @public
+    pub fn features(&self) -> Features { crate::entry_inner::adapter_features(self) }
+    /// 上限查询：纯读快照（兼容子集各值按能力下限拍板），永不失败。 @public
+    pub fn limits(&self) -> Limits { crate::entry_inner::adapter_limits(self) }
+    /// 适配器信息：读 EGL/GL 查询串聚合拼装；单卡面不枚举多设备，永不失败。 @public
+    pub fn get_info(&self) -> AdapterInfo { crate::entry_inner::adapter_info(self) }
+    /// 降级能力：GL 路=汇总静态表（供下兼容描述，非逐项真探），永不失败。 @public
+    pub fn get_downlevel_capabilities(&self) -> DownlevelCapabilities { crate::entry_inner::adapter_downlevel(self) }
+    /// 单格式能力=能力位×格式转换表合成（在库内组合，扩展不存在时不虚报），永不失败。 @public
+    pub fn get_texture_format_features(&self, format: TextureFormat) -> TextureFormatFeatures { crate::entry_inner::adapter_format_features(self, format) }
+    /// 表面相容性：判表面附着与本次 probe 的上下文是否同一，永不失败。 @public
+    pub fn is_surface_supported(&self, surface: &crate::surface::Surface<'_>) -> bool { crate::entry_inner::adapter_surface_supported(self, surface) }
+    /// 私有差异（登迁移清单）：让出当前线程的 GL 上下文绑定，供跨线程搬运。 @public
+    pub fn unmake_current(&self) { crate::entry_inner::adapter_let_go(self) }
+}
+
+/// Device 的资源创建面与查询面。创建族共同合同：即时创建、描述符在边界一次全量校验，
+/// 违约=断言（报 desc.label 与违约字段）且断言前不发任何驱动调用、无半建对象。 @public
+impl Device {
+    /// 建缓冲。检查项：usage 非空且在支持位内；size>0 且为 4 字节倍数。一对一创建，无对象级复用。 @public
+    pub fn create_buffer(&self, desc: &BufferDescriptor<'_>) -> Buffer { crate::entry_inner::create_buffer_impl(self, desc) }
+    /// 建纹理。检查项：宽高≥1；mip_level_count≥1；sample_count∈{1,4}；
+    /// 格式在能力支持集内；view_formats 与主格式同族。违约后果同创建族共同合同。 @public
+    pub fn create_texture(&self, desc: &TextureDescriptor<'_>) -> Texture { crate::entry_inner::create_texture_impl(self, desc) }
+    /// 建采样器。检查项：anisotropy_clamp 为 None 或 1/2/4/8/16；compare 与绑定类型相容。
+    /// 违约后果同创建族共同合同。 @public
+    pub fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Sampler { crate::entry_inner::create_sampler_impl(self, desc) }
+    /// 建着色器模块。WGSL 先经转译为 GLSL ES 3.0；语法/转译错误=先报 codespan 定位、后断言——
+    /// 失败面比普通创建族宽一档（有诊断输出），仍无半建对象。 @public
+    pub fn create_shader_module(&self, desc: ShaderModuleDescriptor<'_>) -> ShaderModule { crate::entry_inner::create_shader_impl(self, desc) }
+    /// 建绑定组布局。检查项：条目 binding 域合法、visibility 非空、数组长度>0、类型在兼容子集内。
+    /// 违约后果同创建族共同合同。 @public
+    pub fn create_bind_group_layout(&self, desc: &BindGroupLayoutDescriptor<'_>) -> BindGroupLayout { crate::entry_inner::create_bgl_impl(self, desc) }
+    /// 建绑定组。检查项：条目与布局逐一对表（缺失/多余/类型不符=断言）、资源句柄全部活态、
+    /// 缓冲偏移满足对齐与边界、动态偏移条目数在此登记。违约=未建组、无残留。 @public
+    pub fn create_bind_group(&self, desc: &BindGroupDescriptor<'_>) -> BindGroup { crate::entry_inner::create_bg_impl(self, desc) }
+    /// 建管线布局。检查项：成员 set 归属 0-3、不重复、组数不超上限。持成员强链。 @public
+    pub fn create_pipeline_layout(&self, desc: &PipelineLayoutDescriptor<'_>) -> PipelineLayout { crate::entry_inner::create_pl_impl(self, desc) }
+    /// 建渲染管线。兼容子集硬约束：layout 类型面必填（不提供 auto-layout）。
+    /// 程序对象按转译哈希、顶点布局按布局哈希走复用通道。违约后果同创建族共同合同。 @public
+    pub fn create_render_pipeline(&self, desc: &RenderPipelineDescriptor<'_>) -> RenderPipeline { crate::entry_inner::create_rp_impl(self, desc) }
+    /// 建命令编码器：仅置通道守卫初值，零驱动调用；除 label 外没有可失败项（纯结构不可能非 label 违约）。 @public
+    pub fn create_command_encoder(&self, desc: &CommandEncoderDescriptor<'_>) -> CommandEncoder { crate::entry_inner::create_encoder_impl(self, desc) }
+    /// 能力查询：读创建时能力快照，纯查不失败。 @public
+    pub fn features(&self) -> Features { crate::entry_inner::device_features(self) }
+    /// 上限查询：读创建时能力快照，纯查不失败。 @public
+    pub fn limits(&self) -> Limits { crate::entry_inner::device_limits(self) }
+    /// 私有差异（登迁移清单）：外部 GL 干扰后的恢复——丢弃状态镜像并按驱动真态逐项重同步。
+    /// 幂等面，无失败态。 @public
+    pub fn reset_state(&self) { crate::entry_inner::device_reset_state(self) }
+}
+
+/// Queue：提交面空壳——上层不得依赖提交生效点（录制即执行的公开合同）。写路径见 upload 模块。 @public
+impl Queue {
+    pub fn submit(&self, _buffer: impl Into<Option<CommandBuffer>>) {} // 真·空壳：不委托芯——「无提交点语义」本身就是契约。
+}
+
+/// CommandEncoder 的通道开关面。 @public
+impl CommandEncoder {
+    /// 收束编码器：产出空 CommandBuffer，无失败语义（内容已在执行点消化完毕）。 @public
+    pub fn finish(self) -> CommandBuffer { crate::entry_inner::encoder_finish(self) }
+    /// 开渲染通道。检查项（一次全量）：color_attachments 中 Some 恰好 1 个；附件视图格式/层级与
+    /// 深度附件所含宽高面和 ops 匹配。违约=断言含 desc.label，通道未开、编码器守卫不变。 @public
+    pub fn begin_render_pass<'pass>(&'pass mut self, desc: &RenderPassDescriptor<'pass>) -> RenderPass<'pass> { crate::draw_inner::begin_impl(self, desc) }
+}
+
+// 词汇面整面再导出（伞面白名单对表属挂接批；骨架批全量导出）。
+pub use crate::types::*;

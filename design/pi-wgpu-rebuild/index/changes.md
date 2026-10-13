@@ -1,0 +1,31 @@
+# 登记分册：变更日志
+
+## 变更日志
+
+| 日期 | 阶段 | 变更 | 影响 |
+|---|---|---|---|
+| | | 无（尚无回溯与提问记录） | 无 |
+| 2026-10-12 | L0 | 第零步落骨架（slug=pi-wgpu-rebuild，重名检测：本工作区无冲突；兄弟仓旧完整设计同名仅参考） | 无 |
+| 2026-10-12 | L0 | 本轮提问 5 次（第零步 3：目标/依赖/slug；来源边界 2：设计关系/真相源） | 无 |
+| 2026-10-12 | L0 | 回溯修订：原「documents/=唯一真相源、结构照旧仓」下调。用户加判 ——「不依赖原仓结构」+「documents 非绝对正确、不合理可改」。context 来源/素材/待验证三节改写。 | L1 起需求须审读、允许推翻 documents 结论；L5 模块从零定不继承旧分层；L0 事实层保留（不随返工作废） |
+| 2026-10-12 | L1 | L1 四册落盘（问题/需求 16 条/流程图/注记）+ 词汇表建行 10；documents 审读修正 3 处 | 下游 L5 引用兼容子集/录制即执行/绑定槽等词汇口径 |
+| 2026-10-12 | L1 | 门禁轮提问 2 次（L1 通过 / L7 取舍）；本轮累计提问 8+2 | 无 |
+| 2026-10-13 | L1→L5 | L1 行级返工（资产出库判：needs ⑨拆两行/⑩措辞/⑯硬度 + problem OUT 增行）——推翻判=「GPU 资源统一记账+延迟回收在库内」（原按 documents FR-10 立）；改为即删+刷失、复用仅管线级与离屏附件。作废面=needs 相关行+L5 提案重出（未落盘即全废） | L5 修正版落盘；依赖清单减 pi_assets/pi_time；三硬规则合同变硬 |
+| 2026-10-13 | L5 | L5 阶段提问 9 轮共 16 次（含门禁与反质询）；最终资产出库版通过 | 无 |
+| 2026-10-13 | L5 | L5 四册落定（modules 12+账本/deps 边表+四图+差异矩阵+上传链/change-points 16 行/decisions ①-⑨+验证+来源）。最终门禁=资产出库版通过 | L7 输入：12 模块名、边表、决定⑥⑦⑧⑨ |
+| 2026-10-13 | L7 | 相-1 壳芯落 src/（24 壳芯对+types/lib/Cargo）；cargo check --features gl=Finished 零新增（空基线）：引用网自洽实证；L0 待验证结转（registry 在线/依赖可解/nightly 链）当场收敛 ✔。once_cell=1.21.3 钉版；use_wgpu=compile_error 防呆桩相-2 | 壳=冻结面：改签名须回序解冻重落；实现权在芯桩（下游批次） |
+| 2026-10-13 | L7 | 落地轮提问 0 次（门禁已批范围执行） | 无 |
+| 2026-10-13 | L9 | L9 审卷❌全部就地修复：flow 节点作废/entry+objects 双决定拆分/变更点影响面 6 行改实名调用方/汇合图补 share 4 边+formats 节点/units·call-chain·api@29 名实对账/registry 实证收账/增判⑩ feature 痕迹/壳侧 utils·surface·types·Cargo·entry 违例清除/词汇表作废 1+补 7 行。cargo check 复跑 Finished | 壳体形式已改（签名未动）：utils 委托/Debug 委托/Error 注释化=委托合规非解冻 |
+| 2026-10-13 | L9 | 独立子代理轻审：结论=有条件放行（15 判全跑），❌条目全部同场修复+cargo check 复验 Finished；09-review.md 落盘 | 待用户结论确认→tableDone+提交块渲染 |
+| 2026-10-13 | L9 | 用户索图→deps 新增「形态子图」三画法（桌面/安卓/Android+Web 路径+逐形态依赖）+call-chain 分叉注+词汇 1；L9 再问结论 | 无 |
+| 2026-10-13 | L9 | 用户追问 use_wgpu 侧 PiWgpuAdapter——定形补录⑥批注（整面 re-export+第二 impl 委托芯，官方单参双参差=trait 存在理由），当前锁 compile_error=设计内 | 待落地清单 C 项口径明确 |
+| 2026-10-13 | L9 | 目录重组（用户拍板）：src/ 仅留 lib.rs+types/，12 模块收进各自目录（壳=mod.rs、芯=inner.rs，#[path] 声明），编译复验 Finished；07-design 五册壳芯路径全量同步 | 壳芯命名机制不变（xx 壳/xx_inner 芯的 lite 约定，仅文件布局变体） |
+| 2026-10-13 | L9 | 芯名遵 lite 约定字面：入收目录内改名为 xx_inner.rs（用户拍板，壳=目录 mod.rs）；lib #[path] 与 5 册路径同步；编译复跑 | 无（声明层更名） |
+| 2026-10-13 | L9定稿后补丁 | 用户追问 pi_egl/pi_glow 引用→deps 新增《地基接法注》：glow=单 Context·HasContext 全函数面 cfg 选型+句柄别名清单；egl=create_context/make_current/swap_buffers+platform 目录+gl 桥；模块→API 对位表（attach/let_go/present/get_current/各驱动芯）；context/surface 芯伪码点名真实 API；data Attachment 表示精确化 | 实现批按对位表动手不猜 API；壳签名未动 |
+| 2026-10-13 | 定稿后补丁 | 地基门控实核：pi_glow 无 features（native/web=纯 target cfg 同签名）；pi_egl features=swappy/shared-stdcxx/fps 全默认 off+platform{windows,android,web}目录（web 路径判不接入）。deps 增《门控对位表》+变更点 swappy 行；被否：库内对地基加 feature 包装层=第二门控散落 | 相-2 实现批据此接线 cfg，环境分支无第二套 |
+| 2026-10-13 | L7 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-13 | L7 | 返工(L7 起点·用户确认)：调用链册缺《实现切片·块清单》；壳芯契约注释不足→契约迁入壳注释、md 换指针、芯桩补实现预期伪码；动 26 壳芯文件，编译基线对照 | 作废 09 + 回退阶段；07-design 四册契约格转指针 |
+| 2026-10-13 | L7 | 返工落地完成：call-chain 册补《实现切片·块清单》B0–B14；64 处注释补落 15 个壳芯文件（对象表示/查询不失败/参数断言/芯伪码）；壳内 design/ 路径指针清零（lib/types 两处改语义自带）；cargo check 默认+single_thread+geterror 三组合 Finished 零新增 | api 册顶注登记对拍以壳为准；待 L9 复审 |
+| 2026-10-13 | L7 | 芯壳文案全量重写（用户判=注释/伪码质量差；门禁确认三口径）：去册内代号（链N/决定⑧/账本⑦/FR-13/结果面①/相-2 等）与指向 design/ 的悬空指针；同句样板拆为逐方法具体不变量+失败后状态；芯伪码一行箭头串升级为编号步块（校验→驱动→镜像改时→失败残留+形态分支）；types 85 项逐条用途/字段域/默认语义；@public 重复清零；伞面/防呆锁注释自含化；落批修复接线（entry/surface import、context 芯 gen_bump 返回补 u32=连带），公开签名未触（仅 context 三个 @internal 函数随注释改名） | 07-design 四册契约格已转指针，壳面即真相源；待 L9 复审 |
+| 2026-10-13 | L9 | 独立子代理二复审=有条件放行；8❌+附注全部同场修复（trace 落点/entry 恰一/链号口径/④记号/lost 账目=invalidate_generations 加 cache 参改显式预清+request_adapter 公开再入合同/binds TODO/utils 委托实体移 impl DeviceExt for Device（trait 签名不变）/types has_dynamic_offset 矛盾/Cargo 代号话术）；cargo 三组合零新增复验；09-review.md 落盘 | 待用户结论确认→tableDone+提交块渲染 |
+| 2026-10-13 | 收尾 | 经用户确认删除归档件 09-review.2026-10-13.superseded.md（旧轮审卷审计痕迹，用户判无追溯价值；设计已定稿完成） | design/pi-wgpu-rebuild/ 仅存活文件：09-review.md 为定稿版，目录零归档残留 |
