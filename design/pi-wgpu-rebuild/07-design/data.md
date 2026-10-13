@@ -9,7 +9,7 @@
 | 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | Arc+refcount（HandleCache 内）；归零=物理删+镜像刷失；被否手动 Option（违约面大） |
 | BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同） |
 | SurfaceTexture（帧租约） | src/surface/mod.rs | present 消自——同时至多一帧的不变量类型级成立 |
-| 附着体 Attachment | src/context/mod.rs | Arc{pi_egl 实例/上下文/表面 + pi_glow Context + 重入锁 + 代号}；Web 形态 egl 退化为画布上下文（cfg 表示内变体）；代号单调增 |
+| 附着体 Attachment | src/context/mod.rs | 芯内进程驻留附着槽：EGL/WGL 实例对（glow 入口由实例借出）+ 持锁线程重入门锁 + TLS 层数 + 代号原子（非 Arc 引用链）；Web 形态零 EGL、GL 入口由呈现配置链注入；代号单调增；跨线程搬运前提见壳 attach 注释条款 |
 | 状态镜像 StateMirror | src/state/mod.rs | 全字段比较；被否 dirty 位图（散落易漏）；仅驱动成功后改，对象死=强制失效 |
 | 复用缓存 HandleCache | src/objects/mod.rs | XHashMap<ReuseKey,(Handle,u32)> |
 | 绑定槽表 SlotTable | src/binds/mod.rs | [16] 定长数组+每管线 reorder；被否键值表（热路径）；满=断言 |

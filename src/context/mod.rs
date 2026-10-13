@@ -9,7 +9,10 @@
 /// Web 形态按 cfg 换画布内变体。骨架期用 Option<Attachment> 维持引用网。 @internal
 pub type AttachmentSlot = Option<Attachment>;
 
-/// 重入取锁并附着当前线程。single_thread feature 下锁与搬运整体退化为零开销恒通过。 @internal
+/// 重入取锁并附着当前线程。single_thread feature 下锁与搬运整体退化为零开销恒通过。
+/// 搬运前提（Windows 形态）：首次建立附着体的线程须存活至附着存续期——隐窗 DC 等
+/// 资源随其线程生命周期，该线程终止后再跨线程重绑由地基断言拒绝（无半附着副作用）；
+/// 安卓 EGL 与 Web 形态天然满足此前提（无线程绑定句柄）。 @internal
 pub(crate) fn attach() -> AttachmentSlot { crate::context_inner::attach_impl() }
 /// 让出当前线程的上下文绑定（跨线程搬运底座；unmake_current 的实现端）。 @internal
 pub(crate) fn let_go() { crate::context_inner::let_go_impl() }
