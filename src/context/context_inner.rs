@@ -289,6 +289,42 @@ mod tests {
         let f = crate::caps_inner::fill_impl(&caps).0;
         assert_ne!(f & (1 << 1), 0, "DEPTH32FLOAT_STENCIL8 版本确证位应置");
         with_gl(|_gl| {});
+
+        // —— B4 objects 合验（同线程；成对合同与归零即删/重建）——
+        let mut cache = crate::objects::HandleCache::default();
+        let key = crate::objects::ReuseKey::Program(0xAAAA_BBB0);
+        let a = crate::objects::ensure_reuse(key, &mut cache);
+        let b = crate::objects::ensure_reuse(key, &mut cache);
+        assert_eq!(a.handle, b.handle, "同键复用同一物理名（计数活跃行）");
+        assert_eq!(b.refcount.get(), 2, "快照计数=在途持有数");
+        crate::objects::release_reuse(&a);
+        crate::objects::release_reuse(&b);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::objects::release_reuse(&a))).is_err(),
+            "零计数再释放=断言（成对合同）"
+        );
+        let c3 = crate::objects::ensure_reuse(key, &mut cache);
+        // 名值由驱动回收决定（GL 允许即刻重用刚删名）；芯保证=行模板已覆写+计数=1 新持有,
+        assert_eq!(c3.refcount.get(), 1, "重建后持者计数快照=1");
+        drop(c3);
+        let d1 = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
+        let d2 = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);
+        assert!(d1.handle.is_some() && d1.generation >= 1);
+        assert!(d2.handle.is_some());
+        drop(d1);
+        drop(d2);
+        let mut mirror = state_mirror_probe();
+        let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
+        crate::objects::invalidate_generations(&mut cache, &mut mirror);
+        crate::objects::invalidate_generations(&mut cache, &mut mirror);
+        assert!(re.refcount.get() >= 1);
+        assert!(mirror.program.is_none(), "invalidate 后镜像引用字段作废");
+        let _ = re;
         let_go_impl();
+    }
+
+    /// 组一个最小镜像供 invalidate 合验（字段面=当前壳形制）。
+    fn state_mirror_probe() -> crate::state::StateMirror {
+        crate::state::StateMirror { program: Some(crate::objects::GlHandle(1)), generation: 1 }
     }
 }

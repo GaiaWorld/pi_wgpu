@@ -34,3 +34,5 @@
 | 2026-10-13 | B1 | 实现批事实修正：WGL 隐窗 DC 属创建线程资源，该线程终止后其他线程再 attach 会被 pi_egl make_current 断言拒（诊断坐实=同线程/存活线程跨绑均通过，唯创建线程死亡后跨绑失败）；跨线程搬运合同的未成文前提=附着创建线程存活 | 测试收拢为单线程 GL 状态机用例解锁 B2；attach 壳注释增补条款提案待门禁拍板 |
 | 2026-10-13 | 实现批 | 门禁批准解冻重落：context 壳 attach 注释增补「Windows 搬运前提=创建线程存活」条款（纯注释，签名/委托未动）；data 册 Attachment 表示行同步为已落形制（驻留槽非 Arc 链） | 壳注释即合同权威文本更新；后续块跨线程搬运测试按此前提设计 |
 | 2026-10-13 | 实现批 | B3 formats 芯落地（门禁批准 GlParams 五字段展开逐字执行）：7 词汇格式对 GL4.6 规范值转换表内联（glow 根面无 GL_* 枚举导出，沿用参数内联先例）；能力门控经 caps 最近快照缓存（probe 末驻留写·锁外读·未探=断言）；GLES 拒 D24S8 与 sRGB×BGRA 组合（断言报格式名+label）；mip_convert=levels>1 在附着持有期内整链 generate，按层数选 2D/2DArray 目标，零尺寸=断言 | B4 objects 可消费 GlParams 直建；词汇子集外压缩直载=表无条目路径已留（变更点：表加块行） |
+| 2026-10-13 | L7 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-13 | L7 | 返工（落壳芯·最小解冻，用户门禁=批准解冻免 L9 复审）：objects 壳两行解冻重落（DirectHandle 增 kind 域字段+DirectKind 枚举=mark_dead 分派合同所需；HandleCache 容器按 TODO-DECL 落定 pi_hash::XHashMap/FxHash64）；函数签名/委托/不变量零变动；state 壳未触。芯侧新增=create_direct（entry 链消费）+ 死名刷失驻留面（state 芯 note/is/forget/clear，B5 flush 消费）；glow native 句柄=NonZeroU32 包装，边界转换收芯（壳 GlHandle 保持 u32 原生产物） | B4 验收达成：复用成对合同/归零即删/行覆写/幂等清场实机合验；09 已作废旧报告；免复审直推已完成（用户门禁选择） |

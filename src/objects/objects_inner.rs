@@ -1,23 +1,191 @@
 // 设计：pi-wgpu-rebuild
-//! objects 芯：桩+设计预期编号伪码（示意·不可验证）。
-use crate::objects::{DirectHandle, HandleCache, Reusable, ReuseKey};
+//! objects 芯 · GL 对象句柄层：一对一直建与四类可复用缓存。契约权威文本住壳面注释。
+//! 计数真相=本芯全局驻留表（键→在途引用数，单设备合同下与附着同寿命）；缓存表行持物理名模板，
+//! 零计数行=已删待重建位（ensure 命中换新名覆写；GL 名可回收，保守换代不复用死名）。
+//! Lost 世代失配后的 release 由 invalidate_generations 显式清场兜底（只改记账、不触驱动）。
+
+use std::cell::Cell;
+use std::num::NonZeroU32;
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
+use pi_hash::XHashMap;
+
+use pi_glow::HasContext;
+
+use crate::context_inner::{generation_now, with_gl};
+use crate::objects::{DirectHandle, DirectKind, GlHandle, HandleCache, Reusable, ReuseKey};
 use crate::state::StateMirror;
-// 实现桩：逻辑体由后续批次按本伪码落地。
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. 查表命中同键项 → refcount+1，返回该项克隆。
-// 2. 未命中 → 按 ReuseKey 域分派对应 glGen* 建对象并把配置即时写完（程序=编译链接/VAO=属性批/FBO=附件挂接/RBO=存储）。
-// 3. 以 refcount=1 登记入表并返回；建对象中途报错=断言（报键域与哈希），表保持原状无半项。
-pub(crate) fn ensure_reuse_impl(_k: ReuseKey, _c: &mut HandleCache) -> Reusable { panic!("TODO-DECL") }
-// 设计预期（伪码·示意·不可验证）：
-// 1. refcount-1（Cell 自减；已为 0 则断言——引用方计数必须与获取严格成对）。
-// 2. 减到 0 → 按域 glDelete* 物理删除 → 通知镜像作废引用该名的字段。
-pub(crate) fn release_reuse_impl(_r: &Reusable) { panic!("TODO-DECL") }
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. handle 置 None 先行——防重入：Drop 与手动 mark_dead 竞到一起时只删一次。
-// 2. 即调该资源域 glDelete*（1:1 资源无延迟队列——不存在「稍后统一回收」路径）。
-// 3. state.drop_invalidate 通知镜像作废引用该名的字段；此后句柄为死态，消费方使用=断言。
-pub(crate) fn mark_dead_impl(_h: &mut DirectHandle) { panic!("TODO-DECL") }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 遍历给定三件套：缓存全项句柄置空、镜像引用字段作废——只改记账、不调驱动（上下文已丢，删除无意义）。
-// 2. 幂等面：代号已失配则直接返回，重复调用效果同单次。
-pub(crate) fn invalidate_impl(_c: &mut HandleCache, _s: &mut StateMirror) { panic!("TODO-DECL") }
+use crate::state_inner::note_removed;
+
+/// 复用在途计数真相表（键→持有者数）。仅经 bump/drop_count 访问，禁止旁路手改（成对合同）。
+static REFCOUNTS: Lazy<Mutex<XHashMap<ReuseKey, u32>>> = Lazy::new(|| Mutex::new(XHashMap::default()));
+
+/// 增计数并返回新值（键首次出现=1）。不触驱动。
+fn bump(key: ReuseKey) -> u32 {
+    let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    let slot = t.entry(key).or_insert(0);
+    *slot += 1;
+    *slot
+}
+
+/// 活物理判据：当前计数>0 即活；纯读判定不改计数。
+fn count_active(key: ReuseKey) -> bool {
+    let t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    matches!(t.get(&key), Some(v) if *v > 0)
+}
+
+/// 减计数并返回新值；已为零或无键=断言（引用与获取必须严格成对——成对合同被破=调用方违约）。
+fn drop_count(key: ReuseKey) -> u32 {
+    let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    match t.get_mut(&key) {
+        Some(v) if *v > 0 => {
+            *v -= 1;
+            *v
+        }
+        _ => panic!("objects 断言: 键 {key:?} 计数已零再释放（成对合同被破）"),
+    }
+}
+
+/// 键域编号（死名刷失表防跨域同名串扰：0..3=复用域，4..6=直建域）。
+fn kind_num_reuse(key: ReuseKey) -> u8 {
+    match key {
+        ReuseKey::Program(_) => 0,
+        ReuseKey::Vao(_) => 1,
+        ReuseKey::Fbo(_) => 2,
+        ReuseKey::Rbo(_) => 3,
+    }
+}
+
+/// 直建域编号（与复用域编号段错开）。
+fn kind_num_direct(kind: DirectKind) -> u8 {
+    4 + match kind {
+        DirectKind::Buffer => 0,
+        DirectKind::Texture => 1,
+        DirectKind::Sampler => 2,
+    }
+}
+
+/// 句柄名构造性非零（gl*Create 产物恒 ≥1）；零名=非法状态断言（防死名伪装活名进删除面）。
+fn nz_name(name: u32, ctx: &str) -> NonZeroU32 {
+    NonZeroU32::new(name).unwrap_or_else(|| panic!("objects 断言: 非法零句柄名（{ctx}）"))
+}
+
+/// 按域生成复用物理对象名（glCreate* 分派，native 包装 NonZeroU32 → 壳 GlHandle(u32) 边界化；
+/// 失败=断言报键域与哈希——先建后登记，表不留半项）。
+fn gen_by_key(key: ReuseKey) -> GlHandle {
+    with_gl(|gl| {
+        let name: u32 = unsafe {
+            match key {
+                ReuseKey::Program(h) => gl.create_program().unwrap_or_else(|e| panic!("objects 断言: Program 域创建失败 err={e} hash={h}")).0.get(),
+                ReuseKey::Vao(h) => gl.create_vertex_array().unwrap_or_else(|e| panic!("objects 断言: Vao 域创建失败 err={e} hash={h}")).0.get(),
+                ReuseKey::Fbo(h) => gl.create_framebuffer().unwrap_or_else(|e| panic!("objects 断言: Fbo 域创建失败 err={e} hash={h}")).0.get(),
+                ReuseKey::Rbo(h) => gl.create_renderbuffer().unwrap_or_else(|e| panic!("objects 断言: Rbo 域创建失败 err={e} hash={h}")).0.get(),
+            }
+        };
+        GlHandle(name)
+    })
+}
+
+/// 按域物理删除复用对象并登记死名（镜像按「引用名已死」强制重下发，B5 flush 消费）。
+/// 在途 GL 态若正引用该名，删除即失配——合同上 release 只发生在通道锁释放后（链2·Drop 序）。
+fn delete_by_key(key: ReuseKey, name: GlHandle) {
+    with_gl(|gl| {
+        let nn = nz_name(name.0, "reused");
+        unsafe {
+            match key {
+                ReuseKey::Program(_) => gl.delete_program(pi_glow::NativeProgram(nn)),
+                ReuseKey::Vao(_) => gl.delete_vertex_array(pi_glow::NativeVertexArray(nn)),
+                ReuseKey::Fbo(_) => gl.delete_framebuffer(pi_glow::NativeFramebuffer(nn)),
+                ReuseKey::Rbo(_) => gl.delete_renderbuffer(pi_glow::NativeRenderbuffer(nn)),
+            }
+        };
+    });
+    note_removed(kind_num_reuse(key), name.0);
+}
+
+// 1. 查表行且计数活跃 → 计数+1，行模板计数覆写快照，返回持有者副本（Cell=快照读数，真相在驻留表）。
+// 2. 行存在但计数已零（release 已物理删）→ 重新 glGen 原地覆写行（不复用缓存旧名——驱动可回收该名，行只做覆写不假定新名≠旧名）。
+// 3. 未命中 → 建物理、以计数=1 登记行与驻留表后返回；创建失败=断言，全表保持调用前原状。
+pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusable {
+    if let Some(row) = cache.map.get_mut(&key) {
+        if let Some(item) = row.first_mut() {
+            if count_active(key) {
+                let c = bump(key);
+                item.refcount.set(c);
+                return Reusable { key, handle: item.handle, refcount: Cell::new(c) };
+            }
+            let fresh = gen_by_key(key);
+            item.handle = Some(fresh);
+            let c = bump(key);
+            item.refcount.set(c);
+            return Reusable { key, handle: Some(fresh), refcount: Cell::new(c) };
+        }
+    }
+    let fresh = gen_by_key(key);
+    let c = bump(key);
+    cache.map.insert(key, vec![Reusable { key, handle: Some(fresh), refcount: Cell::new(c) }]);
+    Reusable { key, handle: Some(fresh), refcount: Cell::new(c) }
+}
+
+// 1. 全局计数-1（本地 Cell 快照不参与真相）；已为零 → 断言（成对合同被破）。
+// 2. 减到零 → 按域物理删除 + 登记死名；缓存行留死名原样待 ensure 换新覆写。
+pub(crate) fn release_reuse_impl(item: &Reusable) {
+    let left = drop_count(item.key);
+    if left == 0 {
+        if let Some(name) = item.handle {
+            delete_by_key(item.key, name);
+        }
+    }
+}
+
+// 1. 先置 None（防重入：Drop 与手动 mark_dead 竞到一起只删一次）。
+// 2. 即调该资源域 glDelete*（1:1 资源无延迟队列、无等待 GC）。
+// 3. 登记死名刷失（引用名集=state 芯驻留）；此后句柄为死态，消费方对死代号的使用=其自身断言拦截。
+pub(crate) fn mark_dead_impl(h: &mut DirectHandle) {
+    let Some(name) = h.handle.take() else { return };
+    let kind = h.kind;
+    with_gl(|gl| {
+        let nn = nz_name(name.0, "direct");
+        unsafe {
+            match kind {
+                DirectKind::Buffer => gl.delete_buffer(pi_glow::NativeBuffer(nn)),
+                DirectKind::Texture => gl.delete_texture(pi_glow::NativeTexture(nn)),
+                DirectKind::Sampler => gl.delete_sampler(pi_glow::NativeSampler(nn)),
+            }
+        };
+    });
+    note_removed(kind_num_direct(kind), name.0);
+}
+
+// 1. 只改记账、不调驱动（上下文已丢，删除无意义）：缓存全项名置空、计数归零；驻留计数表清空。
+// 2. 死名刷失集整面清空（旧世代名集在新附着下无意义）。
+// 3. 镜像直接字段作废（当前壳字段面=program）；幂等——重复调用与单次效果相同。
+pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
+    for (_k, row) in c.map.iter_mut() {
+        for item in row.iter_mut() {
+            item.handle = None;
+            item.refcount.set(0);
+        }
+    }
+    let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    t.clear();
+    drop(t);
+    crate::state_inner::clear_removed();
+    s.program = None;
+}
+
+/// 直建一对一资源（entry 创建链 B11 消费）：glGen*/glCreate* 得活态名，代号=当前附着快照。
+/// 域删除在 Drop 自动发生（合同=死亡即删）；跨线程搬运前提见 context 壳 attach 条款。
+pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
+    let name = with_gl(|gl| -> u32 {
+        unsafe {
+            match kind {
+                DirectKind::Buffer => gl.create_buffer().unwrap_or_else(|e| panic!("objects 断言: Buffer 直建失败 err={e}")).0.get(),
+                DirectKind::Texture => gl.create_texture().unwrap_or_else(|e| panic!("objects 断言: Texture 直建失败 err={e}")).0.get(),
+                DirectKind::Sampler => gl.create_sampler().unwrap_or_else(|e| panic!("objects 断言: Sampler 直建失败 err={e}")).0.get(),
+            }
+        }
+    });
+    DirectHandle { kind, handle: Some(GlHandle(name)), generation: generation_now() }
+}

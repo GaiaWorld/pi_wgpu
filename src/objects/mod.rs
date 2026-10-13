@@ -5,9 +5,27 @@ use crate::state::StateMirror;
 
 /// GL 对象名（glGen* 原始产物）。只做类型区分，数值本身不含生命周期信息。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)] pub(crate) struct GlHandle(pub u32);
+/// 一对一资源域：直建三件套=全部合法域（复用域另列四类合同）。供删除分派与域校验。 @internal
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum DirectKind {
+    /// 顶点/索引/统一缓冲对象。
+    Buffer,
+    /// 纹理对象（直建单附件；MIP 链经 formats 管道）。
+    Texture,
+    /// 采样器对象。
+    Sampler,
+}
 /// 一对一资源句柄（缓冲/纹理/采样器）。不变量：活态⟺generation 与当前附着代号一致；
 /// 使用死句柄由消费方断言拦截；死亡即删驱动对象并通知镜像刷失。 @internal
-#[derive(Debug)] pub(crate) struct DirectHandle { pub(crate) handle: Option<GlHandle>, pub(crate) generation: u32 }
+#[derive(Debug)]
+pub(crate) struct DirectHandle {
+    /// 资源域：mark_dead 删除入口按此分派（buffer/texture/sampler 三路 glDelete*）。
+    pub(crate) kind: DirectKind,
+    /// 句柄名（None=死态或防重入已置空）。
+    pub(crate) handle: Option<GlHandle>,
+    /// 构造时附着代号快照；使用死代号句柄由消费方按失配断言拦截。
+    pub(crate) generation: u32,
+}
 impl DirectHandle {
     /// 置死并物理删除：先置空句柄名防重入，再即调驱动删除（本库无延迟删除队列、无等待 GC），
     /// 并通知镜像作废引用该名的字段。调用后句柄即死态。 @internal
@@ -20,8 +38,8 @@ impl Drop for DirectHandle { fn drop(&mut self) { self.mark_dead() } }
 /// 复用句柄。不变量：refcount>0=物理存在且被至少一方引用；引用归零=物理删除+通知镜像刷失。
 /// 计数操作与 acquire/release 严格成对，不得旁路手改。 @internal
 #[derive(Debug)] pub(crate) struct Reusable { pub(crate) key: ReuseKey, pub(crate) handle: Option<GlHandle>, pub(crate) refcount: std::cell::Cell<u32> }
-/// 复用对象缓存表。 TODO-DECL：表容器由实现批替换为约定哈希方案；骨架期用 std HashMap 维持引用网。 @internal
-#[derive(Debug, Default)] pub(crate) struct HandleCache { pub(crate) map: std::collections::HashMap<ReuseKey, Vec<Reusable>> }
+/// 复用对象缓存表（L7 解冻重落定：约定哈希=pi_hash::XHashMap/FxHash64；计数真相与死名刷失驻留 objects/state 芯，行仅持物理名模板）。 @internal
+#[derive(Debug, Default)] pub(crate) struct HandleCache { pub(crate) map: pi_hash::XHashMap<ReuseKey, Vec<Reusable>> }
 
 /// 按键取对象：命中=计数+1 后返回；未命中=按键域建物理对象并登记。
 /// 任一阶段失败：断言（报键域与哈希），表不留半登记项，保持调用前原状。 @internal
