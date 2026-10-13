@@ -501,8 +501,8 @@ dependencies = [
  "libc",
  "log",
  "ndk-glue",
- "pi_glow 0.13.3 (registry+http://ser.yinengyun.com:10082/tech/crates-io.git)",
- "pi_share 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pi_glow",
+ "pi_share",
  "raw-window-handle 0.6.2",
  "wasm-bindgen",
  "web-sys",
@@ -512,19 +512,6 @@ dependencies = [
 [[package]]
 name = "pi_glow"
 version = "0.13.3"
-dependencies = [
- "js-sys",
- "log",
- "slotmap",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "pi_glow"
-version = "0.13.3"
-source = "registry+http://ser.yinengyun.com:10082/tech/crates-io.git"
-checksum = "5a3f5323c6ae0432846fa797a6df1c6256f1df848a1a16eff2a246859b560fca"
 dependencies = [
  "js-sys",
  "log",
@@ -555,15 +542,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pi_share"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d05f49f68abc528bb2a0a766e34e3e3cda3d4c4aeebb9dd985d6e0bff437d117"
-dependencies = [
- "pi_null",
-]
-
-[[package]]
 name = "pi_wgpu"
 version = "0.4.0"
 dependencies = [
@@ -572,9 +550,9 @@ dependencies = [
  "naga",
  "once_cell",
  "pi_egl",
- "pi_glow 0.13.3",
+ "pi_glow",
  "pi_hash",
- "pi_share 0.5.2",
+ "pi_share",
  "raw-window-handle 0.6.2",
  "thiserror 1.0.69",
  "wasm-bindgen",
