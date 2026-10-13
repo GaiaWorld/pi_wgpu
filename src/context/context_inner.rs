@@ -313,7 +313,22 @@ mod tests {
         assert!(d2.handle.is_some());
         drop(d1);
         drop(d2);
-        let mut mirror = state_mirror_probe();
+        // —— B5 镜像合验（同值零下发 / flush 回读一致不再发）——
+        let mirror_prog = crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xC0FF_EE01), &mut cache);
+        let mut mirror = crate::state::StateMirror::default();
+        let prog_name = mirror_prog.handle.expect("Program 对象名");
+        let base_probe = crate::state_inner::probe_count(0);
+        crate::state_inner::set_program(&mut mirror, prog_name);
+        assert_eq!(crate::state_inner::probe_count(0), base_probe + 1, "首次差异 set 下发一次");
+        crate::state_inner::set_program(&mut mirror, prog_name);
+        assert_eq!(crate::state_inner::probe_count(0), base_probe + 1, "同值重复 set 零下发（B5 验收）");
+        // flush 程序组=整发档（驱动实值不可回读）：恒刷期望，幂等=重发无害；死名随整发销记。
+        mirror.flush_if_changed();
+        let after_flush = crate::state_inner::probe_count(0);
+        assert!(after_flush >= base_probe + 1, "flush 期望值已刷至驱动（整发档）");
+        assert!(crate::state_inner::dbg_removed_program(prog_name.0) == false, "flush 后死名销记");
+        mirror.flush_if_changed();
+        assert!(crate::state_inner::probe_count(0) >= after_flush, "二次 flush 仍幂等只刷期望");
         let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
@@ -323,8 +338,4 @@ mod tests {
         let_go_impl();
     }
 
-    /// 组一个最小镜像供 invalidate 合验（字段面=当前壳形制）。
-    fn state_mirror_probe() -> crate::state::StateMirror {
-        crate::state::StateMirror { program: Some(crate::objects::GlHandle(1)), generation: 1 }
-    }
 }

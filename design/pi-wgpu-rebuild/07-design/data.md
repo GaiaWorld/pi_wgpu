@@ -11,6 +11,7 @@
 | SurfaceTexture（帧租约） | src/surface/mod.rs | present 消自——同时至多一帧的不变量类型级成立 |
 | 附着体 Attachment | src/context/mod.rs | 芯内进程驻留附着槽：EGL/WGL 实例对（glow 入口由实例借出）+ 持锁线程重入门锁 + TLS 层数 + 代号原子（非 Arc 引用链）；Web 形态零 EGL、GL 入口由呈现配置链注入；代号单调增；跨线程搬运前提见壳 attach 注释条款 |
 | 对象句柄层 | src/objects/mod.rs | L7 解冻重落定：GlHandle=u32 原生产物（glow native NonZeroU32 包装由芯边界转换）；DirectHandle 带 DirectKind 域（三路删除分派）；HandleCache=pi_hash XHashMap/FxHash64，行持物理名模板；计数真相与死名刷失驻留 objects/state 芯——归零即删+登记，invalidate 纯记账幂等 |
+| 状态镜像 StateMirror | src/state/mod.rs | L7 解冻展齐：全驱动分组字段（程序/属性/目标/上传/UBO·纹理·采样器×16 槽/视口·裁剪/开关函数族/模板两面/偏置/掩码记录/代号）；值类型词汇无 PartialEq→比较器经映射原语拆量住芯；flush=可回读档比对+不可回读组（含 GL 程序.current、WebGL 句柄绑定、UBO 槽、fork 掩码面）幂等整发；set_* helper 差异才下发 |
 | 状态镜像 StateMirror | src/state/mod.rs | 全字段比较；被否 dirty 位图（散落易漏）；仅驱动成功后改，对象死=强制失效 |
 | 复用缓存 HandleCache | src/objects/mod.rs | XHashMap<ReuseKey,(Handle,u32)> |
 | 绑定槽表 SlotTable | src/binds/mod.rs | [16] 定长数组+每管线 reorder；被否键值表（热路径）；满=断言 |

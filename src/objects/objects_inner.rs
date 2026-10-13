@@ -172,7 +172,7 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
     t.clear();
     drop(t);
     crate::state_inner::clear_removed();
-    s.program = None;
+    crate::state_inner::reset_all(s);
 }
 
 /// 直建一对一资源（entry 创建链 B11 消费）：glGen*/glCreate* 得活态名，代号=当前附着快照。
