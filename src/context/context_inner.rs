@@ -36,19 +36,29 @@ struct SlotField {
     bound: Option<ThreadId>,
 }
 
+/// 不可变借用旁路壳：仅承载「单持有者协议」下的附着槽（访问纪律见下方 SLOT 注释）。
 struct SyncCell<T>(UnsafeCell<T>);
 unsafe impl<T> Sync for SyncCell<T> {}
+/// 附着槽本体：读写只允许发生在当前持锁（claim 获胜或同线程重入）的持有期内——
+/// 这是「一切驱动调用在重入锁内」全库不变量的机制层；生命周期=进程全程（骨架泄漏式驻留，图形上下文随程存续）。
 static SLOT: SyncCell<SlotField> = SyncCell(UnsafeCell::new(SlotField { attached: None, bound: None }));
 
+/// 重入锁登记册：当前持有驱动锁的线程（None=无人持有）。
 struct Owner {
     thread: Option<ThreadId>,
 }
+/// 持锁位：跨线程争用 attach 的排队点（锁本身只护登记，不跨驱动调用持有）。
 static OWNER: Mutex<Owner> = Mutex::new(Owner { thread: None });
+/// 让位广播：最后层释放持锁位时唤醒等待者（免纯轮询）。
 static READY: Condvar = Condvar::new();
+/// 附着代号：0=未初始化；首附着 compare_exchange 立基线 1，此后仅 gen_bump 单调增；锁外可读（失配判定用）。
 static GENERATION: AtomicU32 = AtomicU32::new(0);
+/// 本线程持有层数：>0 即同线程重入快路标志；attach/让出计层，归零才真正交还持锁位。
 thread_local! { static HELD: Cell<u32> = const { Cell::new(0) }; }
 
+/// 异线程争锁的限时等待上限：超时=持锁方违约未让出 → trace 持锁线程后断言（锁合同）。
 const LOCK_WAIT: Duration = Duration::from_secs(5);
+/// 等待唤醒的兜底轮询步长（防 notify 与登记竞态空转）。
 const POLL_STEP: Duration = Duration::from_millis(50);
 
 pub(crate) fn generation_now() -> u32 {
