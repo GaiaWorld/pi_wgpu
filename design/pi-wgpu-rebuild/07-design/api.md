@@ -31,7 +31,7 @@
 ## 库内操作（@internal，芯互访面；契约同法住壳）
 清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}（芯另暴露 set_*/bind_* 差异下发族：程序/VAO/目标/上传/UBO·纹理·采样器槽/开关函数/模板/视口——签名与契约见 state 芯，消费方=draw/binds）、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register, emit_stage}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、context_inner::{with_gl, generation_now}（驱动调用闸/代号读，全芯共用）、context_inner::{surface_attach→Result<(),SurfaceOpErr>（建面+make_current；失败槽保持原状）、surface_swap→Result<(),SurfaceOpErr>（租约已消耗、不回传错误值、记 log）、web_bind_glow（Web GL 入口注入）}、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
 
-<!-- 词汇/描述符 85 项全量对表=相-2 批（L7 自记载荷声明）；相-1 已落壳仅链上 25 结构。 -->
+<!-- 词汇/描述符 85 项全量对表=相-2 批；B14 落地见 07-design/types-map.md（类型粒度裁剪登记，字段级归挂接件）；相-1 已落壳仅链上 25 结构。 -->
 
 ## 落壳批注记（相-1 收口）
 

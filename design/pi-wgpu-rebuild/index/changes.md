@@ -68,3 +68,6 @@
 | 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
 | 2026-10-14 | L7 | B13 use_wgpu 薄壳 facade 落地（用户拍板 A）：Cargo 加可选 wgpu（path ../wgpu/wgpu 25.0.2）+ use_wgpu=[dep:wgpu]；lib.rs 自有模块 cfg(not(use_wgpu)) 整体关闭、use_wgpu 下 pub use wgpu::*；PiWgpuAdapter 两 cfg 版（自有返回 entry 类型/官方返回 wgpu 类型）；新 src/lib_inner.rs（uw_request_impl 单参→双参、trace 丢弃）；gl×use_wgpu 互斥 compile_error。验收=A（gl）+B（--no-default-features --features use_wgpu）对照编译均 Finished。api 落壳清单补 lib_inner；trait 行补形；call-chain B13 行标已落。 | 官方挂接面成立；待落地清单 C 项收敛 |
 | 2026-10-14 | L9 | B13 返工轮 L9 复审（子代理）：有条件放行→2 ❌ 同场收口——deps 补 wgpu 独立外部边行（边界行只留否性）、api:43 去「待落地清单 C」悬空引用改自足；附注 deps 门控表标 use_wgpu×gl 互斥、glossary 补薄壳 facade。09-review.md=放行；A/B 对照 Finished + 20 测试绿。 | B13 表示层与壳芯一致；官方挂接面成立 |
+| 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-14 | L7 | B14 types 词汇全量对表落地：新建 07-design/types-map.md（类型粒度对 wgpu 25.x：同名同形/收窄/自加/缺失/显式断裂五节；口径=类型粒度，字段级归挂接件）。源=src/types/mod.rs 107 项（纯结构 85 口径含 const/别名差）；显式断裂（Limits 字段集/TextureFormat 压缩族/Usages 全位/COMPUTE/Storage）=挂接件逐项补，禁静默。api.md 顶注指向本册。 | 词汇面裁剪全量留痕；链上 25 结构零破坏 |
+| 2026-10-14 | L9 | B14 返工轮 L9 复审（子代理×3）：首轮/二轮打回（实核 wgpu-types 25.0.0 查出 MemoryHints/PresentMode/ShaderStages/TextureSampleType/BlendFactor/AddressMode/Face/计数/CullMode 等失真），三轮=有条件放行→全部同场收口；最终 CullMode 归 §1 同形、VertexFormat ~45、ColorWrites 无 NONE、const 14 值。09-review.md=放行。纯文档轮。 | 词汇裁剪全量留痕；挂接件有显式清单 |

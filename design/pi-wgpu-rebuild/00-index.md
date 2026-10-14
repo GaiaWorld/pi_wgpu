@@ -28,6 +28,7 @@
 | [07-design/units.md](07-design/units.md) | 类与子程序 | L7 |
 | [07-design/call-chain.md](07-design/call-chain.md) | 预期调用链 | L7 |
 | [07-design/errors.md](07-design/errors.md) | 防御与错误 | L7 |
+| [07-design/types-map.md](07-design/types-map.md) | 词汇全量对表 | L7 |
 | [09-review.md](09-review.md) | L9 轻审报告 | L9 |
 
 <!-- L5 跳过则 05-modules/ 不存在，L7 跳过则 07-design/ 不存在；每册只承载一个内容，不把多节塞一册。
