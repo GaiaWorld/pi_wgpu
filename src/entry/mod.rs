@@ -99,8 +99,9 @@ impl Device {
     /// 建采样器。检查项：anisotropy_clamp 为 None 或 1/2/4/8/16；compare 与绑定类型相容。
     /// 违约后果同创建族共同合同。 @public
     pub fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Sampler { crate::entry_inner::create_sampler_impl(self, desc) }
-    /// 建着色器模块。WGSL 先经转译为 GLSL ES 3.0；语法/转译错误=先报 codespan 定位、后断言——
-    /// 失败面比普通创建族宽一档（有诊断输出），仍无半建对象。 @public
+    /// 建着色器模块。WGSL/GLSL 经 naga 转译为 GLSL ES 3.0（出码延到管线创建）。
+    /// 失败面（决定⑪，非 Result 面）：源语法/转译错=log::error!(短码)+降级（无有效产物、不留半建），
+    /// 真错延后由管线创建（emit_stage/ensure_program）以错误码暴露；诊断原文走 log。 @public
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor<'_>) -> ShaderModule { crate::entry_inner::create_shader_impl(self, desc) }
     /// 建绑定组布局。检查项：条目 binding 域合法、visibility 非空、数组长度>0、类型在兼容子集内。
     /// 违约后果同创建族共同合同。 @public

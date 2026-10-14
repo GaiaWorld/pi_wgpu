@@ -96,7 +96,7 @@ flowchart TD
 | context/surface → web-sys/js-sys 0.3 [Web] | WebGL2 上下文获取；画布/离屏画布（cfg） |
 | surface → raw-window-handle 0.6 [Win/Android] | 窗口附着 |
 | upload → web-sys/js-sys [Web] | JS 图像直传私有扩展面（登记迁移差异清单） |
-| shader → naga 25.0.1（本地 fork，glsl-in/out） | 转译与反射 |
+| shader → naga 25.0.1（本地 fork，wgsl-in/glsl-in/glsl-out） | 转译与反射 |
 | entry/objects/formats/binds/draw/upload → pi_share 0.5.2 | 跨线程共享所有权（持有引用链原语） |
 | state/objects → pi_hash 0.1.1 | 高速哈希表（复用键与镜像缓存） |
 | entry → thiserror/log/bitflags/lazy_static/ordered-float/derive_more/profiling/codespan-reporting 等 | 通用基础 crate（crates.io，沿用旧清单版本） |

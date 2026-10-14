@@ -20,7 +20,8 @@
 | invalidate_generations | src/objects/mod.rs | lost 整面失效（幂等） |
 | convert_upload_layout | src/upload/mod.rs | 256B→驱动参数换算 |
 | consume_dynamic_offsets | src/binds/mod.rs | 计数校验+顺序消耗（顺序性在名） |
-| compile_to_es300 | src/shader/mod.rs | naga 调用+错误格式化 |
+| compile_to_es300 | src/shader/mod.rs | naga 调用（WGSL/GLSL 前端+校验）；错误=短码上递+log 诊断 |
+| emit_stage | src/shader/mod.rs | 按 (stage,entry_point) 出 GLSL ES 3.0（binding_map 按槽表定位） |
 | probe | src/caps/mod.rs | 探测→结构 |
 
 命名无 And、无空动词；副作用均可从名/注释看判。

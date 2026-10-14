@@ -22,7 +22,7 @@
 | 上下文代号 | 附着体世代计数；lost 即 +1，整面资源/镜像/租约随代作废重登记 | L5/L7-⑥⑦⑧ |
 | 交集原则 | 跨驱动形态差异仅经 caps/formats/context-surface/pi_glow 四道闸，核心模块禁形态分支（L5 判⑥） | L5-⑥ |
 | 隔离带 | 合法性在 entry 边界校验一次，核心层假定干净不再校验 | L7-errors |
-| 壳芯 | L7 落码形态：壳=声明+契约注释+一句委托（冻结面）；芯=panic 桩+伪码注释（实现唯一入口） | L7-落壳 |
+| 壳芯 | L7 落码形态：壳=声明+契约注释+一句委托（冻结面）；芯=实现唯一入口（失败面=错误码上递或断言；伪码注释标「示意」） | L7-落壳 |
 | 相-1/相-2 | 相-1=本会话骨架集（已落已编译核验）；相-2=词汇全量对表/use_wgpu 官方挂接/wasm 面核验 | L7-落壳 |
 | TODO-DECL | 芯桩统一记号（panic 消息），全文 grep 即实现批待办清单 | L7-落壳 |
 | 名实对账 | 文档函数名与壳实名一致校验（L9 判出后已执行，api/units/call-chain 三册） | L9 |
@@ -34,3 +34,9 @@
 | BindDomain | 绑定域：Uniform=UBO 绑定点槽；Texture/Sampler=纹理单元槽（同段共用） | B6 |
 | BoundEntry | 绑定组条目单位：binding+domain 资源强引用 DirectHandle+offset/size/dynamic；动态声明数=dynamic 位计数（consume 校验源） | B6 |
 | 绑定槽表 SlotTable | 双段定长数组 ubo[16]+单元段[16]；设备级单表、建管线时按布局重排；被否键值表（热路径） | B6 |
+| CompiledEs300 | shader 转译产物：hash（源文本哈希=复用键）+ modules:Vec<ShaderIr>；出码延到管线创建 | B7 |
+| ShaderIr | 单转译单元的 naga 中间产物：module + 校验信息 info | B7 |
+| ReflectionTable / RefEntry | 反射登记：entries:Vec<RefEntry{group,binding,kind:BindingKind,name}>；与程序哈希同生命周期 | B7 |
+| BindingKind | 绑定类别：UniformBuffer / Texture / Sampler（决定应用走 UBO 槽还是纹理单元） | B7 |
+| ShaderErr | shader 错误码枚举（ParseWgsl/ParseGlsl/Validate/Emit/NoEntry/SlotMissing/LayoutMismatch/EmptyGlsl/UnsupportedBinding） | B7 |
+| 错误码上递 | 决定⑪错误处理：优先返回短错误码（Result），避免原地 panic；不便上递处 log::error!(码) 后降级；禁长文本 | B7/决定⑪ |

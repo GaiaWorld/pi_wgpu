@@ -58,9 +58,9 @@ pub(crate) fn create_texture_impl(_d: &Device, _t: &TextureDescriptor<'_>) -> Te
 // 3. glGenSamplers + 参数全量落定后包 DirectHandle；参数报错=断言，无半建采样器。
 pub(crate) fn create_sampler_impl(_d: &Device, _s: &SamplerDescriptor<'_>) -> Sampler { todo() }
 // 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. WGSL 走 naga 前端校验→后端出 GLSL ES 3.0；GLSL 源直接校验透传。
-// 2. 语法/转译错误：先输出 codespan 定位报告，再断言终止——失败面比创建族宽一档（有诊断），仍无半建模块。
-// 3. 产物计算转译哈希，登记 (set,binding)↔location 反射表，装配 ShaderModule（哈希与反射表同生命周期）。
+// 1. 调 shader.compile_to_es300（WGSL/GLSL 前端校验+IR）→ 产物持 hash 与 IR。
+// 2. 源语法/转译错（决定⑪）：compile_to_es300 返回 Err(短码) → log::error!(短码)+降级生产物（不留半建）；真错延后由管线创建以错误码暴露，不原地 panic。
+// 3. shader.reflection_register 登记 (set,binding)↔类别/名；装配 ShaderModule{_refl,_compiled}（同生命周期）。
 pub(crate) fn create_shader_impl(_d: &Device, _s: ShaderModuleDescriptor<'_>) -> ShaderModule { todo() }
 // 设计预期（伪码·示意·不可验证）：
 // 1. 条目逐项校验：binding 域、visibility 非空、count>0、类型在兼容子集（Buffer 仅 Uniform）；违约=断言含 label，未建布局。
