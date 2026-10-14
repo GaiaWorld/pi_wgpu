@@ -72,22 +72,19 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-/// WGSL：顶点位置 + 常量片元色。
-const SHADER: &str = r#"
-@vertex
-fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32> {
-    return vec4<f32>(pos, 0.0, 1.0);
-}
-@fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return vec4<f32>(0.9, 0.4, 0.2, 1.0);
-}
-"#;
+/// 顶点着色器（GLSL 450 源文件）。
+const VERT: &str = include_str!("triangle.vert");
+/// 片元着色器（GLSL 450 源文件）。
+const FRAG: &str = include_str!("triangle.frag");
 
 /// 清屏色。
 const CLEAR: Color = Color { r: 0.05, g: 0.05, b: 0.08, a: 1.0 };
-/// 三角形三顶点（裁剪空间）。
-const VERTS: [[f32; 2]; 3] = [[-0.6, -0.5], [0.6, -0.5], [0.0, 0.6]];
+/// 三角形三顶点（裁剪空间）：每顶点 = position(vec2) + color(vec4)。
+const VERTS: [[f32; 6]; 3] = [
+    [-0.6, -0.5, 1.0, 0.0, 0.0, 1.0],
+    [0.6, -0.5, 0.0, 1.0, 0.0, 1.0],
+    [0.0, 0.6, 0.0, 0.0, 1.0, 1.0],
+];
 
 /// 应用态（instance/window 泄漏为 'static）。
 struct State {
@@ -136,7 +133,7 @@ impl ApplicationHandler for App {
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("tri"),
-            source: ShaderSource::Wgsl(WgslSource { code: SHADER }),
+            source: ShaderSource::Glsl(GlslSource { version: GlslVersion::Glsl450, vertex: Some(GlslVertex { code: VERT }), fragment: Some(GlslFragment { code: FRAG }) }),
         });
         let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor { label: Some("pl"), bind_group_layouts: &[] });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -144,23 +141,26 @@ impl ApplicationHandler for App {
             layout: &layout,
             vertex: VertexState {
                 module: &shader,
-                entry_point: Some("vs_main"),
+                entry_point: Some("main"),
                 layouts: &[VertexBufferLayout {
-                    array_stride: 8,
+                    array_stride: 24,
                     step_mode: VertexStepMode::Vertex,
-                    attributes: &[VertexAttribute { format: VertexFormat::Float32x2, offset: 0, shader_location: 0 }],
+                    attributes: &[
+                        VertexAttribute { format: VertexFormat::Float32x2, offset: 0, shader_location: 0 },
+                        VertexAttribute { format: VertexFormat::Float32x4, offset: 8, shader_location: 1 },
+                    ],
                 }],
             },
             fragment: Some(FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("main"),
                 targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites(0xF) })],
             }),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             primitive: PrimitiveState::default(),
         });
-        let mut bytes = Vec::with_capacity(VERTS.len() * 8);
+        let mut bytes = Vec::with_capacity(VERTS.len() * 24);
         for v in VERTS { for c in v { bytes.extend_from_slice(&c.to_ne_bytes()); } }
         let vbuf = device.create_buffer_init(&BufferInitDescriptor { label: Some("verts"), contents: &bytes, usage: BufferUsages::VERTEX });
         self.state = Some(State { window, surface, device, queue, config, pipeline, vbuf });
@@ -189,7 +189,7 @@ impl ApplicationHandler for App {
                         let desc = RenderPassDescriptor { label: Some("tri"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
                         let mut pass = encoder.begin_render_pass(&desc);
                         pass.set_pipeline(&s.pipeline);
-                        pass.set_vertex_buffer(0, &s.vbuf, 0, 8);
+                        pass.set_vertex_buffer(0, &s.vbuf, 0, 24);
                         pass.draw(0, 3);
                     }
                     let cmd = encoder.finish();
