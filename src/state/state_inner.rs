@@ -539,6 +539,21 @@ pub(crate) fn set_stencil(m: &mut StateMirror, front: StencilFaceState, back: St
     });
 }
 
+/// 模板参考值 set：入镜像；两面状态已知时即时重下 func（差异才发）。
+pub(crate) fn set_stencil_reference(m: &mut StateMirror, reference: u32) {
+    if m.stencil_reference == Some(reference) {
+        return;
+    }
+    m.stencil_reference = Some(reference);
+    if let (Some(fs), Some(bs)) = (m.stencil_front, m.stencil_back) {
+        with_gl(|gl| unsafe {
+            for (face, st) in [(GL_FRONT, fs), (GL_BACK, bs)] {
+                gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
+            }
+        });
+    }
+}
+
 /// 覆盖采样使能 set。
 pub(crate) fn set_alpha_to_coverage(m: &mut StateMirror, on: bool) {
     if m.sample_alpha_to_coverage == Some(on) {

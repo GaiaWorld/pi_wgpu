@@ -65,7 +65,7 @@ pub(crate) fn alloc_impl(layout: &PipelineLayout, table: &mut SlotTable) {
 // 1. 预检：全部句柄活态、槽齐备、动态偏移个数=声明数——任一违反=断言，未发任何 bind。
 // 2. 逐条只改镜像期望（bind_* 差异才实际下发）；动态偏移按声明序消耗、叠加静态偏移。
 // 3. 死句柄/槽缺=断言且绑定保持调用前原状（预检在动作前）。
-pub(crate) fn apply_impl(_pipe: &RenderPipeline, set: u32, group: &BindGroup, offsets: &[DynamicOffset], table: &SlotTable, state: &mut StateMirror) {
+pub(crate) fn apply_impl(set: u32, group: &BindGroup, offsets: &[DynamicOffset], table: &SlotTable, state: &mut StateMirror) {
     let need = group._bound.iter().filter(|e: &&BoundEntry| e.dynamic).count();
     if offsets.len() != need {
         panic!("binds 断言: 动态偏移个数 {} ≠ 组声明数 {need}", offsets.len());

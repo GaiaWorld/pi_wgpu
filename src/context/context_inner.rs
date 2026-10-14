@@ -412,7 +412,7 @@ mod tests {
         table.ubo[0] = Some((0u32 << 16) | 0);
         table.sampler[0] = Some((0u32 << 16) | 1);
         table.sampler[1] = Some((0u32 << 16) | 2);
-        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache) };
+        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache), _vertex: Vec::new(), _topology: crate::types::PrimitiveTopology::TriangleList };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
         let smph = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);
@@ -425,7 +425,8 @@ mod tests {
             crate::binds::BoundEntry { binding: 2, domain: crate::binds::BindDomain::Sampler, handle: smph, offset: 0, size: None, dynamic: false },
         ] };
         let mut m2 = crate::state::StateMirror::default();
-        crate::binds::apply_layout(&rp, 0, &group, &[], &table, &mut m2);
+        let _ = &rp;
+        crate::binds::apply_layout(0, &group, &[], &table, &mut m2);
         assert_eq!(m2.ubo_bindings[0], Some((crate::objects::GlHandle(buf_name), 0, 0)), "UBO 槽落镜像=名");
         assert_eq!(m2.texture_bindings[0], Some(crate::objects::GlHandle(tex_name)), "纹理落单元 0（槽表定位）");
         assert_eq!(m2.sampler_bindings[1], Some(crate::objects::GlHandle(smp_name)), "采样器落单元 1（槽表定位）");
@@ -433,7 +434,7 @@ mod tests {
         let mut dead_h = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let _ = dead_h.handle.take();
         let gbad = crate::entry::BindGroup { _bound: vec![crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: dead_h, offset: 0, size: None, dynamic: false }] };
-        let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::binds::apply_layout(&rp, 0, &gbad, &[], &table, &mut m2)));
+        let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::binds::apply_layout(0, &gbad, &[], &table, &mut m2)));
         assert!(rbad.is_err(), "死句柄=断言（动作前）");
         drop(gbad);
         drop(group);
@@ -441,6 +442,25 @@ mod tests {
         let ad = crate::entry::Adapter { _caps: crate::caps_inner::probe_impl() };
         let sc = crate::surface_inner::capabilities_impl(&ad);
         assert!(!sc.formats.is_empty() && !sc.present_modes.is_empty(), "能力候选非空");
+        // —— B10 draw 合验（默认帧缓冲 begin/clear/set_viewport/Drop=end）——
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device { _inner: pi_share::Share::new(di) };
+        let mut enc = crate::entry::CommandEncoder { _opened_pass: false, _inner: dev._inner.clone() };
+        let view = crate::entry::TextureView { _tex: None };
+        let ca = crate::types::RenderPassColorAttachment {
+            view: &view,
+            resolve_target: None,
+            ops: crate::types::Operations { load: crate::types::LoadOp::Clear(crate::types::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), store: crate::types::StoreOp::Store },
+        };
+        let desc = crate::types::RenderPassDescriptor { label: None, color_attachments: &[Some(ca)], depth_stencil_attachment: None };
+        let mut pass = enc.begin_render_pass(&desc);
+        pass.set_viewport(0.0, 0.0, 4.0, 4.0, 0.0, 1.0);
+        drop(pass);
+        assert!(!enc._opened_pass, "Drop=end 释放守卫");
         let_go_impl();
     }
 

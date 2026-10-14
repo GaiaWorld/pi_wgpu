@@ -3,6 +3,7 @@
 //! 契约的权威文本住本面注释。失败封闭原则：除三个显式 Result 面（request_device / create_surface /
 //! get_current_texture）外，一切操作要么不失败、要么以断言失败——描述符违约在创建边界一次校验。
 use crate::draw::RenderPass;
+use pi_share::{Share, ShareMutex};
 use std::path::Path;
 
 /// request_device 的失败信号（封闭类型）：请求的能力/上限超出适配器快照。
@@ -20,15 +21,26 @@ use std::path::Path;
 /// 适配器=探测时刻的能力不可变快照。此后所有查询面读的都是这份快照；
 /// 可对同一 Adapter 反复 request_device，失败不产生任何副作用。 @public
 #[derive(Debug)] pub struct Adapter { pub(crate) _caps: crate::caps::Caps }
-/// 设备句柄：全量持有三件套——驱动状态镜像、可复用对象缓存、绑定槽表。
+/// 设备共享内芯：录制/校验面经共享柄触达镜像/缓存/槽表（引用链=Share；三件套各由 Mutex 护）。
+/// 锁序约定：先取 state 锁、后进 with_gl（与 set_*/flush 同序，无反向）。 @internal
+#[derive(Debug)]
+pub(crate) struct DeviceInner {
+    /// 驱动状态镜像（差异下发）。
+    pub(crate) state: ShareMutex<crate::state::StateMirror>,
+    /// 可复用对象缓存。
+    pub(crate) cache: ShareMutex<crate::objects::HandleCache>,
+    /// 绑定槽表。
+    pub(crate) slots: ShareMutex<crate::binds::SlotTable>,
+}
+/// 设备句柄：持共享内芯（镜像/缓存/槽表），可被命令编码器克隆共享。
 /// 引用链为 Share（被否方案：Rc——违反单线程合同）。 @public
-#[derive(Debug)] pub struct Device { pub(crate) _state: crate::state::StateMirror, pub(crate) _cache: crate::objects::HandleCache, pub(crate) _slots: crate::binds::SlotTable }
+#[derive(Debug)] pub struct Device { pub(crate) _inner: Share<DeviceInner> }
 /// 队列=随设备创建的伴生面。提交点语义为空壳：本库「录制即执行」，
 /// submit 不做任何事，上层不得依赖提交批生效时机（保留官方伞面形状的兼容面）。 @public
 #[derive(Debug)] pub struct Queue { pub(crate) _dev: Option<Device> }
 /// 命令编码器=通道开关守卫。不变量：任意时刻至多一个开启中的 RenderPass；
 /// 嵌套 begin_render_pass=断言，且不会产生第二个通道。 @public
-#[derive(Debug)] pub struct CommandEncoder { pub(crate) _opened_pass: bool }
+#[derive(Debug)] pub struct CommandEncoder { pub(crate) _opened_pass: bool, pub(crate) _inner: Share<DeviceInner> }
 /// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
 #[derive(Debug)] pub struct CommandBuffer;
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
@@ -62,7 +74,7 @@ pub struct Texture {
 #[derive(Debug)] pub struct PipelineLayout { pub(crate) _bgls: Vec<BindGroupLayout> }
 /// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）与顶点属性布局（复用键=布局哈希）。
 /// 复用对象引用归零时物理删除并刷失镜像，由对象层保证。 @public
-#[derive(Debug)] pub struct RenderPipeline { pub(crate) _program: crate::objects::Reusable }
+#[derive(Debug)] pub struct RenderPipeline { pub(crate) _program: crate::objects::Reusable, pub(crate) _vertex: Vec<crate::draw::VertexLayout>, pub(crate) _topology: crate::types::PrimitiveTopology }
 /// 着色器模块：持反射登记表（(set,binding)↔类别/名映射）与转译产物（IR，供管线创建按入口出码）。 @public
 #[derive(Debug)] pub struct ShaderModule { pub(crate) _refl: crate::shader::ReflectionTable, pub(crate) _compiled: crate::shader::CompiledEs300 }
 

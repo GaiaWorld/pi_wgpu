@@ -6,7 +6,31 @@ use crate::binds; use crate::entry::{BindGroup, Buffer, CommandEncoder, RenderPi
 use crate::types::{DynamicOffset, RenderPassDescriptor};
 
 /// 开启中的渲染通道：可变借用编码器即通道锁生命周期——通道唯一性由借用+编码器守卫双重构成。 @public
-#[derive(Debug)] pub struct RenderPass<'pass> { pub(crate) _enc: &'pass mut CommandEncoder }
+#[derive(Debug)]
+pub struct RenderPass<'pass> {
+    /// 编码器可变借用（通道锁生命周期）。
+    pub(crate) _enc: &'pass mut CommandEncoder,
+    /// 当前管线的顶点布局拷贝（set_vertex_buffer 配属性用）。
+    pub(crate) _vertex: Vec<VertexLayout>,
+    /// 管线是否已设（draw 前置）。
+    pub(crate) _pipe_set: bool,
+    /// 顶点属性是否就绪（draw 前置）。
+    pub(crate) _vertex_ready: bool,
+    /// 索引是否已绑（draw_indexed 前置）。
+    pub(crate) _index_ready: bool,
+    /// 当前图元拓扑（draw 用）。
+    pub(crate) _topology: crate::types::PrimitiveTopology,
+}
+/// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
+#[derive(Debug, Clone)]
+pub(crate) struct VertexLayout {
+    /// 步进字节。
+    pub(crate) array_stride: u64,
+    /// 步进模式。
+    pub(crate) step_mode: crate::types::VertexStepMode,
+    /// 属性集合（拥有）。
+    pub(crate) attributes: Vec<crate::types::VertexAttribute>,
+}
 impl<'pass> RenderPass<'pass> {
   /// 记入当前管线并通知镜像：程序切换作为差异延后到下发点执行；死句柄=断言，通道保持原管线。 @public
   pub fn set_pipeline(&mut self, p: &RenderPipeline) { crate::draw_inner::set_pipeline_impl(self, p) }

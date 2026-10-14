@@ -41,9 +41,8 @@ impl Default for SlotTable { fn default() -> Self { Self { ubo: [None; 16], samp
 /// 域满/越界=断言（报满的域），分配中途失败不回写半张表。 @internal
 pub(crate) fn alloc_slots(layout: &PipelineLayout, table: &mut SlotTable) { crate::binds_inner::alloc_impl(layout, table) }
 /// set_bind_group 的实现底座：按设备级槽表查槽 → 动态偏移按声明序消耗 → 绑定经状态镜像差异下发。
-/// 任一违约（死句柄/槽对不上/动态计数不符）=断言，且在任何 bind 调用发出之前，绑定保持调用前原状。
-/// 注：`pipe` 为程序侧上下文保留位（uniform block→slot 的程序侧绑定属反射批，避免与本批槽机制耦合）。 @internal
-pub(crate) fn apply_layout(pipe: &RenderPipeline, set: u32, group: &BindGroup, offsets: &[DynamicOffset], table: &SlotTable, state: &mut StateMirror) { crate::binds_inner::apply_impl(pipe, set, group, offsets, table, state) }
+/// 任一违约（死句柄/槽对不上/动态计数不符）=断言，且在任何 bind 调用发出之前，绑定保持调用前原状。 @internal
+pub(crate) fn apply_layout(set: u32, group: &BindGroup, offsets: &[DynamicOffset], table: &SlotTable, state: &mut StateMirror) { crate::binds_inner::apply_impl(set, group, offsets, table, state) }
 /// 动态偏移消耗：入参个数必须与绑定组登记的声明数恰好相等——不符=断言且不消耗任何份额；
 /// 消耗顺序=布局声明顺序（合同名即行为名，无重排特权）。 @internal
 pub(crate) fn consume_dynamic_offsets(group: &BindGroup, offsets: &mut &[DynamicOffset]) { crate::binds_inner::consume_impl(group, offsets) }
