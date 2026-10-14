@@ -328,6 +328,7 @@ fn link_program(name: GlHandle, vs: &str, fs: Option<&str>) {
         let cvs = gl.get_shader_compile_status(vsh);
         if !cvs { log::error!("entry 顶点着色器编译失败 log={}", gl.get_shader_info_log(vsh)); }
         gl.attach_shader(prog, vsh);
+        let mut fsh_opt = None;
         if let Some(src) = fs {
             let fsh = gl.create_shader(GL_FRAGMENT_SHADER).unwrap_or_else(|e| panic!("entry 断言: 片元着色器对象创建失败 {e}"));
             gl.shader_source(fsh, src);
@@ -335,10 +336,17 @@ fn link_program(name: GlHandle, vs: &str, fs: Option<&str>) {
             let cfs = gl.get_shader_compile_status(fsh);
             if !cfs { log::error!("entry 片元着色器编译失败 log={}", gl.get_shader_info_log(fsh)); }
             gl.attach_shader(prog, fsh);
+            fsh_opt = Some(fsh);
         }
         gl.link_program(prog);
         let lk = gl.get_program_link_status(prog);
         if !lk { log::error!("entry 程序链接失败 log={}", gl.get_program_info_log(prog)); }
+        gl.detach_shader(prog, vsh);
+        gl.delete_shader(vsh);
+        if let Some(fsh) = fsh_opt {
+            gl.detach_shader(prog, fsh);
+            gl.delete_shader(fsh);
+        }
     });
 }
 
