@@ -31,11 +31,11 @@ use std::path::Path;
 #[derive(Debug)] pub struct CommandEncoder { pub(crate) _opened_pass: bool }
 /// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
 #[derive(Debug)] pub struct CommandBuffer;
-/// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=断言；
+/// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
 /// Drop 即调驱动删除，并通知镜像刷失相关字段。 @public
-#[derive(Debug)] pub struct Buffer { pub(crate) _h: crate::objects::DirectHandle }
-/// 一对一直建的 GL 纹理。句柄契约同 Buffer：Drop 即删驱动资源、死句柄使用=断言。 @public
-#[derive(Debug)] pub struct Texture { pub(crate) _h: crate::objects::DirectHandle }
+#[derive(Debug)] pub struct Buffer { pub(crate) _h: crate::objects::DirectHandle, pub(crate) size: crate::types::BufferAddress }
+/// 一对一直建的 GL 纹理。句柄契约同 Buffer：Drop 即删驱动资源、死句柄使用=错误码。 @public
+#[derive(Debug)] pub struct Texture { pub(crate) _h: crate::objects::DirectHandle, pub(crate) params: crate::formats::GlParams }
 /// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。 @public
 #[derive(Debug)] pub struct TextureView { pub(crate) _tex: Option<Texture> }
 /// 一对一直建的 GL 采样器。句柄契约同 Buffer。 @public
