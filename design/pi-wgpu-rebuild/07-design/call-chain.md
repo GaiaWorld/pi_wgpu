@@ -12,9 +12,9 @@
 | lost 失效 | get_current_texture 捕获→context.gen_bump→旧句柄/镜像随代号失配集体退场→上层重走 request_device | 降级=重配置；账面由上层资产层处理 |
 | 外部干扰 | entry.reset_state→state 重探测→flush | 无失败态 |
 | 着色器 | shader.compile_to_es300（create_shader_module）→ objects.ensure_reuse（程序复用）→ shader.emit_stage 出码（create_render_pipeline） | 源错=短错误码上递+log 诊断；**reflection_register 待接线**（需 layout+可写模块：模块创建期无布局、管线期只拿 &module；_refl 当前零消费者，emit_stage 走 SlotTable，登记未闭环） |
-| 便捷面 | utils.create_buffer_init→entry.create_buffer+upload | 同上游契约 |
+| 便捷面 | utils.create_buffer_init→entry.create_buffer+upload；utils.create_texture_with_data→entry.create_texture+upload | 组合面（结果等价上游；机制=write_buffer/write_texture 非映射） |
 
-闭包核对（2026-10-13 L9 对账修订）：11 链节点均解析到壳实名；链号=首表行号、1 基。例外三类：Queue::submit/Encoder::finish=空壳契约本身不入链；write_texture_jsbuffer=链7（写）的 JS 旁路源；get_capabilities 与 Adapter 查询族=纯查询无链叙事价值。其余公开操作≥1 链引用。
+闭包核对（2026-10-13 L9 对账修订）：11 链节点均解析到壳实名；链号=首表行号、1 基。例外三类：Queue::submit/Encoder::finish=空壳契约本身不入链；write_texture_jsbuffer=链7（写）的 JS 旁路源；get_capabilities 与 Adapter 查询族=纯查询无链叙事价值；utils 三 env 助手（backend_bits/power_preference/parse_backends）=纯读无链叙事价值。其余公开操作≥1 链引用。
 
 形态路径分叉注（L9 补）：链1「初始化」在 Web 形态=「必须先配置呈现」再「请求设备」（与桌面/安卓相反）；链2 在 Web 无换帧调用。换帧/附着细节见 deps 形态子图。
 
@@ -95,7 +95,7 @@ sequenceDiagram
 | B9 | surface 芯：configure_impl / get_current_impl / present_impl / capabilities_impl + context_inner::{surface_attach, surface_swap}（先全量校验=无半配置；底层错→封闭四态；present 自消费；Web 无换帧、桌面/安卓换帧+栅栏；suboptimal 恒真） | B1,B2 | 链2 全帧循环桌面形态可跑通（配 B11）；Lost→gen_bump→旧对象使用全断言、request_device 重入重建 | 链2/链8 |
 | B10 | draw 芯：begin_render_pass + set_* 族 + draw / draw_indexed + Drop=end（单颜色目标恰一；录制即执行经镜像差异；viewport 坐标内翻=汇合层；first_instance/base_vertex=0 断言） | B5,B6 | Drop 后资源方可销毁合同成立；参数违约=断言无副作用 | 链2/链5 | 
 | B11 | entry 芯：Instance/Adapter/Device/Queue 编排全链（new→attach→probe→…→configure；create_* 隔离带一次校验含 desc.label；request_adapter None=无副作用；request_device 错=设备未建；finish/submit 空壳不扩语义） | B7,B9,B10 | 链1+链4 冒烟=examples 出第一个可运行程序（补 R10 遗留坑） | 链1/链3/链9 |
-| B12 | utils 芯：create_buffer_init / create_texture_with_data（纯组合调用无新契约）/ env 助手恒 GL 语义（WGPU_BACKEND 不生效=登记差异）/ 锁包装 | B11 | 便捷面与直调等价 | 链11 |
+| B12 | utils 芯：create_buffer_init / create_texture_with_data（纯组合调用无新契约；order 多段排布未实现=登记差异）/ env 助手恒 GL 语义（WGPU_BACKEND 不生效=登记差异）；锁包装+公开入口 trace 单点=待落（登记差异，不静默删） | B11 | 便捷面与直调等价 | 链11 |
 | B13 | 相-2 use_wgpu 挂接：lib compile_error 替换为 wgpu 依赖面 + impl PiWgpuAdapter for wgpu::Adapter 委托 lib_inner::uw_request_impl（单参→双参、trace 丢弃；官方面无自有芯） | B0–B12 | A/B feature 对照编译（待落地清单 C 项验收） | 伞面 |
 | B14 | types 词汇全量对表：85 项对 wgpu 25.x 裁剪登记（api 册顶注载荷声明；显式登记断裂进迁移清单，禁静默） | B11 | 对表清单落 changes；链上 25 结构零破坏 | 全部 |
 

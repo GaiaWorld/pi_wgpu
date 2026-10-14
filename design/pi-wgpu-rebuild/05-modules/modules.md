@@ -16,7 +16,7 @@
 | shader | 着色器桥：转译（WGSL/GLSL→GLSL ES 3.0 统一输出）、编译链接、反射登记 | 转译输出形态与反射契约（绑定 naga fork） |
 | draw | 渲染通道录制：FBO 边界/clear-load-store、绑定应用、视口翻换、VAO 属性批 | 通道能力约束（单颜色目标、pass 边界=Drop 语义、参数级限制） |
 | upload | 数据写路径：缓冲/纹理写入即时生效、对齐换算、JS 图像直传（wasm 扩展面） | 写入生效时机（即时下发 vs 未来改提交栅栏） |
-| utils | 便捷构造（Buffer/Texture init）、env 助手、锁包装、调用 trace 单点（公开入口包装，编译开关控制出入日志） | 附加便利面（是否扩项） |
+| utils | 便捷构造（Buffer/Texture init）、env 助手；锁包装 + 调用 trace 单点（公开入口包装，编译开关控制出入日志）=待落（B12 登记差异，不静默删） | 附加便利面（是否扩项） |
 
 ## 非显然的切分理由
 

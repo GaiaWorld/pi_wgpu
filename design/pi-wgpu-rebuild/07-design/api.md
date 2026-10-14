@@ -24,7 +24,7 @@
 | SurfaceTexture::present(self) | src/surface/mod.rs | src/surface/surface_inner.rs | 自消费=类型级禁重复呈现（无运行时态） | 替旧实现运行时 panic——更强且兼容 |
 | CommandEncoder::begin_render_pass | src/draw/mod.rs | src/draw/draw_inner.rs | 颜色目标恰一 Some，其余断言；失败后通道未建 | |
 | RenderPass::{set_pipeline,set_bind_group,set_vertex_buffer,set_index_buffer,set_viewport,set_scissor_rect,set_stencil_reference,set_blend_constant,draw,draw_indexed} | src/draw/mod.rs | src/draw/draw_inner.rs | 全经镜像差异下发；draw 参数级约束（draw 无 first_instance 形参；draw_indexed 的 base_vertex=0）=断言；Drop=通道结束（此后资源可销毁） | viewport wgpu 坐标内翻=汇合层 |
-| util::DeviceExt::{create_buffer_init,create_texture_with_data} | src/utils/mod.rs | src/utils/utils_inner.rs | 组合调用（无新契约） | |
+| util::DeviceExt::{create_buffer_init,create_texture_with_data} | src/utils/mod.rs | src/utils/utils_inner.rs | 组合调用（无新契约）；登记(B12)：create_texture_with_data 仅 mip0 单段直写，order 多段排布未实现 | |
 | util::{backend_bits_from_env,power_preference_from_env,parse_backends_from_comma_list} | src/utils/mod.rs | src/utils/utils_inner.rs | 恒 GL 语义（登记差异：WGPU_BACKEND 不生效） | |
 | trait PiWgpuAdapter | src/lib.rs | — | 伞面统一双参 request_device（use_wgpu 下适配官方） | 被否：两侧签名各异 |
 
