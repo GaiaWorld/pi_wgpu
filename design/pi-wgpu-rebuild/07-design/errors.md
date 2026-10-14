@@ -6,7 +6,7 @@
 |---|---|---|---|
 | create_surface 目标 | 句柄/画布类型 | 结果值可重试 | entry |
 | request_device | 超能力请求 | 结果值；设备未建 | entry |
-| configure 组合+尺寸 | 唯一合法组合、非零 | 断言；未配置可再调 | surface |
+| configure 组合+尺寸/建面 | 校验类=SurfaceErr；平台类=SurfaceOpErr | log::error!(码)；未配置可再调（不留半配置） | surface |
 | begin_render_pass 附件 | 颜色恰一 | 断言；通道未建 | draw |
 | set 范围/槽满 | 0–3·16 | 断言；绑定未变 | binds |
 | 动态偏移计数 | 与 layout 对表 | 断言；未消耗 | binds |

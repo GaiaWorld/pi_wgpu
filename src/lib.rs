@@ -1,7 +1,7 @@
 // 设计：pi-wgpu-rebuild
 //! pi_wgpu · WebGPU 兼容子集的 GL 直替层（根面）。本文件只做模块接线与 feature 门控。
 //! 每个模块 = 公开壳（类型/函数声明 + 契约注释，契约的权威文本就住在壳注释里）
-//! + 实现芯（同名 _inner 文件：桩 + 设计预期伪码，逻辑体由后续批次补全，现以 TODO-DECL 标记）。
+//! + 实现芯（同名 _inner 文件：逻辑体按批次补全；已落地批含真实实现，未落地批留桩 + TODO-DECL）。
 //! 本批验收目标 = 引用网自洽（编译通过）；不含任何运行时行为。
 #![allow(dead_code, unused_variables, unused_imports)]
 

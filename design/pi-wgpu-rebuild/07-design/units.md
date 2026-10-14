@@ -7,7 +7,7 @@
 | LayoutApplier | src/binds/mod.rs | reorder·动态偏移消耗·16 槽约束 | 是（纯绑定，不碰 draw 语义） |
 | ShaderBridge | src/shader/mod.rs | naga 转译+反射登记 | 是 |
 | ContextAttachment | src/context/mod.rs | EGL+锁+搬运+代号 | 是（不含渲染语义） |
-| Presenter | src/surface/mod.rs | 换帧分形态收口 | 是 |
+| Presenter | src/surface/mod.rs | 换帧分形态收口（configure 建平台表面；present=swap/Web 空操作） | 是 |
 | PassRecorder | src/draw/mod.rs | 单目标 FBO·clear/Store 语义 | 是 |
 
 | 子程序 | 壳 | 职责/副作用核查 |

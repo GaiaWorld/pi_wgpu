@@ -11,6 +11,8 @@
 | BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同）；ShaderModule 另持转译产物 _compiled |
 | 着色器产物 CompiledEs300/ShaderIr | src/shader/mod.rs | CompiledEs300{hash, modules:Vec<ShaderIr{module,info}>}；hash=源文本哈希（复用键）；GLSL 出码延到管线创建 |
 | 反射登记表 ReflectionTable | src/shader/mod.rs | entries:Vec<RefEntry{group,binding,kind:BindingKind{UniformBuffer,Texture,Sampler},name}>；与程序转译哈希同生命周期 |
+| 呈现表面 Surface | src/surface/mod.rs | _cfg=RefCell<Option<SurfaceConfiguration>>（configure 取 &self）；平台表面驻 context 附着槽（Attached.surface）；帧视图=默认帧缓冲标记 TextureView{_tex:None}；suboptimal 恒真 |
+| 表面操作错误码 SurfaceOpErr | src/context/context_inner.rs | NotAttached/CreateSurface/NoSurface（surface_attach/surface_swap 上递，surface 芯落 log 短码，决定⑪） |
 | SurfaceTexture（帧租约） | src/surface/mod.rs | present 消自——同时至多一帧的不变量类型级成立 |
 | 附着体 Attachment | src/context/mod.rs | 芯内进程驻留附着槽：EGL/WGL 实例对（glow 入口由实例借出）+ 持锁线程重入门锁 + TLS 层数 + 代号原子（非 Arc 引用链）；Web 形态零 EGL、GL 入口由呈现配置链注入；代号单调增；跨线程搬运前提见壳 attach 注释条款 |
 | 对象句柄层 | src/objects/mod.rs | L7 解冻重落定：GlHandle=u32 原生产物（glow native NonZeroU32 包装由芯边界转换）；DirectHandle 带 DirectKind 域（三路删除分派）；HandleCache=pi_hash XHashMap/FxHash64，行持物理名模板；计数真相与死名刷失驻留 objects/state 芯——归零即删+登记，invalidate 纯记账幂等 |

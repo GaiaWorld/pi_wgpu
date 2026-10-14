@@ -87,7 +87,7 @@ sequenceDiagram
 | B6 | binds 芯：alloc_slots / apply_layout / consume_dynamic_offsets（16 槽定长+每管线 reorder；预检计数不符/槽满/死句柄=断言且绑定未变） | B5 | reorder→偏移→下发闭环（apply=镜像差异下发；consume=计数校验+游标前移）；反射表对接留 B7（pipe=程序侧保留位，本批只用存在性） | 链5 |
 | B7 | shader 芯：compile_to_es300 / reflection_register / emit_stage（naga wgsl-in/glsl-in/glsl-out；产物持 IR，出码延到管线创建） | B6 | 语法/校验错=短错误码上递+log 诊断（不吞）；反射 (set,binding)→类别/名落地；按入口出 ES300 | 链10 |
 | B8 | upload 芯：write_buffer / write_texture / convert_upload_layout / jsbuffer（即时下发；越界 debug 断言 / release 记录+GL 兜底不谎报；256B 行步换算） | B4 | FR-15 trace 留痕路径可测；Web 位图直传零拷贝 | 链7 |
-| B9 | surface 芯：configure_impl / get_current_impl / present_impl / capabilities_impl（先全量校验=无半配置；底层错→封闭四态；present 自消费；Web 无换帧、桌面/安卓换帧+栅栏；suboptimal 恒真） | B1,B2 | 链2 全帧循环桌面形态可跑通（配 B11）；Lost→gen_bump→旧对象使用全断言、request_device 重入重建 | 链2/链8 |
+| B9 | surface 芯：configure_impl / get_current_impl / present_impl / capabilities_impl + context_inner::{surface_attach, surface_swap}（先全量校验=无半配置；底层错→封闭四态；present 自消费；Web 无换帧、桌面/安卓换帧+栅栏；suboptimal 恒真） | B1,B2 | 链2 全帧循环桌面形态可跑通（配 B11）；Lost→gen_bump→旧对象使用全断言、request_device 重入重建 | 链2/链8 |
 | B10 | draw 芯：begin_render_pass + set_* 族 + draw / draw_indexed + Drop=end（单颜色目标恰一；录制即执行经镜像差异；viewport 坐标内翻=汇合层；first_instance/base_vertex=0 断言） | B5,B6 | Drop 后资源方可销毁合同成立；参数违约=断言无副作用 | 链2/链5 | 
 | B11 | entry 芯：Instance/Adapter/Device/Queue 编排全链（new→attach→probe→…→configure；create_* 隔离带一次校验含 desc.label；request_adapter None=无副作用；request_device 错=设备未建；finish/submit 空壳不扩语义） | B7,B9,B10 | 链1+链4 冒烟=examples 出第一个可运行程序（补 R10 遗留坑） | 链1/链3/链9 |
 | B12 | utils 芯：create_buffer_init / create_texture_with_data（纯组合调用无新契约）/ env 助手恒 GL 语义（WGPU_BACKEND 不生效=登记差异）/ 锁包装 | B11 | 便捷面与直调等价 | 链11 |

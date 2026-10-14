@@ -25,7 +25,7 @@ pub struct Surface<'surface> {
 }
 impl Surface<'_> {
     /// 配置呈现。先全量校验（宽高≥1、present×alpha 仅 (Fifo, Opaque)），全部通过才建平台表面并写入配置。
-    /// 违约（决定⑪，非 Result 面）：log::error!(SurfaceErr)，_cfg 保持未写——绝不留半配置。
+    /// 违约（决定⑪，非 Result 面）：校验类=log::error!(SurfaceErr)；建面失败=log::error!(SurfaceOpErr)，_cfg 保持未写——绝不留半配置。
     /// 登记差异：格式合法性未在查（Device 不持 Caps；纹理创建时已按 caps 过，surface 复用同能力面）。 @public
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) { crate::surface_inner::configure_impl(self, device, config) }
     /// 取当前帧（封闭四态错误面；与 request_device/create_surface 同属全库三处显式 Result 面之一）。成功=帧租约 SurfaceTexture；
@@ -61,8 +61,4 @@ pub(crate) enum SurfaceErr {
     BadSize,
     /// (present_mode, alpha_mode) 非法组合（仅 Fifo×Opaque 合法）。
     BadCombo,
-    /// 平台表面创建失败。
-    CreateSurface,
-    /// 附着未建立即配置。
-    NotAttached,
 }

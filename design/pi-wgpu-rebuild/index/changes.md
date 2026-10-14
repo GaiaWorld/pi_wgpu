@@ -49,3 +49,6 @@
 | 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
 | 2026-10-14 | L7 | 返工（B8 表示层同步）：07-design 随 B8 接口增量同步——data 资源句柄行补 Buffer.size/Texture.params + 增 UploadErr 行；api Queue::write_buffer/write_texture 契约改错误码；errors upload 行改两档错误码；call-chain 写链改错误码；deps 补 entry→formats 边（Texture 持 GlParams）+ 图同步；glossary 补 UploadErr。 | 设计表示层与 B8 壳芯一致；B9 surface 可开工。 |
 | 2026-10-14 | L9 | B8 返工轮 L9 复审（子代理）：有条件放行→4 ❌ 同场收口——errors/api 的 JS 直传口径改错误码、entry 两字段补注释、upload 矩形校验收窄登记；附注 notes.md 损坏已复写（全目录扫无同类污染）、api 清单补 with_gl/generation_now。09-review.md=放行；20 测试绿。 | B8 表示层与壳芯一致 |
+| 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-14 | L7 | 返工（B9 表示层同步）：07-design 随 B9 接口增量同步——data 增 Surface 行（_cfg RefCell/平台表面驻附着槽/帧视图标记）；api configure/get_current 契约改错误码+未配置口径；errors configure 行改错误码；units Presenter 补建面/换帧；glossary 补 SurfaceErr。 | 设计表示层与 B9 壳芯一致；B10 draw 可开工。 |
+| 2026-10-14 | L9 | B9 返工轮 L9 复审（子代理）：有条件放行→3 ❌ 同场收口——glossary 补 SurfaceOpErr、SurfaceErr 去死变体并分工 SurfaceErr/SurfaceOpErr、api/data/errors 补登并改壳注释码一致；附注 call-chain B9 行/deps 共用闸注/lib.rs 话术。09-review.md=放行；20 测试绿。 | B9 表示层与壳芯一致 |

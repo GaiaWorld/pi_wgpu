@@ -6,6 +6,8 @@
 
 类型互引说明：单 crate 内存在双向类型引用（entry↔{binds,state,shader}、objects↔state、surface↔entry），Rust 单 crate 常态；叠合判据=「无功能环（调用链不成环，见 call-chain 册）+ 无越级」，类型互引不计环。
 
+共用闸说明：各芯经 context_inner::with_gl 借出驱动入口、经 state::BIND_SLOTS 共享槽常量——属「全芯共用闸/共享常量」，不单列功能边（防图-src 漂移以本注为准）。
+
 纠偏注记：上轮提案表「utils→entry/upload/types」+「entry→utils」实为假环——lib 伞面 re-export 是导出表非调用边，修正为 utils→{types,entry} 单向。
 
 | 从 → 到 | 说明 |
