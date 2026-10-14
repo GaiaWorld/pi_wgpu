@@ -68,7 +68,7 @@ pub(crate) fn create_shader_impl(_d: &Device, _s: ShaderModuleDescriptor<'_>) ->
 pub(crate) fn create_bgl_impl(_d: &Device, _b: &BindGroupLayoutDescriptor<'_>) -> BindGroupLayout { todo() }
 // 设计预期（伪码·示意·不可验证）：
 // 1. 与布局对表：条目缺失/多余/类型不符、资源句柄死态、缓冲偏移对齐或越界——任一=断言且未建组、零残留。
-// 2. 通过 → _held 收各资源句柄强引用（被绑资源先亡=断言的锚）；按布局声明动态偏移条目数入登记。
+// 2. 通过 → _bound 收各条目（资源强引用+偏移/尺寸/动态位；被绑资源先亡=断言的锚）；动态偏移声明数=dynamic 位计数。
 pub(crate) fn create_bg_impl(_d: &Device, _b: &BindGroupDescriptor<'_>) -> BindGroup { todo() }
 // 设计预期（伪码·示意·不可验证）：
 // 1. 校验成员 set 归属 0-3、互不重复、总组数≤快照上限；违约=断言含 label。

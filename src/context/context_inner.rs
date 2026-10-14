@@ -335,6 +335,36 @@ mod tests {
         assert!(re.refcount.get() >= 1);
         assert!(mirror.program.is_none(), "invalidate 后镜像引用字段作废");
         let _ = re;
+        // —— B6 binds 合验（alloc 产物表驱动 apply→镜像下发闭环）——
+        let mut table = crate::binds::SlotTable::default();
+        table.ubo[0] = Some((0u32 << 16) | 0);
+        table.sampler[0] = Some((0u32 << 16) | 1);
+        table.sampler[1] = Some((0u32 << 16) | 2);
+        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache) };
+        let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
+        let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
+        let smph = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);
+        let buf_name = buf.handle.expect("Buffer 名").0;
+        let tex_name = texh.handle.expect("Texture 名").0;
+        let smp_name = smph.handle.expect("Sampler 名").0;
+        let group = crate::entry::BindGroup { _bound: vec![
+            crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: buf, offset: 0, size: None, dynamic: false },
+            crate::binds::BoundEntry { binding: 1, domain: crate::binds::BindDomain::Texture, handle: texh, offset: 0, size: None, dynamic: false },
+            crate::binds::BoundEntry { binding: 2, domain: crate::binds::BindDomain::Sampler, handle: smph, offset: 0, size: None, dynamic: false },
+        ] };
+        let mut m2 = crate::state::StateMirror::default();
+        crate::binds::apply_layout(&rp, 0, &group, &[], &table, &mut m2);
+        assert_eq!(m2.ubo_bindings[0], Some((crate::objects::GlHandle(buf_name), 0, 0)), "UBO 槽落镜像=名");
+        assert_eq!(m2.texture_bindings[0], Some(crate::objects::GlHandle(tex_name)), "纹理落单元 0（槽表定位）");
+        assert_eq!(m2.sampler_bindings[1], Some(crate::objects::GlHandle(smp_name)), "采样器落单元 1（槽表定位）");
+        m2.flush_if_changed();
+        let mut dead_h = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
+        let _ = dead_h.handle.take();
+        let gbad = crate::entry::BindGroup { _bound: vec![crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: dead_h, offset: 0, size: None, dynamic: false }] };
+        let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::binds::apply_layout(&rp, 0, &gbad, &[], &table, &mut m2)));
+        assert!(rbad.is_err(), "死句柄=断言（动作前）");
+        drop(gbad);
+        drop(group);
         let_go_impl();
     }
 

@@ -43,9 +43,9 @@ use std::path::Path;
 /// 绑定组布局：持有解析后的条目强链（合法性已在创建边界全部检查，此后不再复查）。
 /// 生命周期合同：布局必须先于使用它的绑定组/管线布局销毁。 @public
 #[derive(Debug)] pub struct BindGroupLayout { pub(crate) _entries: Vec<BindGroupLayoutEntry> }
-/// 绑定组：对各绑定资源的强引用句柄集——被绑资源先于绑定组销毁=断言。
-/// 动态偏移的条目计数在此登记，set_bind_group 时按声明序消耗对表。 @public
-#[derive(Debug)] pub struct BindGroup { pub(crate) _held: Vec<crate::objects::DirectHandle> }
+/// 绑定组：解析后的条目集（声明序）——每条=资源强引用句柄+应用元数据（偏移/尺寸/动态位）。
+/// 生命周期合同：被绑资源先于绑定组销毁=断言；动态偏移条目的声明数在此登记，set_bind_group 时按序消耗对表。 @public
+#[derive(Debug)] pub struct BindGroup { pub(crate) _bound: Vec<crate::binds::BoundEntry> }
 /// 管线布局：持成员绑定组布局强链。set 归属域 0-3 且成员不重复，创建时校验。 @public
 #[derive(Debug)] pub struct PipelineLayout { pub(crate) _bgls: Vec<BindGroupLayout> }
 /// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）与顶点属性布局（复用键=布局哈希）。

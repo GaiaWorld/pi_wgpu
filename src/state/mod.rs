@@ -18,8 +18,8 @@ pub(crate) struct StateMirror {
     pub(crate) fbo_draw: Option<GlHandle>,
     /// 上传组：PIXEL_UNPACK_BUFFER 绑定名（upload 芯经本组）。
     pub(crate) pixel_unpack_buffer: Option<GlHandle>,
-    /// uniform 缓冲槽表：UNIFORM_BUFFER 各绑定点基名（binds 应用经本表差异位下发）。
-    pub(crate) ubo_bindings: [Option<GlHandle>; BIND_SLOTS],
+    /// uniform 缓冲槽表：各绑定点基名+偏移+尺寸三元（偏移/尺寸变亦必须重绑，否则换偏移不重发=漏发）。
+    pub(crate) ubo_bindings: [Option<(GlHandle, u32, u32)>; BIND_SLOTS],
     /// 纹理组：最近 ACTIVE_TEXTURE 单元号。
     pub(crate) active_texture_unit: Option<u32>,
     /// 纹理槽表：各单元 TEXTURE_2D 绑定对象名（active 单元切换后逐名比对下发）。

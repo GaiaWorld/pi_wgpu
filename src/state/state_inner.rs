@@ -349,20 +349,26 @@ pub(crate) fn set_pixel_unpack_buffer(m: &mut StateMirror, name: Option<GlHandle
     apply_unpack(m);
 }
 
-/// uniform 槽 set：差异才 bindBufferBase；解绑走 bindBufferRange(None) 低频路径。
-pub(crate) fn bind_ubo(m: &mut StateMirror, index: u32, name: Option<GlHandle>) {
+/// uniform 槽 set：差异才重绑（键=名+偏移+尺寸）；无偏移无尺寸走 bindBufferBase，带偏移/尺寸走 bindBufferRange；
+/// 解绑走 bindBufferRange(None) 低频路径。带偏移但未声明尺寸=断言（range 需合法 size）。
+pub(crate) fn bind_ubo(m: &mut StateMirror, index: u32, name: Option<GlHandle>, offset: u32, size: u32) {
     let idx = index as usize;
     if idx >= BIND_SLOTS {
         panic!("state 断言: UBO 槽 {index} 超上限 {BIND_SLOTS}");
     }
-    if m.ubo_bindings[idx] == name {
+    if name.is_some() && offset != 0 && size == 0 {
+        panic!("state 断言: UBO 槽 {index} 带偏移 {offset} 但未声明尺寸（range 需合法 size）");
+    }
+    let key = name.map(|g| (g, offset, size));
+    if m.ubo_bindings[idx] == key {
         return;
     }
-    m.ubo_bindings[idx] = name;
+    m.ubo_bindings[idx] = key;
     with_gl(|gl| unsafe {
-        match name {
-            Some(g) => gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(pi_glow::NativeBuffer(nz(g.0)))),
-            None => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
+        match (name, offset, size) {
+            (Some(g), 0, 0) => gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(pi_glow::NativeBuffer(nz(g.0)))),
+            (Some(g), off, sz) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32),
+            (None, _, _) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
         };
     });
 }
@@ -626,8 +632,12 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         apply_fbo(m);
         apply_unpack(m);
         for i in 0..BIND_SLOTS {
-            if let Some(g) = m.ubo_bindings[i] {
-                gl.bind_buffer_base(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))));
+            if let Some((g, off, sz)) = m.ubo_bindings[i] {
+                if off == 0 && sz == 0 {
+                    gl.bind_buffer_base(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))));
+                } else {
+                    gl.bind_buffer_range(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32);
+                }
             }
             gl.active_texture(GL_TEXTURE0 + i as u32);
             match m.texture_bindings[i] {
@@ -690,8 +700,13 @@ pub(crate) fn invalidate_impl(m: &mut StateMirror, dead: GlHandle) {
     hit(&mut m.vao);
     hit(&mut m.fbo_draw);
     hit(&mut m.pixel_unpack_buffer);
+    let hit_buf = |o: &mut Option<(GlHandle, u32, u32)>| {
+        if o.map(|(g, _, _)| g == dead).unwrap_or(false) {
+            *o = None;
+        }
+    };
     for slot in m.ubo_bindings.iter_mut() {
-        hit(slot);
+        hit_buf(slot);
     }
     for slot in m.texture_bindings.iter_mut() {
         hit(slot);
