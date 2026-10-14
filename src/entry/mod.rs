@@ -33,9 +33,21 @@ use std::path::Path;
 #[derive(Debug)] pub struct CommandBuffer;
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
 /// Drop 即调驱动删除，并通知镜像刷失相关字段。 @public
-#[derive(Debug)] pub struct Buffer { pub(crate) _h: crate::objects::DirectHandle, pub(crate) size: crate::types::BufferAddress }
+#[derive(Debug)]
+pub struct Buffer {
+    /// 直建句柄（活态判定 + 驱动名）。
+    pub(crate) _h: crate::objects::DirectHandle,
+    /// 缓冲字节长度（创建期定格、4 字节倍数）；upload 范围校验消费。
+    pub(crate) size: crate::types::BufferAddress,
+}
 /// 一对一直建的 GL 纹理。句柄契约同 Buffer：Drop 即删驱动资源、死句柄使用=错误码。 @public
-#[derive(Debug)] pub struct Texture { pub(crate) _h: crate::objects::DirectHandle, pub(crate) params: crate::formats::GlParams }
+#[derive(Debug)]
+pub struct Texture {
+    /// 直建句柄（活态判定 + 驱动名）。
+    pub(crate) _h: crate::objects::DirectHandle,
+    /// 驱动参数组（创建期由 formats::to_gl_params 定格）；upload 写路径消费 format/pixel_type/bpp。
+    pub(crate) params: crate::formats::GlParams,
+}
 /// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。 @public
 #[derive(Debug)] pub struct TextureView { pub(crate) _tex: Option<Texture> }
 /// 一对一直建的 GL 采样器。句柄契约同 Buffer。 @public

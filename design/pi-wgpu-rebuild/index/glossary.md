@@ -40,3 +40,4 @@
 | BindingKind | 绑定类别：UniformBuffer / Texture / Sampler（决定应用走 UBO 槽还是纹理单元） | B7 |
 | ShaderErr | shader 错误码枚举（ParseWgsl/ParseGlsl/Validate/Emit/NoEntry/SlotMissing/LayoutMismatch/EmptyGlsl/UnsupportedBinding） | B7 |
 | 错误码上递 | 决定⑪错误处理：优先返回短错误码（Result），避免原地 panic；不便上递处 log::error!(码) 后降级；禁长文本 | B7/决定⑪ |
+| UploadErr | upload 错误码枚举：DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） | B8 |

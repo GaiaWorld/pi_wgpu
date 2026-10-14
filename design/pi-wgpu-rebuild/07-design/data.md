@@ -5,7 +5,8 @@
 | 结构 | 壳 | 表示选择 / 被否方案 |
 |---|---|---|
 | Instance/Adapter/Device/Queue | src/entry/mod.rs | Share 引用链（pi_share）；被否 Rc（线程合同破） |
-| 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | Option<Handle>（删=置 None，死用=断言）；活态 ⟺ 上下文代号=当前 |
+| 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | Option<Handle>（删=置 None，死用=错误码）；活态 ⟺ 上下文代号=当前；Buffer 另持 size、Texture 另持驱动参数组 GlParams（写路径消费） |
+| 上传错误码 UploadErr | src/upload/mod.rs | DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） |
 | 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | 表示行合入本册「对象句柄层」行（计数真相=芯全局驻留表、行=物理名模板）；被否 Arc+refcount 与手动 Option 口径不变 |
 | BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同）；ShaderModule 另持转译产物 _compiled |
 | 着色器产物 CompiledEs300/ShaderIr | src/shader/mod.rs | CompiledEs300{hash, modules:Vec<ShaderIr{module,info}>}；hash=源文本哈希（复用键）；GLSL 出码延到管线创建 |

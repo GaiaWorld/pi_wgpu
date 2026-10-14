@@ -16,8 +16,8 @@
 | Device::create_shader_module 产物 | src/shader/mod.rs | src/shader/shader_inner.rs | 转译产物=IR{hash,modules}；GLSL 出码延到管线创建（emit_stage 按 stage/entry_point）；解析/校验失败=错误码上递+log 诊断（错误规则） | wgpu 模块/入口点分离 |
 | Device::{features,limits,reset_state} | src/entry/mod.rs | src/entry/entry_inner.rs | reset_state=重建镜像（外部 GL 干扰），失败后不存在 | 私有差异登记 |
 | Queue::submit / CommandEncoder::finish | src/entry/mod.rs | src/entry/entry_inner.rs | 空壳→无失败语义；契约：上层不得依赖提交生效点 | FR-13 |
-| Queue::{write_buffer,write_texture} | src/upload/mod.rs | src/upload/upload_inner.rs | 即时下发；越界 debug 断言/release 记录+GL 兜底（记录=不谎报） | 语义收窄进差异清单 |
-| Queue::write_texture_jsbuffer [wasm] | src/upload/mod.rs | src/upload/upload_inner.rs | 私有扩展：JS 位图直传零字节拷贝；非位图/越视野=断言 | 唯一公开分形态点 |
+| Queue::{write_buffer,write_texture} | src/upload/mod.rs | src/upload/upload_inner.rs | 即时下发；违约=log::error!(UploadErr)（debug 不下发/release 留痕+GL 兜底，不谎报，决定⑪） | 语义收窄进差异清单 |
+| Queue::write_texture_jsbuffer [wasm] | src/upload/mod.rs | src/upload/upload_inner.rs | 私有扩展：JS 位图直传零字节拷贝；非位图/离线程=log::error!(UploadErr)（决定⑪） | 唯一公开分形态点 |
 | Surface::configure | src/surface/mod.rs | src/surface/surface_inner.rs | 先全量校验后挂接=不留半配置；非法组合断言 | |
 | Surface::get_capabilities(&Adapter)->SurfaceCapabilities | src/surface/mod.rs | src/surface/surface_inner.rs | 纯查询→不失败；能力表来自 caps（README × 记录过时=documents 审读修正2） | 差异矩阵行 |
 | Surface::get_current_texture | src/surface/mod.rs | src/surface/surface_inner.rs | 结果面③ SurfaceError{Timeout/Outdated/Lost/OutOfMemory}；Lost=代号+1 整面失效 | |
@@ -29,7 +29,7 @@
 | trait PiWgpuAdapter | src/lib.rs | — | 伞面统一双参 request_device（use_wgpu 下适配官方） | 被否：两侧签名各异 |
 
 ## 库内操作（@internal，芯互访面；契约同法住壳）
-清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}（芯另暴露 set_*/bind_* 差异下发族：程序/VAO/目标/上传/UBO·纹理·采样器槽/开关函数/模板/视口——签名与契约见 state 芯，消费方=draw/binds）、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register, emit_stage}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
+清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}（芯另暴露 set_*/bind_* 差异下发族：程序/VAO/目标/上传/UBO·纹理·采样器槽/开关函数/模板/视口——签名与契约见 state 芯，消费方=draw/binds）、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register, emit_stage}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、context_inner::{with_gl, generation_now}（驱动调用闸/代号读，全芯共用）、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
 
 <!-- 词汇/描述符 85 项全量对表=相-2 批（L7 自记载荷声明）；相-1 已落壳仅链上 25 结构。 -->
 

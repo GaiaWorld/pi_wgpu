@@ -27,8 +27,9 @@ impl Queue {
     /// 违约（决定⑪）：log::error!(UploadErr)；debug 档不下发，release 档留痕后仍下发——
     /// 由驱动自行拒绝并在错误队列留证，绝不谎报写入成功。 @public
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) { crate::upload_inner::write_buffer_impl(self, buffer, offset, data) }
-    /// 写纹理：偏移须 4 字节倍数、bytes_per_row 给定时须 256 倍数、写入矩形须落在目标 mip 层范围内。
-    /// 违约处理两档同 write_buffer（log::error!(UploadErr)；debug 不下发/release 留痕+下发）。 @public
+    /// 写纹理：偏移须 4 字节倍数、bytes_per_row 给定时须 256 倍数。
+    /// 违约处理两档同 write_buffer（log::error!(UploadErr)；debug 不下发/release 留痕+下发）。
+    /// 写入矩形超界=由驱动拒绝（release 档兜底；Texture 不持尺寸、本库不预校验——登记差异）。 @public
     pub fn write_texture(&self, dst: &ImageCopyTexture<'_>, data: &[u8], layout: &ImageDataLayout, extent: Extent3d) { crate::upload_inner::write_texture_impl(self, dst, data, layout, extent) }
     /// 私有扩展（全库唯一公开分形态点，登迁移清单）：直接把浏览器位图句柄提交给上传通道（零字节路径，
     /// 不经 JS 侧解码缓冲）。合同：仅主线程（离线程=log::error!(OffMainThread)）；

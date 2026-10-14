@@ -11,12 +11,12 @@
 | set 范围/槽满 | 0–3·16 | 断言；绑定未变 | binds |
 | 动态偏移计数 | 与 layout 对表 | 断言；未消耗 | binds |
 | draw 参数约束 | 单零参（draw_indexed base_vertex=0） | 断言；无副作用 | draw |
-| write_* 偏移/行步/界 | debug 必查 | release：记录+GL 兜底（不谎报） | upload |
+| write_* 偏移/行步/界 | 错误码(UploadErr) | debug 档不下发 / release 档留痕+下发（不谎报） | upload |
 | Shader 源 | naga 解析 | 短错误码上递+log 诊断（决定⑪） | shader |
 | get_current_texture | 底层态 | 封闭四态 | surface |
 | present 重复 | 类型级消灭 | 不可能态 | surface |
 | 锁超时（try_lock_for） | 等待上限 | 断言+trace | context |
-| JS 直传（非位图/越界） | Web 边界 | 断言 | upload |
+| JS 直传（非位图/离线程） | Web 边界 | log::error!(UploadErr)（debug 不下发/release 留痕+降级，决定⑪） | upload |
 
 内部已保证处=断言不重复校验；隔离带=entry 校验一次成型。
 

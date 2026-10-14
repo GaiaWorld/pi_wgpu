@@ -12,6 +12,7 @@
 |---|---|
 | entry → types, surface, context, caps | 对象面词汇/附着/上下文/能力 |
 | entry → state | 设备持状态镜像 |
+| entry → formats | Texture 持驱动参数组 GlParams（写路径消费） |
 | entry → objects, binds, shader, draw, upload | create_*/pass 编排 |
 | utils → types, entry | 便捷构造消费公开对象面 |
 | surface → types, context, caps | 配置校验用能力位、绑上下文 |
@@ -49,6 +50,7 @@ flowchart TD
   entry --> context
   entry --> caps
   entry --> state
+  entry --> formats
   entry --> objects
   entry --> binds
   entry --> shader
