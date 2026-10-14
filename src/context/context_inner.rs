@@ -395,12 +395,16 @@ mod tests {
         crate::state_inner::set_program(&mut mirror, prog_name);
         assert_eq!(crate::state_inner::probe_count(0), base_probe + 1, "同值重复 set 零下发（B5 验收）");
         // flush 程序组=整发档（驱动实值不可回读）：恒刷期望，幂等=重发无害；死名随整发销记。
+        crate::state_inner::note_removed(0, prog_name.0);
         mirror.flush_if_changed();
         let after_flush = crate::state_inner::probe_count(0);
-        assert!(after_flush >= base_probe + 1, "flush 期望值已刷至驱动（整发档）");
+        assert!(after_flush >= base_probe + 1, "flush 期望值已刷至驱动（水位空=首轮全发）");
         assert!(crate::state_inner::dbg_removed_program(prog_name.0) == false, "flush 后死名销记");
+        let flush_groups = crate::state_inner::probe_count(1);
+        assert!(flush_groups > 0, "首轮整发档确有下发组");
         mirror.flush_if_changed();
-        assert!(crate::state_inner::probe_count(0) >= after_flush, "二次 flush 仍幂等只刷期望");
+        assert_eq!(crate::state_inner::probe_count(0), after_flush, "水位命中：二次 flush 程序组零下发");
+        assert_eq!(crate::state_inner::probe_count(1), flush_groups, "水位命中：二次 flush 整发档零下发组");
         let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);

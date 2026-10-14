@@ -7,7 +7,7 @@ pub(crate) const BIND_SLOTS: usize = 16;
 /// 镜像快照：驱动侧可缓存副作用的字段逐组记录（字段集=L7 解冻展齐：draw set_* 全族+binds 槽表+upload 组）。
 /// 不变量：字段值=**镜像期望态**；下发后驱动按 GL 命令队列最终执行（同步错误探测面不存在，成功以驱动队列为准——
 /// 错误可见性归 upload 探针与 lost 面，本模块不自证成功、不谎报回读）。比较策略=全字段逐组比对
-/// （被否方案：脏位图——置位散落在各写入点，易漏置位导致镜像虚新）。 @internal
+/// （被否方案：脏位图——置位散落在各写入点，易漏置位导致镜像虚新）。非回读组比较基准=上次下发水位（water 字段）。 @internal
 #[derive(Debug, Default)]
 pub(crate) struct StateMirror {
     /// 程序组：当前 useProgram 名（None=从未设）。
@@ -64,11 +64,14 @@ pub(crate) struct StateMirror {
     pub(crate) sample_mask: Option<u64>,
     /// 代号快照：建/重探镜像时的附着代号；失配=整面作废重探测。
     pub(crate) generation: u32,
+    /// 整发档已下发水位（优化件：非回读组「上次实际下发」的原语快照，差异才发；缺省=从未发=首轮全发）。
+    /// 死名表非空或整面重置（reset_all）时归零=下轮强发一轮。值域与比较语义见 state 芯 Water 注释。 @internal
+    pub(crate) water: crate::state_inner::Water,
 }
 impl StateMirror {
     /// 两档重同步：可回读档（标量参数：开关/函数/单元/视口框）读驱动实值比对、差异才下发；
     /// 不可回读档（GL 无 current-program 回读、WebGL 对象绑定不可查、UBO 绑定点无标量口、fork 掩码无下发面）
-    /// 恒幂等刷镜像期望。死名登记命中=强制重发并销记。失败面：无同步错误通道（见不变量），
+    /// 按上次下发水位（water）比对、差异才发（水位空或死名登记命中=整组强发一次）。死名命中下发后销记。失败面：无同步错误通道（见不变量），
     /// 下发即入驱动队列，驱动侧恢复语义由消费面（探针/lost 重建）闭合。 @internal
     pub(crate) fn flush_if_changed(&mut self) { crate::state_inner::flush_impl(self) }
     /// 对象死亡即时通知（逐名）：置空引用该句柄名的镜像字段——下次下发按「镜像未知」强制重设，

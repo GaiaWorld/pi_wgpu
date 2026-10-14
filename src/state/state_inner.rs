@@ -2,8 +2,9 @@
 //! state 芯 · 驱动状态镜像——两段式差异下发：
 //! ① set_* 组 helper（B6/B8/B10 消费）：先比对镜像期望值，相同=零下发；差异=下发、成功后落镜像（不变量执行体）。
 //! ② flush_if_changed（pass begin / reset_state 消费）：可回读组向驱动实值比对、差异才重下发；
-//!    驱动侧不可回读组（WebGL 对象绑定查询返回 JS 对象、UBO 绑定点无标量回读）按「驱动未知」处理=幂等整组重发。
-//! 死名驻留：objects 删除路径已删名登记；回读比对命中=视同差异强制重发，重下发后销记。
+//!    驱动侧不可回读组（WebGL 对象绑定查询返回 JS 对象、UBO 绑定点无标量回读）按「上次已下发水位」（Water）
+//!    比对、差异才发——水位空（首轮/整面重置）或死名表非空=整组强发一轮。
+//! 死名驻留：objects 删除路径已删名登记；表非空=整发档强发，整发档末尾整面销记。
 
 use std::sync::Mutex;
 
@@ -98,6 +99,53 @@ pub(crate) fn forget_removed(domain: u8, name: u32) {
 /// 整面清空（invalidate_generations 路径：旧世代名集在新附着下无意义）。
 pub(crate) fn clear_removed() {
     REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+/// 死名登记表是否非空（整发档强发判据：镜像可能仍指名已被删对象，须整组重刷一轮）。
+fn has_removed() -> bool {
+    !REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+}
+
+/// 旁路纹理绑定后失效全部纹理槽水位（create_texture 建后直绑当前单元等非镜像路径）。
+/// 置槽水位=「未下发」，令下次 flush 重发镜像期望以复位驱动绑定（防水位命中而漏复位）。
+pub(crate) fn invalidate_texture_water(m: &mut StateMirror) {
+    for slot in m.water.tex.iter_mut() {
+        *slot = None;
+    }
+}
+
+/// 整发档已下发水位：非回读组「上次实际下发」的原语快照（比较基准；缺省=从未发→首轮全发）。
+/// 全字段 GL 原语型——比对即 `==`（词汇面无 PartialEq，比较一律经映射原语落水位值）。
+#[derive(Debug, Default)]
+pub(crate) struct Water {
+    /// 程序组（对象名，0=无名绑定）。
+    pub(crate) program: Option<u32>,
+    /// 属性组（VAO 对象名，0=无绑定）。
+    pub(crate) vao: Option<u32>,
+    /// 目标组 DRAW framebuffer（对象名，0=默认帧缓冲）。
+    pub(crate) fbo_draw: Option<u32>,
+    /// 上传组 PIXEL_UNPACK_BUFFER（对象名，0=无绑定）。
+    pub(crate) unpack: Option<u32>,
+    /// uniform 槽表（名,偏移,尺寸；None=该槽从未下发过绑定）。
+    pub(crate) ubo: [Option<(u32, u32, u32)>; BIND_SLOTS],
+    /// 纹理槽表（名,目标；外层 None=未下发过、内层 None=已发过解绑）。
+    pub(crate) tex: [Option<Option<(u32, u32)>>; BIND_SLOTS],
+    /// 采样器槽表（名；外层 None=未下发过、内层 None=已发过解绑）。
+    pub(crate) sampler: [Option<Option<u32>>; BIND_SLOTS],
+    /// 混合组（等式×2+因子×4 映射值；外层 None=未设、内层 None=关混合哨兵）。
+    pub(crate) blend: Option<Option<[u32; 6]>>,
+    /// 混合常量色（RGBA）。
+    pub(crate) blend_constant: Option<[f32; 4]>,
+    /// 颜色写掩码位集。
+    pub(crate) color_writes: Option<u32>,
+    /// 填充模式（映射值）。
+    pub(crate) polygon_mode: Option<u32>,
+    /// 深度偏置（开关,斜率,常数）。
+    pub(crate) depth_bias: Option<(bool, f32, f32)>,
+    /// 模板双面（面,比较,参考,失败操作,深度失败操作,通过操作 六元 × 前/后 展平 12 元）。
+    pub(crate) stencil: Option<[i32; 12]>,
+    /// 覆盖采样使能。
+    pub(crate) alpha_to_coverage: Option<bool>,
 }
 
 /// 镜像名读数（None=驱动侧 0 名=无绑定语义）。
@@ -570,18 +618,12 @@ pub(crate) fn set_sample_mask(m: &mut StateMirror, mask: u64) {
     m.sample_mask = Some(mask);
 }
 
-// 1. 可回读档：程序/单元/开关/函数/视口/裁剪框 与驱动实值比对，差异（或死名命中）才重下发镜像期望。
-// 2. 整发档：句柄绑定类在 WebGL 面不可回读 + UBO 槽无标量回读——恒幂等刷镜像期望（下发内容=镜像值，不新增谎报）。
-// 3. 下发后镜像不动（镜像即期望）；死名命中组下发后 forget_removed 销记。
+// 1. 可回读档：单元/开关/函数/视口/裁剪框 与驱动实值比对，差异才重下发镜像期望。
+// 2. 整发档：句柄绑定类在 WebGL 面不可回读 + UBO 槽无标量回读——按上次下发水位（water）比对、差异才发；
+//    水位空（首轮/整面重置）或死名表非空（镜像可能仍指名被删对象）=整组强发一轮。
+// 3. 下发后镜像不动（镜像即期望）、水位更新为实际下发值；死名表在整发档末尾整面清空。
 pub(crate) fn flush_impl(m: &mut StateMirror) {
     with_gl(|gl| unsafe {
-        // —— 程序组属整发档：GL_CURRENT_PROGRAM 无 glGetIntegerv 回读路径（规范未提供）——
-        // 期望比对不可行：恒向驱动刷镜像名（幂等）。
-        apply_program(m);
-        // 死名登记表的域=objects kind_num_*（0..3 复用域、4..6 直建域）。
-        // 整发档已把镜像全期望重刷给驱动（绑定=重指到镜像名，被删名已不可能进驱动当前态），
-        // 故末尾整面清表：登记使命（强制本次重发）已兑现，防名单调增长（B6 消费前收口）。
-        clear_removed();
         let exp_active = m.active_texture_unit.unwrap_or(0);
         let real_active = (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
         if exp_active != real_active {
@@ -642,64 +684,160 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 gl.depth_range_f32(v[4], v[5]);
             }
         }
-        // 整发档（驱动态不可回读的组，逐一口播镜像期望）
-        probe(1);
-        apply_vao(m);
-        apply_fbo(m);
-        apply_unpack(m);
+        // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
+        if has_removed() {
+            // 死名表非空：镜像可能仍指名被删对象——清水位=下轮整组强发。
+            m.water = Water::default();
+        }
+        let prog_name = name_of(m.program);
+        if m.water.program != Some(prog_name) {
+            apply_program(m);
+            m.water.program = Some(prog_name);
+            probe(1);
+        }
+        let vao_name = name_of(m.vao);
+        if m.water.vao != Some(vao_name) {
+            apply_vao(m);
+            m.water.vao = Some(vao_name);
+            probe(1);
+        }
+        let fbo_name = name_of(m.fbo_draw);
+        if m.water.fbo_draw != Some(fbo_name) {
+            apply_fbo(m);
+            m.water.fbo_draw = Some(fbo_name);
+            probe(1);
+        }
+        let unpack_name = name_of(m.pixel_unpack_buffer);
+        if m.water.unpack != Some(unpack_name) {
+            apply_unpack(m);
+            m.water.unpack = Some(unpack_name);
+            probe(1);
+        }
+        let mut switched = false;
         for i in 0..BIND_SLOTS {
             if let Some((g, off, sz)) = m.ubo_bindings[i] {
-                if off == 0 && sz == 0 {
-                    gl.bind_buffer_base(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))));
-                } else {
-                    gl.bind_buffer_range(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32);
+                let t = (g.0, off, sz);
+                if m.water.ubo[i] != Some(t) {
+                    if off == 0 && sz == 0 {
+                        gl.bind_buffer_base(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))));
+                    } else {
+                        gl.bind_buffer_range(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32);
+                    }
+                    m.water.ubo[i] = Some(t);
+                    probe(1);
                 }
             }
-            gl.active_texture(GL_TEXTURE0 + i as u32);
-            match m.texture_bindings[i] {
-                Some((g, tg)) => gl.bind_texture(tg, Some(pi_glow::NativeTexture(nz(g.0)))),
-                None => gl.bind_texture(GL_TEXTURE_2D, None),
-            };
-            match m.sampler_bindings[i] {
-                Some(g) => gl.bind_sampler(i as u32, Some(pi_glow::NativeSampler(nz(g.0)))),
-                None => gl.bind_sampler(i as u32, None),
-            };
-        }
-        gl.active_texture(GL_TEXTURE0 + exp_active);
-        if let Some(Some(bs)) = m.blend {
-            gl.blend_equation_separate(blend_op_to_gl(bs.color.operation), blend_op_to_gl(bs.alpha.operation));
-            gl.blend_func_separate(
-                blend_factor_to_gl(bs.color.color_factor),
-                blend_factor_to_gl(bs.color.alpha_factor),
-                blend_factor_to_gl(bs.alpha.color_factor),
-                blend_factor_to_gl(bs.alpha.alpha_factor),
-            );
-        }
-        if let Some(c) = m.blend_constant {
-            gl.blend_color(c.r, c.g, c.b, c.a);
-        }
-        if let Some(w) = m.color_writes {
-            gl.color_mask(w.0 & 1 != 0, w.0 & 2 != 0, w.0 & 4 != 0, w.0 & 8 != 0);
-        }
-        if let Some(p) = m.polygon_mode {
-            gl.polygon_mode(GL_FRONT_AND_BACK, polygon_to_gl(p));
-        }
-        if let Some(bias) = m.depth_bias {
-            let on = bias.constant != 0.0 || bias.slope != 0.0;
-            let (slope, constant) = bias_pair(bias);
-            set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
-            gl.polygon_offset(slope, constant);
-        }
-        if let (Some(fs), Some(bs)) = (m.stencil_front, m.stencil_back) {
-            let r = m.stencil_reference.unwrap_or(0);
-            for (face, st) in [(GL_FRONT, fs), (GL_BACK, bs)] {
-                gl.stencil_func_separate(face, cmp_to_gl(st.compare), r as i32, !0);
-                gl.stencil_op_separate(face, stencil_op_to_gl(st.fail_op), stencil_op_to_gl(st.depth_fail_op), stencil_op_to_gl(st.pass_op));
+            let tex_t = m.texture_bindings[i].map(|(g, tg)| (g.0, tg));
+            if m.water.tex[i] != Some(tex_t) {
+                gl.active_texture(GL_TEXTURE0 + i as u32);
+                switched = true;
+                match tex_t {
+                    Some((n, tg)) => gl.bind_texture(tg, Some(pi_glow::NativeTexture(nz(n)))),
+                    None => gl.bind_texture(GL_TEXTURE_2D, None),
+                };
+                m.water.tex[i] = Some(tex_t);
+                probe(1);
+            }
+            let smp_t = m.sampler_bindings[i].map(|g| g.0);
+            if m.water.sampler[i] != Some(smp_t) {
+                match smp_t {
+                    Some(n) => gl.bind_sampler(i as u32, Some(pi_glow::NativeSampler(nz(n)))),
+                    None => gl.bind_sampler(i as u32, None),
+                };
+                m.water.sampler[i] = Some(smp_t);
+                probe(1);
             }
         }
-        if let Some(on) = m.sample_alpha_to_coverage {
-            set_enable(gl, GL_SAMPLE_ALPHA_TO_COVERAGE, on);
+        if switched {
+            gl.active_texture(GL_TEXTURE0 + exp_active);
         }
+        let blend6 = m.blend.map(|b| {
+            b.map(|bs| {
+                [
+                    blend_op_to_gl(bs.color.operation),
+                    blend_op_to_gl(bs.alpha.operation),
+                    blend_factor_to_gl(bs.color.color_factor),
+                    blend_factor_to_gl(bs.color.alpha_factor),
+                    blend_factor_to_gl(bs.alpha.color_factor),
+                    blend_factor_to_gl(bs.alpha.alpha_factor),
+                ]
+            })
+        });
+        if m.water.blend != blend6 {
+            if let Some(Some(b6)) = blend6 {
+                gl.blend_equation_separate(b6[0], b6[1]);
+                gl.blend_func_separate(b6[2], b6[3], b6[4], b6[5]);
+            }
+            m.water.blend = blend6;
+            probe(1);
+        }
+        let bconst = m.blend_constant.map(|c| [c.r, c.g, c.b, c.a]);
+        if m.water.blend_constant != bconst {
+            if let Some(c) = bconst {
+                gl.blend_color(c[0], c[1], c[2], c[3]);
+            }
+            m.water.blend_constant = bconst;
+            probe(1);
+        }
+        let writes = m.color_writes.map(|w| w.0 as u32);
+        if m.water.color_writes != writes {
+            if let Some(w) = writes {
+                gl.color_mask(w & 1 != 0, w & 2 != 0, w & 4 != 0, w & 8 != 0);
+            }
+            m.water.color_writes = writes;
+            probe(1);
+        }
+        let poly = m.polygon_mode.map(polygon_to_gl);
+        if m.water.polygon_mode != poly {
+            if let Some(p) = poly {
+                gl.polygon_mode(GL_FRONT_AND_BACK, p);
+            }
+            m.water.polygon_mode = poly;
+            probe(1);
+        }
+        let bias_t = m.depth_bias.map(|b| {
+            let (slope, constant) = bias_pair(b);
+            (constant != 0.0 || slope != 0.0, slope, constant)
+        });
+        if m.water.depth_bias != bias_t {
+            if let Some((on, slope, constant)) = bias_t {
+                set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
+                gl.polygon_offset(slope, constant);
+            }
+            m.water.depth_bias = bias_t;
+            probe(1);
+        }
+        let stencil_t = match (m.stencil_front, m.stencil_back) {
+            (Some(fs), Some(bs)) => {
+                let r = m.stencil_reference.unwrap_or(0) as i32;
+                Some([
+                    GL_FRONT as i32, cmp_to_gl(fs.compare) as i32, r,
+                    stencil_op_to_gl(fs.fail_op) as i32, stencil_op_to_gl(fs.depth_fail_op) as i32, stencil_op_to_gl(fs.pass_op) as i32,
+                    GL_BACK as i32, cmp_to_gl(bs.compare) as i32, r,
+                    stencil_op_to_gl(bs.fail_op) as i32, stencil_op_to_gl(bs.depth_fail_op) as i32, stencil_op_to_gl(bs.pass_op) as i32,
+                ])
+            }
+            _ => None,
+        };
+        if m.water.stencil != stencil_t {
+            if let Some(st) = stencil_t {
+                for f in 0..2 {
+                    let o = f * 6;
+                    gl.stencil_func_separate(st[o] as u32, st[o + 1] as u32, st[o + 2], !0);
+                    gl.stencil_op_separate(st[o] as u32, st[o + 3] as u32, st[o + 4] as u32, st[o + 5] as u32);
+                }
+            }
+            m.water.stencil = stencil_t;
+            probe(1);
+        }
+        if m.water.alpha_to_coverage != m.sample_alpha_to_coverage {
+            if let Some(on) = m.sample_alpha_to_coverage {
+                set_enable(gl, GL_SAMPLE_ALPHA_TO_COVERAGE, on);
+            }
+            m.water.alpha_to_coverage = m.sample_alpha_to_coverage;
+            probe(1);
+        }
+        clear_removed();
 
     });
 }

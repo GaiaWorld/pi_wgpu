@@ -130,7 +130,7 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
     Buffer { _h: crate::objects_inner::create_direct(DirectKind::Buffer), size: b.size }
 }
 
-pub(crate) fn create_texture_impl(_d: &Device, t: &TextureDescriptor<'_>) -> Texture {
+pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Texture {
     assert!(t.size.width >= 1 && t.size.height >= 1, "entry 断言: 纹理宽高须≥1（field=size, label={:?}）", t.label);
     assert!(t.size.depth_or_array_layers >= 1, "entry 断言: depth_or_array_layers 须≥1（field=size, label={:?}）", t.label);
     assert!(t.mip_level_count >= 1, "entry 断言: mip_level_count 须≥1（field=mip_level_count={}, label={:?}）", t.mip_level_count, t.label);
@@ -155,6 +155,11 @@ pub(crate) fn create_texture_impl(_d: &Device, t: &TextureDescriptor<'_>) -> Tex
             }
         }
     });
+    // 旁路：建后直绑当前 active 单元（tex_storage 需绑定态）——失效纹理槽水位，令下次 flush 重发镜像期望复位。
+    {
+        let mut st = d._inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        crate::state_inner::invalidate_texture_water(&mut st);
+    }
     Texture { _h: h, params, _target: target, _dim: t.dim, _layers: layers }
 }
 
