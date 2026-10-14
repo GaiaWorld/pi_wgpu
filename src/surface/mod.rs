@@ -14,6 +14,10 @@ pub enum SurfaceTarget<'target> {
     #[cfg(target_arch = "wasm32")] OffscreenCanvas(web_sys::OffscreenCanvas),
 }
 
+/// 窗口/画布句柄自动转附着目标（wgpu 式 `create_surface(window)`）。 @public
+impl<'target, T: WindowHandle + 'target> From<T> for SurfaceTarget<'target> {
+    fn from(t: T) -> Self { Self::Window(Box::new(t)) }
+}
 /// 可呈现表面。不变量：configure 成功之后方可参与取帧/换帧（_cfg=None 即未就绪，get_current 返回 Err）。 @public
 pub struct Surface<'surface> {
     /// 附着目标（窗口/画布；configure 时据此建平台表面）。
@@ -43,6 +47,8 @@ impl SurfaceTexture {
     /// 换帧呈现。分形态：桌面/安卓=交换缓冲+节流，Web=无显式换帧调用（浏览器隐式合成）。
     /// 调用后本租约已消耗，再访问不可表达。 @public
     pub fn present(self) { crate::surface_inner::present_impl(self) }
+    /// 帧视图取值（建颜色附件用）。 @public
+    pub fn view(&self) -> &crate::entry::TextureView { &self._view }
 }
 
 // 骨架期手写 Debug 委托（SurfaceTarget 持 dyn 对象，derive 不可达；实现批改字段级输出）。
