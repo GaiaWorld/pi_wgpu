@@ -1,5 +1,7 @@
 //! clear 冒烟样例：winit 窗口 + 本库 Surface + 帧循环（清屏）。
 //! 验收锚（needs）：桌面链路出第一个可运行程序（初始化 + 全帧循环）。
+use std::time::Instant;
+
 use pi_wgpu::*;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -7,7 +9,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 /// 清屏色。
-const CLEAR: Color = Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 };
+// const CLEAR: Color = Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 };
 
 /// 应用态：instance/window 泄漏为 'static，规避 Instance↔Surface 自引用（样例简化）。
 struct State {
@@ -19,7 +21,7 @@ struct State {
 }
 
 /// 事件回调宿主。
-struct App { state: Option<State> }
+struct App { state: Option<State>, start: Instant, frames: u64 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -64,6 +66,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                self.frames += 1;
+                let t = self.start.elapsed().as_secs_f32();
+                if self.frames % 60 == 0 {
+                    eprintln!("frame={} t={:.2}s", self.frames, t);
+                }
                 if let Some(s) = self.state.as_mut() {
                     let frame = s.surface.get_current_texture().expect("get_current_texture");
                     let mut encoder = s.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("clear") });
@@ -71,7 +78,7 @@ impl ApplicationHandler for App {
                         let ca = RenderPassColorAttachment {
                             view: frame.view(),
                             resolve_target: None,
-                            ops: Operations { load: LoadOp::Clear(CLEAR), store: StoreOp::Store },
+                            ops: Operations { load: LoadOp::Clear(Color { r: (t % 2.0) / 2.0, g: 0.2, b: 0.3, a: 1.0 }), store: StoreOp::Store },
                         };
                         let desc = RenderPassDescriptor { label: Some("clear"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
                         let _pass = encoder.begin_render_pass(&desc);
@@ -90,6 +97,6 @@ impl ApplicationHandler for App {
 fn main() {
     let event_loop = EventLoop::new().expect("event_loop");
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App { state: None };
+    let mut app = App { state: None, start: Instant::now(), frames: 0 };
     event_loop.run_app(&mut app).expect("run_app");
 }

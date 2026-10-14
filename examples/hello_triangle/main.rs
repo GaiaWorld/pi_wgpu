@@ -9,7 +9,7 @@ mod fault {
     use windows_sys::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, EXCEPTION_POINTERS};
     /// EXCEPTION_ACCESS_VIOLATION 码（windows-sys 0.52 未导出常量）。
     const ACCESS_VIOLATION: i32 = 0xC000_0005u32 as i32;
-    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW};
     use windows_sys::Win32::System::Memory::{VirtualQuery, MEMORY_BASIC_INFORMATION};
 
     unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
@@ -38,7 +38,16 @@ mod fault {
                 let l = unsafe { GetModuleFileNameW(dmbi.AllocationBase as _, dbuf.as_mut_ptr(), dbuf.len() as u32) };
                 if l > 0 { dname = String::from_utf16_lossy(&dbuf[..l as usize]); }
             }
-            eprintln!("!!! AV kind={kind} insn={addr:p}({name}+0x{off:x}) data={data:#x}({dname})");
+            let mut base2: isize = 0;
+            let mut m2 = [0u16; 260];
+            let mut n2 = String::from("<unknown>");
+            let mut off2 = 0usize;
+            if unsafe { GetModuleHandleExW(0x4 | 0x2, addr as *const u16, &mut base2) } != 0 && base2 != 0 {
+                let l = unsafe { GetModuleFileNameW(base2, m2.as_mut_ptr(), m2.len() as u32) };
+                if l > 0 { n2 = String::from_utf16_lossy(&m2[..l as usize]); }
+                off2 = (addr as usize).wrapping_sub(base2 as usize);
+            }
+            eprintln!("!!! AV kind={kind} insn={addr:p}(vq:{name}+0x{off:x} / gh:{n2}+0x{off2:x}) data={data:#x}({dname})");
             let ctx = unsafe { (*info).ContextRecord };
             let mut rbp = unsafe { (*ctx).Rbp } as *const usize;
             for i in 0..16 {
@@ -186,7 +195,7 @@ impl ApplicationHandler for App {
                     let cmd = encoder.finish();
                     s.queue.submit(cmd);
                     frame.present();
-                    s.window.request_redraw();
+                    // s.window.request_redraw();
                 }
             }
             _ => {}
