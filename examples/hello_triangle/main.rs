@@ -123,7 +123,7 @@ impl ApplicationHandler for App {
                         let desc = RenderPassDescriptor { label: Some("tri"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
                         let mut pass = encoder.begin_render_pass(&desc);
                         pass.set_pipeline(&s.pipeline);
-                        pass.set_vertex_buffer(0, &s.vbuf, 0, 0);
+                        pass.set_vertex_buffer(0, &s.vbuf, 0, 8);
                         pass.draw(0, 3);
                     }
                     let cmd = encoder.finish();
