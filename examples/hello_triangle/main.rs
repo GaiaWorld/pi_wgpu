@@ -1,4 +1,4 @@
-//! hello_triangle 冒烟样例：winit 窗口 + 本库 Surface + WGSL 三角（链1+链2+链3+链4+链5）。
+//! hello_triangle 冒烟样例：winit 窗口 + 本库 Surface + WGSL 三角（初始化+全帧循环+资源创建+录制绘制）。
 //! 验收锚（needs）：triangle 的 WGSL 渲染正确（绑定名自动定位，本样例无绑定）。
 use pi_wgpu::*;
 use winit::application::ApplicationHandler;
@@ -45,7 +45,7 @@ impl ApplicationHandler for App {
         let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
         let size = window.inner_size();
         let surface = instance
-            .create_surface(SurfaceTarget::Window(Box::new(window)))
+            .create_surface(window)
             .expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             compatible_surface: Some(&surface),

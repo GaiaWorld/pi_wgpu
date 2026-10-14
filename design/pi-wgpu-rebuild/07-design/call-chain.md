@@ -83,7 +83,7 @@ sequenceDiagram
 
 | 块 | 目标单元（芯） | 前依赖 | 块内验收（除通用检查点） | 对接链 |
 |---|---|---|---|---|
-| B0 | 基线对账：lib/types 词汇面现状确认，examples 冒烟骨架立项 | — | 全量 cargo check（默认+single_thread+geterror 三 feature 组合）绿 | — |
+| B0 | 基线对账：lib/types 词汇面现状确认；examples 冒烟骨架立项【已落，见 B16】 | — | 全量 cargo check（默认+single_thread+geterror 三 feature 组合）绿 | — |
 | B1 | context 芯：attach / let_go / gen_bump（pi_egl+pi_glow 接线按 deps 门控对位表，swappy 等 cfg 无第二套；锁超时 try_lock_for=断言+trace） | B0 | 三形态路径分叉注落地：桌面/安卓 EGL 附着、Web 隐式；代号单调增可测 | 链1·1-2步 |
 | B2 | caps 芯：probe / fill_impl（扩展表→能力位 DDS/ASTC/浮点；特判集合只动这里） | B1 | attach 后即探；iOS18/Qualcomm 位可读 | 链1·probe |
 | B3 | formats 芯：to_gl_params / mip_convert（格式表=词汇层数据；DDS/ASTC 直载能力查 caps 位） | B2 | 抽样格式对表；越界=断言 | 链4 |
@@ -99,6 +99,7 @@ sequenceDiagram
 | B13 | 相-2 use_wgpu 挂接【已落】：薄壳 facade——Cargo 可选 wgpu（path ../wgpu/wgpu 25.0.2，use_wgpu=[dep:wgpu]）+ lib.rs cfg(not(use_wgpu)) 关闭自有模块、use_wgpu 下 pub use wgpu::*；PiWgpuAdapter 两 cfg 版；lib_inner::uw_request_impl（单参→双参、trace 丢弃）；与 gl 互斥 | B0–B12 | A（gl）+ B（--no-default-features --features use_wgpu）对照编译均 Finished（wgpu 25.0.2） | 伞面 |
 | B14 | types 词汇全量对表：85 项对 wgpu 25.x 裁剪登记（api 册顶注载荷声明；显式登记断裂进迁移清单，禁静默） | B11 | 对表清单落 changes；链上 25 结构零破坏 | 全部 |
 | B15 | 纹理切片：D1/D2/D3 + D2Array/Cube/CubeArray（formats.target_of/is_cube_compatible→entry.create_texture 目标感知 + Texture::create_view→upload 目标路由→state/binds target；cube=D2+6层+Cube 视图，GL 单目标） | B3/B8/B11 | 维度不相容/越界=断言；20 测试绿 | formats/entry/upload/state/binds |
+| B16 | examples 冒烟骨架【已落】：examples/{clear,hello_triangle}（winit 0.30 窗口 + Surface + 帧循环；triangle=WGSL+管线+draw）；@public SurfaceTexture::view + From<T:WindowHandle> for SurfaceTarget；dev-dep winit 0.30/pollster 0.3 | B0/B11/B15 | clear 运行 12s 稳定无崩；两例 --features gl 编译绿（B11「出第一个可运行程序」验收落地） | 链1/链2/链3（+链11 便捷面） |
 
 并行注记：B3/B5/B6/B7 芯相互独立（依赖前块仅为接口面存在，非实现依赖），可按人手机动并行；主序线 B1→B2→B4→B9→B10→B11 不可乱序。
 

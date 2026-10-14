@@ -21,6 +21,8 @@
 | Queue::write_texture_jsbuffer [wasm] | src/upload/mod.rs | src/upload/upload_inner.rs | 私有扩展：JS 位图直传零字节拷贝；非位图/离线程=log::error!(UploadErr)（决定⑪） | 唯一公开分形态点 |
 | Surface::configure | src/surface/mod.rs | src/surface/surface_inner.rs | 先全量校验（尺寸/组合）后建平台表面+make_current=不留半配置；违约=log::error!(SurfaceErr)（决定⑪）；登记差异：格式合法性未在查（Device 无 Caps） | |
 | Surface::get_capabilities(&Adapter)->SurfaceCapabilities | src/surface/mod.rs | src/surface/surface_inner.rs | 纯查询→不失败；能力表来自 caps（README × 记录过时=documents 审读修正2） | 差异矩阵行 |
+| SurfaceTexture::view(&self)->&TextureView | src/surface/mod.rs | —（壳内联） | 帧视图取值（建颜色附件用） | examples 片 |
+| From<T:WindowHandle> for SurfaceTarget | src/surface/mod.rs | — | 窗口/画布句柄自动转附着目标（wgpu 式 `create_surface(window)`） | examples 片 |
 | Surface::get_current_texture | src/surface/mod.rs | src/surface/surface_inner.rs | 结果面③ SurfaceError{Timeout/Outdated/Lost/OutOfMemory}；未配置=Err(Outdated)+log 码；帧视图=默认帧缓冲标记；Lost=代号+1 整面失效 | |
 | SurfaceTexture::present(self) | src/surface/mod.rs | src/surface/surface_inner.rs | 自消费=类型级禁重复呈现（无运行时态） | 替旧实现运行时 panic——更强且兼容 |
 | CommandEncoder::begin_render_pass | src/draw/mod.rs | src/draw/draw_inner.rs | 颜色目标恰一 Some，其余断言；失败后通道未建 | |

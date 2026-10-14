@@ -108,6 +108,7 @@ flowchart TD
 | state/objects → pi_hash 0.1.1 | 高速哈希表（复用键与镜像缓存） |
 | entry → thiserror/log/bitflags/lazy_static/ordered-float/derive_more/profiling/codespan-reporting 等 | 通用基础 crate（crates.io，沿用旧清单版本） |
 | lib(use_wgpu) → wgpu 25.0.2（path ../wgpu/wgpu，可选；与 gl 互斥） | 官方对照实现（薄壳 facade）：整面 re-export + PiWgpuAdapter 委托 |
+| examples(dev) → winit 0.30 / pollster 0.3 | 可见窗口样例（rwh_06 兼容）；非运行库依赖 |
 | ——边界线—— | **本库不依赖 pi_assets / pi_time**（资产出库校准）；ndk-glue 仅 examples dev 链 |
 
 ## 平台/外部汇合图（源=上表；虚线=生态非依赖）

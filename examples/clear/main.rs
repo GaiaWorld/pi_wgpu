@@ -1,5 +1,5 @@
 //! clear 冒烟样例：winit 窗口 + 本库 Surface + 帧循环（清屏）。
-//! 验收锚（needs）：桌面链路出第一个可运行程序（链1 初始化 + 链2 全帧循环）。
+//! 验收锚（needs）：桌面链路出第一个可运行程序（初始化 + 全帧循环）。
 use pi_wgpu::*;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -29,7 +29,7 @@ impl ApplicationHandler for App {
         let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
         let size = window.inner_size();
         let surface = instance
-            .create_surface(SurfaceTarget::Window(Box::new(window)))
+            .create_surface(window)
             .expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             compatible_surface: Some(&surface),
