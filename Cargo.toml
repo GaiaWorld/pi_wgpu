@@ -15,7 +15,7 @@ geterror = []
 webgl_context = []
 webgl = []
 
-use_wgpu = []  # 空开关占位：lib 中 compile_error 防呆锁，官方挂接批解锁
+use_wgpu = ["dep:wgpu"]  # B13 薄壳 facade：整面 re-export 官方 wgpu；与 gl 互斥
 
 [dependencies]
 once_cell = "=1.21.3"  # 钉住本 naga fork 传递依赖的可用版本（新版本缺 sync 模块）
@@ -27,6 +27,7 @@ naga = { version = "25.0", features = ["wgsl-in", "glsl-in", "glsl-out"] }
 thiserror = "1.0"
 log = "0.4"
 raw-window-handle = "0.6"
+wgpu = { path = "../wgpu/wgpu", optional = true }
 
 [patch.crates-io]
 naga = { path = "../wgpu/naga" }
