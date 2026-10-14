@@ -1,6 +1,63 @@
 //! hello_triangle 冒烟样例：winit 窗口 + 本库 Surface + WGSL 三角（初始化+全帧循环+资源创建+录制绘制）。
 //! 验收锚（needs）：triangle 的 WGSL 渲染正确（绑定名自动定位，本样例无绑定）。
 use pi_wgpu::*;
+
+/// 最小故障报告器（Windows VEH）：捕获 ACCESS_VIOLATION 时打印出错地址 + 模块 + 偏移。
+#[cfg(windows)]
+mod fault {
+    use core::ffi::c_void;
+    use windows_sys::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, EXCEPTION_POINTERS};
+    /// EXCEPTION_ACCESS_VIOLATION 码（windows-sys 0.52 未导出常量）。
+    const ACCESS_VIOLATION: i32 = 0xC000_0005u32 as i32;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+    use windows_sys::Win32::System::Memory::{VirtualQuery, MEMORY_BASIC_INFORMATION};
+
+    unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
+        let rec = unsafe { (*info).ExceptionRecord };
+        if !rec.is_null() && unsafe { (*rec).ExceptionCode } == ACCESS_VIOLATION {
+            let addr: *mut c_void = unsafe { (*rec).ExceptionAddress };
+            let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
+            let n = unsafe { VirtualQuery(addr, &mut mbi, core::mem::size_of::<MEMORY_BASIC_INFORMATION>()) };
+            let base = if n != 0 { mbi.AllocationBase } else { core::ptr::null_mut() };
+            let mut buf = [0u16; 260];
+            let mut name = String::from("<unknown>");
+            if !base.is_null() {
+                let len = unsafe { GetModuleFileNameW(base as _, buf.as_mut_ptr(), buf.len() as u32) };
+                if len > 0 {
+                    name = String::from_utf16_lossy(&buf[..len as usize]);
+                }
+            }
+            let off = (addr as usize).wrapping_sub(base as usize);
+            let sub = unsafe { (*rec).ExceptionInformation[0] };
+            let data = unsafe { (*rec).ExceptionInformation[1] };
+            let kind = match sub { 0 => "read", 1 => "write", 8 => "execute", _ => "?" };
+            let mut dbuf = [0u16; 260];
+            let mut dname = String::from("<unknown>");
+            let mut dmbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
+            if unsafe { VirtualQuery(data as *const c_void, &mut dmbi, core::mem::size_of::<MEMORY_BASIC_INFORMATION>()) } != 0 && !dmbi.AllocationBase.is_null() {
+                let l = unsafe { GetModuleFileNameW(dmbi.AllocationBase as _, dbuf.as_mut_ptr(), dbuf.len() as u32) };
+                if l > 0 { dname = String::from_utf16_lossy(&dbuf[..l as usize]); }
+            }
+            eprintln!("!!! AV kind={kind} insn={addr:p}({name}+0x{off:x}) data={data:#x}({dname})");
+            let ctx = unsafe { (*info).ContextRecord };
+            let mut rbp = unsafe { (*ctx).Rbp } as *const usize;
+            for i in 0..16 {
+                if rbp.is_null() || (rbp as usize) < 0x10000 {
+                    break;
+                }
+                let ret = unsafe { *rbp.add(1) };
+                let nxt = unsafe { *rbp } as *const usize;
+                eprintln!("   #{i} ret={ret:#x}");
+                rbp = nxt;
+            }
+        }
+        0 // EXCEPTION_CONTINUE_SEARCH
+    }
+
+    pub fn install() {
+        unsafe { AddVectoredExceptionHandler(1, Some(handler)); }
+    }
+}
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -138,6 +195,8 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+    #[cfg(windows)]
+    fault::install();
     let event_loop = EventLoop::new().expect("event_loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App { state: None };
