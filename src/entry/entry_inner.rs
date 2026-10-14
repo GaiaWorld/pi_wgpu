@@ -164,7 +164,8 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
     let ok = match (tex._dim, d.dimension) {
         (TextureDimension::D1, VD::D1) => true,
         (TextureDimension::D2, VD::D2 | VD::D2Array) => true,
-        (TextureDimension::D2, VD::Cube | VD::CubeArray) => tex._layers % 6 == 0,
+        (TextureDimension::D2, VD::Cube) => tex._layers == 6,
+        (TextureDimension::D2, VD::CubeArray) => tex._layers % 6 == 0,
         (TextureDimension::D3, VD::D3) => true,
         _ => false,
     };

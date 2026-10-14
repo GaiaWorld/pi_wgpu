@@ -5,7 +5,7 @@
 | 初始化 | entry.Instance::new→context.attach→caps.probe→entry.create_surface→entry.request_adapter→entry.request_device→surface.configure | 失败②③=结果值；configure=断言前全量校验无半配置 |
 | 每帧 | surface.get_current_texture→draw.begin→(set_*→flush_if_changed)→draw.draw→Drop→surface.present | 失=四态（lost→链8）；present 类型级不可能重 |
 | 建管线 | entry.create_render_pipeline→shader.compile_to_es300→shader.emit_stage→objects.ensure_reuse（命中++/建+登记） | 源错=短错误码上递（决定⑪）、无半项 |
-| 建资源（1:1） | entry.create_texture→formats.to_gl_params→直建 | 越界=断言 |
+| 建资源（1:1） | entry.create_texture→formats.to_gl_params + formats.target_of→直建（2D/3D/数组/cube 按目标分配）；entry.create_view→视图目标覆盖 | 越界/维度不相容=断言 |
 | 绑定应用 | draw.set_bind_group→binds.apply_layout（reorder→偏移→下发；signature 无 pipe）→state.flush_if_changed | 计数不符/槽满=断言，绑定未变 |
 | 删除 | 对象 drop→objects.release_reuse（归零）→驱动删→死名登记→state.flush 强发并整面销记 | 违约=未定义画面（合同） |
 | 写 | upload.write_texture→convert_upload_layout→context.attach→驱动入口→formats.mip_convert | 违约=错误码 log（debug 不下发/release 留痕+下发） |
@@ -98,6 +98,7 @@ sequenceDiagram
 | B12 | utils 芯：create_buffer_init / create_texture_with_data（纯组合调用无新契约；order 多段排布未实现=登记差异）/ env 助手恒 GL 语义（WGPU_BACKEND 不生效=登记差异）；锁包装+公开入口 trace 单点=待落（登记差异，不静默删） | B11 | 便捷面与直调等价 | 链11 |
 | B13 | 相-2 use_wgpu 挂接【已落】：薄壳 facade——Cargo 可选 wgpu（path ../wgpu/wgpu 25.0.2，use_wgpu=[dep:wgpu]）+ lib.rs cfg(not(use_wgpu)) 关闭自有模块、use_wgpu 下 pub use wgpu::*；PiWgpuAdapter 两 cfg 版；lib_inner::uw_request_impl（单参→双参、trace 丢弃）；与 gl 互斥 | B0–B12 | A（gl）+ B（--no-default-features --features use_wgpu）对照编译均 Finished（wgpu 25.0.2） | 伞面 |
 | B14 | types 词汇全量对表：85 项对 wgpu 25.x 裁剪登记（api 册顶注载荷声明；显式登记断裂进迁移清单，禁静默） | B11 | 对表清单落 changes；链上 25 结构零破坏 | 全部 |
+| B15 | 纹理切片：D1/D2/D3 + D2Array/Cube/CubeArray（formats.target_of/is_cube_compatible→entry.create_texture 目标感知 + Texture::create_view→upload 目标路由→state/binds target；cube=D2+6层+Cube 视图，GL 单目标） | B3/B8/B11 | 维度不相容/越界=断言；20 测试绿 | formats/entry/upload/state/binds |
 
 并行注记：B3/B5/B6/B7 芯相互独立（依赖前块仅为接口面存在，非实现依赖），可按人手机动并行；主序线 B1→B2→B4→B9→B10→B11 不可乱序。
 

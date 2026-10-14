@@ -35,8 +35,9 @@
 | 映射原语比较器 | types 词汇结构无 PartialEq→镜像比较全部经「枚举→GL 规范号」映射后拆量比较，比较器住芯不改壳词汇面 | B5 落地 |
 | 最近快照缓存 | caps probe 末尾驻留的锁外原子读数（family/version/es），供 formats 等实现批做能力门控；未探先查=消费端断言 | B2/B3 落地 |
 | BindDomain | 绑定域：Uniform=UBO 绑定点槽；Texture/Sampler=纹理单元槽（同段共用） | B6 |
-| BoundEntry | 绑定组条目单位：binding+domain 资源强引用 DirectHandle+offset/size/dynamic；动态声明数=dynamic 位计数（consume 校验源） | B6 |
+| BoundEntry | 绑定组条目单位：binding+domain 资源强引用 DirectHandle+offset/size/dynamic+target（纹理 GL 绑定目标，自 TextureView；非纹理=0）；动态声明数=dynamic 位计数（consume 校验源） | B6 |
 | 绑定槽表 SlotTable | 双段定长数组 ubo[16]+单元段[16]；设备级单表、建管线时按布局重排；被否键值表（热路径） | B6 |
+| 纹理视图 TextureView | {_tex:Option<Texture>,_target:u32,_dim:TextureViewDimension}；纯值随宿主、无驱动删除；经 Texture::create_view 构造（帧视图=_tex:None） | 纹理切片 |
 | CompiledEs300 | shader 转译产物：hash（源文本哈希=复用键）+ modules:Vec<ShaderIr>；出码延到管线创建 | B7 |
 | ShaderIr | 单转译单元的 naga 中间产物：module + 校验信息 info | B7 |
 | ReflectionTable / RefEntry | 反射登记：entries:Vec<RefEntry{group,binding,kind:BindingKind,name}>；与程序哈希同生命周期 | B7 |

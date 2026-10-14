@@ -15,7 +15,7 @@
 |---|---|---|
 | Label / BufferAddress / DynamicOffset | 同 | 别名同形（DynamicOffset=u32） |
 | Extent3d / Origin3d | 同 | |
-| TextureDimension / TextureViewDimension / TextureAspect | 同 | |
+| TextureDimension（D1/D2/D3）/ TextureViewDimension（D2/D2Array/Cube/CubeArray/D1/D3）/ TextureAspect | 同 | 纹理切片：两套维度全量创建/上传/视图已支持（已非「词汇保留」） |
 | IndexFormat / VertexStepMode | 同 | |
 | SamplerBindingType | 同 | |
 | DeviceType | 同 | |

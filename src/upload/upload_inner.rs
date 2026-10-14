@@ -59,7 +59,7 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
 // 设计预期（伪码·示意·不可验证）：
 // 1. convert_upload_layout 把 256 字节行距语义换算为驱动 unpack 行距/偏移参数。
 // 2. 目标矩形/偏移校验，两档处理同 write_buffer（错误码 log，不谎报）。
-// 3. 锁附着，上传专用单元绑 GL_TEXTURE_2D 后写到 dst 指定 mip 层与起点。
+// 3. 锁附着，上传专用单元按目标（2D/3D/2D_ARRAY/CUBE 面/CUBE_ARRAY）绑定后写到 dst 指定 mip 层与起点。
 // 4. 目标带 mip 链且为全量上传 → 触发整链重生成（formats::mip_convert 的成本合同）。
 /// GL 纹理目标常量（与 formats/entry 同源规范值）。
 const GL_TEXTURE_3D: u32 = 0x806F;
