@@ -90,7 +90,7 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
     p
 }
 
-// 1. 上传完备后整链一次生成：在当前附着+已绑定目标纹理上执行 generate（调用方=upload 链10 接线）。
+// 1. 上传完备后整链一次生成：在当前附着+已绑定目标纹理上执行 generate（调用方=upload 写路径在整链上传完成后接线）。
 // 2. 成本合同：内容再更新=整链重生成——levels<=1 无链=空操作；无局部刷一级分支。
 // 3. 目标按层数选（单层 2D/多层 2D Array）；宽或高 0=越界断言（创建期保证本不该到）。
 pub(crate) fn mip_impl(extent: Extent3d, levels: u32) {

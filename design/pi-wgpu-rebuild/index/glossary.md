@@ -41,5 +41,5 @@
 | ShaderErr | shader 错误码枚举（ParseWgsl/ParseGlsl/Validate/Emit/NoEntry/SlotMissing/LayoutMismatch/EmptyGlsl/UnsupportedBinding） | B7 |
 | 错误码上递 | 决定⑪错误处理：优先返回短错误码（Result），避免原地 panic；不便上递处 log::error!(码) 后降级；禁长文本 | B7/决定⑪ |
 | UploadErr | upload 错误码枚举：DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） | B8 |
-| SurfaceErr | surface 错误码：NotConfigured/BadSize/BadCombo/CreateSurface/NotAttached（configure 等非 Result 面=log 短码，决定⑪） | B9 |
+| SurfaceErr | surface 错误码：NotConfigured/BadSize/BadCombo（configure 等非 Result 面=log 短码；平台操作错误归 SurfaceOpErr） | B9 |
 | SurfaceOpErr | 表面操作错误码：NotAttached/CreateSurface/NoSurface（surface_attach/surface_swap 上递，surface 芯落 log 短码，决定⑪） | B9 |

@@ -55,3 +55,6 @@
 | 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
 | 2026-10-14 | L7 | 小返工（图示补细节）：call-chain 链1 加 surface_attach（建平台表面+make_current）与 create_render_pipeline（emit_stage→reflection_register→ensure_reuse）；链2 加 surface_swap（换帧/Web 空操作）。图随表（链节点结构未变，仅补函数级步骤）。 | 图示与 B7/B9 实现对齐；图已原文贴入会话。 |
 | 2026-10-14 | L9 | 图示补细节轮 L9 复审（子代理）：有条件放行→3 ❌ 同场收口——链1 拆 shader/管线两步并对齐源行、链2 surface_swap 归属 context（加 participant C）；附注链2 挂点号/ensure_program 实名/壳注释去 design 内号（决定⑪→错误纪律，9 文件）。09-review.md=放行；20 测试绿。 | 图示与源表/B7·B9 实现一致 |
+| 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-14 | L7 | 返工（B10 表示层同步）：data 更新 Instance/Adapter/Device/Queue/CommandEncoder 行（Device=Share<DeviceInner{三字段 ShareMutex}>）+ 新增 DeviceInner 行 + PassCtx→RenderPass（通道态字段）；units PassRecorder 补属性/离屏差异；call-chain 绑定应用行标 apply_layout 无 pipe。设备接线=路线 A（据 pi_render/wgpu: 编码器持共享设备柄）。 | 设计表示层与 B10 壳芯一致；B11 entry 编排可开工。 |
+| 2026-10-14 | L9 | B10 返工轮 L9 复审（子代理）：有条件放行→9 ❌ 同场收口——索引格式/偏移载体、begin/end 契约收窄、芯册号自含、恒真断言删、哑消费修、VAO 走复用+镜像、视口双口径统一、deps 补 3 边、glossary SurfaceErr 死变体清；附注 errors 链号+描述符断言口径。09-review.md=放行；20 测试绿。 | B10 表示层与壳芯一致 |

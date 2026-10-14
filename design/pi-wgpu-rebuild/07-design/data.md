@@ -4,7 +4,8 @@
 
 | 结构 | 壳 | 表示选择 / 被否方案 |
 |---|---|---|
-| Instance/Adapter/Device/Queue | src/entry/mod.rs | Share 引用链（pi_share）；被否 Rc（线程合同破） |
+| Instance/Adapter/Device/Queue/CommandEncoder | src/entry/mod.rs | 引用链=Share：Device{_inner:Share<DeviceInner{state/cache/slots:ShareMutex}>}；CommandEncoder 持 _inner（克隆共享）；被否 Rc（线程合同破） |
+| 设备共享内芯 DeviceInner | src/entry/mod.rs | 三字段 state/cache/slots 各 ShareMutex；锁序=state 先、with_gl 后（与 set_*/flush 同序） |
 | 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | Option<Handle>（删=置 None，死用=错误码）；活态 ⟺ 上下文代号=当前；Buffer 另持 size、Texture 另持驱动参数组 GlParams（写路径消费） |
 | 上传错误码 UploadErr | src/upload/mod.rs | DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） |
 | 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | 表示行合入本册「对象句柄层」行（计数真相=芯全局驻留表、行=物理名模板）；被否 Arc+refcount 与手动 Option 口径不变 |
@@ -21,7 +22,7 @@
 | 绑定槽表 SlotTable | src/binds/mod.rs | 双段定长数组 ubo[Option<u32>;16]+单元段[Option<u32>;16]（域映射 Uniform→ubo 段、Texture/Sampler→共用单元段）；索引=GL 绑定点/单元号，值=占槽 (set,binding) 打包键（set 高 16 位/binding 低 16 位）；设备级单表、建管线时按该布局重排（多管线切换正确性=已登记限制）；被否键值表（热路径）；满=断言 |
 | 绑定组条目 BoundEntry | src/binds/mod.rs | 声明序条目集：binding+domain(Uniform/Texture/Sampler)+资源强引用 DirectHandle+offset/size/dynamic；动态声明数=dynamic 位计数（consume 校验源） |
 | state UBO 槽值 | src/state/mod.rs | 各 UBO 绑定点=(名,偏移,尺寸) 三元——偏移/尺寸变亦必须重绑（键含二者，防换偏移漏发） |
-| 通道上下文 PassCtx | src/draw/mod.rs | 借编码器+锁守卫（生命周期=Drop 语义 Rust 强制） |
+| 渲染通道 RenderPass | src/draw/mod.rs | 借编码器（_enc，通道锁生命周期）+ 通道态（_vertex 布局拷贝/_pipe_set/_vertex_ready/_index_ready/_topology）；Drop=end 释放守卫 |
 | 描述符词汇结构 | src/types/mod.rs | types 自建移植（决定③）；无运行态；合法性 entry 边界一次校验（隔离带） |
 | SurfaceConfiguration 缓存 | src/surface/mod.rs | 宽/高非零断言；格式表来自 caps |
 | 错误枚举 | src/entry/mod.rs | thiserror；封闭三处+其余类型上不可失败 |

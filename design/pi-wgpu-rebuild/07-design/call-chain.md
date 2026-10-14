@@ -6,7 +6,7 @@
 | 每帧 | surface.get_current_texture→draw.begin→(set_*→flush_if_changed)→draw.draw→Drop→surface.present | 失=四态（lost→链8）；present 类型级不可能重 |
 | 建管线 | entry.create_render_pipeline→shader.compile_to_es300→shader.emit_stage→objects.ensure_reuse（命中++/建+登记） | 源错=短错误码上递（决定⑪）、无半项 |
 | 建资源（1:1） | entry.create_texture→formats.to_gl_params→直建 | 越界=断言 |
-| 绑定应用 | draw.set_bind_group→binds.apply_layout（reorder→偏移→下发）→state.flush_if_changed | 计数不符/槽满=断言，绑定未变 |
+| 绑定应用 | draw.set_bind_group→binds.apply_layout（reorder→偏移→下发；signature 无 pipe）→state.flush_if_changed | 计数不符/槽满=断言，绑定未变 |
 | 删除 | 对象 drop→objects.release_reuse（归零）→驱动删→死名登记→state.flush 强发并整面销记 | 违约=未定义画面（合同） |
 | 写 | upload.write_texture→convert_upload_layout→context.attach→驱动入口→formats.mip_convert | 违约=错误码 log（debug 不下发/release 留痕+下发） |
 | lost 失效 | get_current_texture 捕获→context.gen_bump→旧句柄/镜像随代号失配集体退场→上层重走 request_device | 降级=重配置；账面由上层资产层处理 |

@@ -20,6 +20,12 @@ pub struct RenderPass<'pass> {
     pub(crate) _index_ready: bool,
     /// 当前图元拓扑（draw 用）。
     pub(crate) _topology: crate::types::PrimitiveTopology,
+    /// 索引绑定格式（draw_indexed 选 GL 类型用）。
+    pub(crate) _index_format: Option<crate::types::IndexFormat>,
+    /// 索引缓冲字节偏移（draw_indexed 计算起始偏移用）。
+    pub(crate) _index_offset: u64,
+    /// 通道内顶点布局 VAO 持有（Drop=end 时释放；复用键=布局哈希）。
+    pub(crate) _vao: Option<crate::objects::Reusable>,
 }
 /// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
 #[derive(Debug, Clone)]
@@ -39,11 +45,11 @@ impl<'pass> RenderPass<'pass> {
   pub fn set_bind_group(&mut self, set: u32, g: &BindGroup, offsets: &[DynamicOffset]) { crate::draw_inner::set_bind_group_impl(self, set, g, offsets) }
   /// 记顶点槽 i 的缓冲/偏移/步长（属性批对象按布局键走复用通道）；越界/死句柄=断言，属性态不变。 @public
   pub fn set_vertex_buffer(&mut self, i: u32, b: &Buffer, o: u64, s: u64) { crate::draw_inner::set_vertex_impl(self, i, b, o, s) }
-  /// 记索引绑定（格式在绘制时与索引值宽核对一致性）；违约=断言且保持原索引绑定。 @public
+  /// 记索引绑定（记格式+偏移；draw_indexed 按格式选 GL 类型、按偏移定位）；违约=断言（短码）且保持原索引绑定。 @public
   pub fn set_index_buffer(&mut self, b: &Buffer, o: u64, f: crate::types::IndexFormat, c: u64) { crate::draw_inner::set_index_impl(self, b, o, f, c) }
-  /// 记视口：wgpu 的 Y 向下坐标翻为 Y 向上——全库唯一翻换点，深度区间原样透传。 @public
+  /// 记视口（存原始值；负尺寸=断言）。登记差异：Y 向下→Y 向上的翻换因缺渲染目标高度本批暂缓（翻换点归汇合层，待目标尺寸面）；深度区间原样透传。 @public
   pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, dn: f32, up: f32) { crate::draw_inner::set_viewport_impl(self, x, y, w, h, dn, up) }
-  /// 记裁剪框：翻换规则与视口同在收敛层（两层坐标系一致，不在他处二次翻换）。 @public
+  /// 记裁剪框（存原始值）。登记差异：翻换同视口，本批暂缓（待目标尺寸面）。 @public
   pub fn set_scissor_rect(&mut self, x: u32, y: u32, w: u32, h: u32) { crate::draw_inner::set_scissor_impl(self, x, y, w, h) }
   /// 记模板参考值入镜像；与驱动已知态相同则不下发（无谓状态切换零成本）。 @public
   pub fn set_stencil_reference(&mut self, v: u32) { crate::draw_inner::set_stencil_impl(self, v) }

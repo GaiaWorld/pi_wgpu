@@ -88,7 +88,7 @@ fn gen_by_key(key: ReuseKey) -> GlHandle {
 }
 
 /// 按域物理删除复用对象并登记死名（镜像按「引用名已死」强制重下发，B5 flush 消费）。
-/// 在途 GL 态若正引用该名，删除即失配——合同上 release 只发生在通道锁释放后（链2·Drop 序）。
+/// 在途 GL 态若正引用该名，删除即失配——合同上 release 只发生在通道锁释放后（RenderPass Drop 之后）。
 fn delete_by_key(key: ReuseKey, name: GlHandle) {
     with_gl(|gl| {
         let nn = nz_name(name.0, "reused");

@@ -158,8 +158,8 @@ impl Queue {
 impl CommandEncoder {
     /// 收束编码器：产出空 CommandBuffer，无失败语义（内容已在执行点消化完毕）。 @public
     pub fn finish(self) -> CommandBuffer { crate::entry_inner::encoder_finish(self) }
-    /// 开渲染通道。检查项（一次全量）：color_attachments 中 Some 恰好 1 个；附件视图格式/层级与
-    /// 深度附件所含宽高面和 ops 匹配。违约=断言含 desc.label，通道未开、编码器守卫不变。 @public
+    /// 开渲染通道。检查项（一次全量）：color_attachments 中 Some 恰好 1 个。违约=断言（短码），通道未开、编码器守卫不变。
+    /// 登记差异：深度/模板附件与 store 语义本批暂缓（通道态暂无描述符载体）；离屏 FBO 路径本批暂停（走默认帧缓冲）。 @public
     pub fn begin_render_pass<'pass>(&'pass mut self, desc: &RenderPassDescriptor<'pass>) -> RenderPass<'pass> { crate::draw_inner::begin_impl(self, desc) }
 }
 

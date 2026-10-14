@@ -8,7 +8,7 @@
 | ShaderBridge | src/shader/mod.rs | naga 转译+反射登记 | 是 |
 | ContextAttachment | src/context/mod.rs | EGL+锁+搬运+代号 | 是（不含渲染语义） |
 | Presenter | src/surface/mod.rs | 换帧分形态收口（configure 建平台表面；present=swap/Web 空操作） | 是 |
-| PassRecorder | src/draw/mod.rs | 单目标 FBO·clear/Store 语义 | 是 |
+| PassRecorder | src/draw/mod.rs | 单目标 FBO（帧=0；离屏=登记差异）·clear/Store；属性批配属性；Drop=end | 是 |
 
 | 子程序 | 壳 | 职责/副作用核查 |
 |---|---|---|

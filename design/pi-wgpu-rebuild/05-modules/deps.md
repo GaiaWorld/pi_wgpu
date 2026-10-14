@@ -17,17 +17,17 @@
 | entry → formats | Texture 持驱动参数组 GlParams（写路径消费） |
 | entry → objects, binds, shader, draw, upload | create_*/pass 编排 |
 | utils → types, entry | 便捷构造消费公开对象面 |
-| surface → types, context, caps | 配置校验用能力位、绑上下文 |
+| surface → types, context, caps, entry | 配置校验用能力位、绑上下文、取 Device（configure(device)） |
 | context → types | — |
 | caps → types | 探测结果填词汇 |
 | state → types, context, objects | 镜像比较引用缓存与句柄刷失 |
 | objects → types, context, formats | 创建/复用经格式转换 |
 | objects → state | 死亡登记经 state 芯（死名表）+ 镜像引用作废 |
-| formats → types, caps | 格式表即词汇层数据；门控读 caps 最近快照 |
+| formats → types, caps, context | 格式表即词汇层数据；门控读 caps 最近快照；驱动调用经 with_gl |
 | binds → types | 布局描述符 |
 | binds → state, entry, objects | 应用经镜像差异下发；条目载对象句柄、对表布局 |
 | shader → types, binds, entry | 反射登记对表管线布局 |
-| draw → types, state, binds, context | 录制用镜像与应用绑定 |
+| draw → types, state, binds, context, entry | 录制用镜像与应用绑定；经编码器取设备侧 |
 | upload → types, objects, context, formats | 直写缓存对象 |
 
 ## 主依赖图（源=上表，节点边与表一一对）
@@ -63,6 +63,7 @@ flowchart TD
   surface --> types
   surface --> context
   surface --> caps
+  surface --> entry
   context --> types
   caps --> types
   state --> types
@@ -74,6 +75,7 @@ flowchart TD
   objects --> state
   formats --> types
   formats --> caps
+  formats --> context
   binds --> types
   binds --> state
   binds --> entry
@@ -85,6 +87,7 @@ flowchart TD
   draw --> state
   draw --> binds
   draw --> context
+  draw --> entry
   upload --> types
   upload --> objects
   upload --> context

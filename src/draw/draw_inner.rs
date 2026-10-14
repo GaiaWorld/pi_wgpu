@@ -57,6 +57,29 @@ fn topo(m: crate::types::PrimitiveTopology) -> u32 {
     }
 }
 
+/// 顶点格式判别码（哈希用）。
+fn fmt_code(f: crate::types::VertexFormat) -> u8 {
+    use crate::types::VertexFormat::*;
+    match f { Float32 => 0, Float32x2 => 1, Float32x3 => 2, Float32x4 => 3, Uint8x4 => 4, Sint16x2 => 5 }
+}
+/// 索引宽（字节）。
+fn index_width(f: IndexFormat) -> u64 { match f { IndexFormat::Uint16 => 2, IndexFormat::Uint32 => 4 } }
+/// 布局哈希（VAO 复用键）。
+fn layout_hash(v: &[VertexLayout]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for l in v {
+        l.array_stride.hash(&mut h);
+        (matches!(l.step_mode, crate::types::VertexStepMode::Instance) as u8).hash(&mut h);
+        for a in l.attributes.iter() {
+            fmt_code(a.format).hash(&mut h);
+            a.offset.hash(&mut h);
+            a.shader_location.hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 /// 非零包装（活句柄≥1；零=合同违反）。
 fn nz(n: u32) -> NonZeroU32 { NonZeroU32::new(n).expect("draw str-assert: 零句柄名") }
 
@@ -75,7 +98,6 @@ pub(crate) fn begin_impl<'p>(e: &'p mut CommandEncoder, d: &RenderPassDescriptor
     let some = d.color_attachments.iter().filter(|x| x.is_some()).count();
     assert!(some == 1, "draw str-assert: 颜色附件须恰一 Some（得 {some}）");
     let ca = d.color_attachments.iter().find_map(|x| x.as_ref()).expect("恰一 Some（前置断言保证）");
-    assert!(ca.view._tex.is_some() || ca.view._tex.is_none(), "draw: 视图占位");
     let is_frame = ca.view._tex.is_none();
     if !is_frame {
         log::error!("draw: 离屏附件 FBO 路径待后续批（登记差异；本批暂停，走默认帧缓冲）");
@@ -88,7 +110,7 @@ pub(crate) fn begin_impl<'p>(e: &'p mut CommandEncoder, d: &RenderPassDescriptor
         });
     }
     e._opened_pass = true;
-    RenderPass { _enc: e, _vertex: Vec::new(), _pipe_set: false, _vertex_ready: false, _index_ready: false, _topology: crate::types::PrimitiveTopology::TriangleList }
+    RenderPass { _enc: e, _vertex: Vec::new(), _pipe_set: false, _vertex_ready: false, _index_ready: false, _topology: crate::types::PrimitiveTopology::TriangleList, _index_format: None, _index_offset: 0, _vao: None }
 }
 
 // 设计预期：死程序句柄=断言；管线字段改记，程序切换差异下发。
@@ -117,10 +139,17 @@ pub(crate) fn set_bind_group_impl(p: &mut RenderPass<'_>, s: u32, g: &BindGroup,
 pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64, s: u64) {
     let name = b._h.handle.expect("draw str-assert: 死顶点缓冲句柄");
     let layout: VertexLayout = p._vertex.get(i as usize).expect("draw str-assert: 顶点槽越界").clone();
-    let _ = s;
+    assert!(s == layout.array_stride, "draw str-assert: 顶点步长与布局不符");
+    // VAO 经 objects 复用通道（复用键=整管线布局哈希；通道内持有、end 释放）。
+    let key = crate::objects::ReuseKey::Vao(layout_hash(&p._vertex));
+    let va = {
+        let mut cache = p._enc._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
+        crate::objects::ensure_reuse(key, &mut cache)
+    };
+    let vao_name = va.handle.expect("draw str-assert: VAO 无句柄");
+    let mut m = lock_state(p);
     with_gl(|gl| unsafe {
-        let vao = gl.create_vertex_array().expect("draw str-assert: VAO 创建失败");
-        gl.bind_vertex_array(Some(vao));
+        gl.bind_vertex_array(Some(pi_glow::NativeVertexArray(nz(vao_name.0))));
         gl.bind_buffer(GL_ARRAY_BUFFER, Some(pi_glow::NativeBuffer(nz(name.0))));
         for a in layout.attributes.iter() {
             let (n, ty, norm) = vtx_fmt(a.format);
@@ -133,16 +162,21 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
             }
         }
     });
+    state_inner::set_vao(&mut m, Some(vao_name));
+    drop(m);
+    p._vao = Some(va);
     p._vertex_ready = true;
 }
 
 // 设计预期：句柄活态+偏移范围；镜像记索引绑定（格式仅记录）。
 pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: IndexFormat, c: u64) {
     let name = b._h.handle.expect("draw str-assert: 死索引缓冲句柄");
-    let _ = (o, f, c);
+    assert!(o + c * index_width(f) <= b.size || c == 0, "draw str-assert: 索引范围越界");
     with_gl(|gl| unsafe {
         gl.bind_buffer(GL_ELEMENT_ARRAY_BUFFER, Some(pi_glow::NativeBuffer(nz(name.0))));
     });
+    p._index_format = Some(f);
+    p._index_offset = o;
     p._index_ready = true;
 }
 
@@ -193,12 +227,17 @@ pub(crate) fn draw_idx_impl(p: &mut RenderPass<'_>, s: u32, c: u32, b: i32) {
         let mut m = lock_state(p);
         state_inner::flush_impl(&mut m);
     }
+    let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let mode = topo(p._topology);
-    with_gl(|gl| unsafe { gl.draw_elements(mode, c as i32, GL_UNSIGNED_SHORT, s as i32) });
+    let off = p._index_offset + (s as u64) * index_width(f);
+    with_gl(|gl| unsafe { gl.draw_elements(mode, c as i32, idx_type(f), off as i32) });
 }
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
     with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
+    if let Some(va) = p._vao.take() {
+        crate::objects::release_reuse(&va);
+    }
     p._enc._opened_pass = false;
 }

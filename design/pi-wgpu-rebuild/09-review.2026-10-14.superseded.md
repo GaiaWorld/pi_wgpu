@@ -1,49 +1,35 @@
-# L9 轻审报告（design-lite · L7 返工轮：B9 surface 表示层同步）
+# L9 轻审报告（design-lite · 图示补细节轮）
 
 **结论**：☑ 放行（子代理原判=有条件放行，3 ❌ 全部同场收口）
 
-> 子代理=无对话历史、只读、按 R1–R16 判。返工对象=B9 接口增量（Surface._cfg RefCell / context 建面换帧 / SurfaceErr·SurfaceOpErr）。
+> 子代理=无对话历史、只读。返工对象=call-chain 链1/链2 时序图补函数级步骤。
 
 ## 内容核对（子代理原判）
 
 | 检查 | 结果 |
 |---|---|
-| R1 需求够清楚 | ✅ |
-| R2 问题与范围 | ✅ |
-| R3 需求↔模块对得上 | ✅ |
-| R4 模块切得对 | ✅ |
-| R5 图与文一致 | ✅ |
-| R6 依赖无环、无越级 | ✅ |
-| R7 变更点三项齐 | ✅ |
-| R8 名词有定义 | ❌→修 |
-| R9 边界不越 | ✅ |
-| R10 能照此开工 | ✅ |
-| R11 决定有理由 | ✅ |
-| R12 假设已验证 | ✅ |
-| R13 无过度工程 | ❌→修 |
-| R14 详细设计能落地 | ❌→修 |
-| R15 详细设计不越界 | ✅ |
+| R5 图与文一致 | ❌→修 |
+| R14 详细设计能落地 | ✅ |
 | R16 实现切片可照做 | ✅ |
 
 ## ❌ 明细与收口对账
 
 | 条目 | 位置 | 问题 | 回哪份文档 | 已改 |
 |---|---|---|---|---|
-| R8 | glossary | 新增 SurfaceOpErr 未入册 | glossary | tableAddRow 补行 |
-| R13 | surface/mod.rs + context | SurfaceErr 与 SurfaceOpErr 变体重叠、SurfaceErr::CreateSurface/NotAttached 为死变体 | surface 壳 | 删两死变体；职责分工=校验类 SurfaceErr / 平台类 SurfaceOpErr |
-| R14 | api/data/errors + surface 壳注释 | api 库内清单缺 context 表面函数；data/errors 未收 SurfaceOpErr；壳注释码与芯落码不一致 | api/data/errors + 壳 | api 清单补 surface_attach/surface_swap/web_bind_glow；data 增 SurfaceOpErr 行；errors configure 行两码分工；壳注释同改 |
+| R5 | call-chain 链1:46 | 图比源表多且冲突：链1 源行止于 configure，create_render_pipeline 属链3/链10 | call-chain | 链1 标题注「含链3/链10 挂点」；拆为 create_shader_module（compile_to_es300→reflection_register）+ create_render_pipeline（emit_stage→ensure_reuse） |
+| R5 | 同上括注 | 漏 compile_to_es300、混入 reflection_register（属模块创建） | call-chain | 两步行分工对齐源行 |
+| R5 | call-chain 链2:73 | surface_swap 画作 surface 自步，与链1（surface_attach 画作 S->>C）归属不一 | call-chain | 链2 加 participant C；改 S->>C: surface_swap |
 
 ## 附注收口
 
-- call-chain B9 行补 context_inner::{surface_attach, surface_swap}。
-- deps 顶注补「共用闸说明」（with_gl / BIND_SLOTS 不单列功能边）。
-- lib.rs 顶注改「已落地批含真实实现，未落地批留桩+ TODO-DECL」。
-- 00-index 指向的 09-review.md 由本轮产出。
+- 链2 标题「含链4/6/7 挂点」→「含链5/6/8 挂点」。
+- entry/mod.rs「ensure_program」→「shader.emit_stage / objects.ensure_reuse(ReuseKey::Program)」（实名）。
+- 壳注释去 design 内号：src 全量「决定⑪」→「错误纪律」（9 文件；规则正文自足，不构成契约缺口）。
 
 ## 复验
 
 - cargo test --features gl --lib -- --include-ignored = 20 passed / 0 failed；三组合 Finished。
 
-## 说明（不计 ❌）
+## 说明
 
-- get_current 现仅落「未配置→Outdated」；四态映射与 Lost→gen_bump→invalidate 待续（非设计矛盾）。
+- deps 主依赖图 42 边与表逐一相等、节点 13（子代理核）；flow.md 与 needs 无冲突；无悬空指针。
