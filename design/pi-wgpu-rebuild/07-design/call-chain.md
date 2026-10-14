@@ -84,7 +84,7 @@ sequenceDiagram
 | B3 | formats 芯：to_gl_params / mip_convert（格式表=词汇层数据；DDS/ASTC 直载能力查 caps 位） | B2 | 抽样格式对表；越界=断言 | 链4 |
 | B4 | objects 芯：直建三类+四种复用键（ensure_reuse / release_reuse / invalidate_generations；XHashMap 复用缓存；归零即删+刷失单向） | B1,B3 | 计数命中++/建+登记；归零物理删；代号失配=死用断言 | 链3/链6/链8 |
 | B5 | state 芯：StateMirror 字段集 + flush_if_changed / drop_invalidate（仅驱动成功后改镜像；对象死=强制失效） | B4 | 差异才下发可测（同值重复 set 零下发） | 链5 |
-| B6 | binds 芯：alloc_slots / apply_layout / consume_dynamic_offsets（16 槽定长+每管线 reorder；计数不符/槽满=断言且绑定未变） | B5 | reorder→偏移→下发闭环；shader 反射表对接 | 链5 |
+| B6 | binds 芯：alloc_slots / apply_layout / consume_dynamic_offsets（16 槽定长+每管线 reorder；预检计数不符/槽满/死句柄=断言且绑定未变） | B5 | reorder→偏移→下发闭环（apply=镜像差异下发；consume=计数校验+游标前移）；反射表对接留 B7（pipe=程序侧保留位，本批只用存在性） | 链5 |
 | B7 | shader 芯：compile_to_es300 / reflection_register（naga glsl-in/out；codespan 错误格式化后断言，不吞诊断） | B6 | 语法错路径=断言含诊断；反射 (set,binding)→location 落地 | 链10 |
 | B8 | upload 芯：write_buffer / write_texture / convert_upload_layout / jsbuffer（即时下发；越界 debug 断言 / release 记录+GL 兜底不谎报；256B 行步换算） | B4 | FR-15 trace 留痕路径可测；Web 位图直传零拷贝 | 链7 |
 | B9 | surface 芯：configure_impl / get_current_impl / present_impl / capabilities_impl（先全量校验=无半配置；底层错→封闭四态；present 自消费；Web 无换帧、桌面/安卓换帧+栅栏；suboptimal 恒真） | B1,B2 | 链2 全帧循环桌面形态可跑通（配 B11）；Lost→gen_bump→旧对象使用全断言、request_device 重入重建 | 链2/链8 |

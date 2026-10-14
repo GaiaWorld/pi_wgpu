@@ -2,13 +2,16 @@
 
 <!-- 新工程无分层惯例（00-context：不采旧仓结构）→ 越级判据不适用。本册为源，图为画法，图随表改。 -->
 
-## 依赖边 · 内层（实现 12 模块+types 词汇面=图 13 节点，环检通过；计数口径同 modules 册顶注）
+## 依赖边 · 内层（实现 12 模块+types 词汇面=图 13 节点；本工程无分层惯例→越级判据不适用；单 crate 内类型互引允许，不计为功能环；计数口径同 modules 册顶注）
+
+类型互引说明：单 crate 内存在双向类型引用（entry↔{binds,state,shader}、objects↔state、surface↔entry），Rust 单 crate 常态；叠合判据=「无功能环（调用链不成环，见 call-chain 册）+ 无越级」，类型互引不计环。
 
 纠偏注记：上轮提案表「utils→entry/upload/types」+「entry→utils」实为假环——lib 伞面 re-export 是导出表非调用边，修正为 utils→{types,entry} 单向。
 
 | 从 → 到 | 说明 |
 |---|---|
 | entry → types, surface, context, caps | 对象面词汇/附着/上下文/能力 |
+| entry → state | 设备持状态镜像 |
 | entry → objects, binds, shader, draw, upload | create_*/pass 编排 |
 | utils → types, entry | 便捷构造消费公开对象面 |
 | surface → types, context, caps | 配置校验用能力位、绑上下文 |
@@ -16,9 +19,11 @@
 | caps → types | 探测结果填词汇 |
 | state → types, context, objects | 镜像比较引用缓存与句柄刷失 |
 | objects → types, context, formats | 创建/复用经格式转换 |
-| formats → types | 格式表即词汇层数据 |
+| objects → state | 死亡登记经 state 芯（死名表）+ 镜像引用作废 |
+| formats → types, caps | 格式表即词汇层数据；门控读 caps 最近快照 |
 | binds → types | 布局描述符 |
-| shader → types, binds | 反射登记对接槽 |
+| binds → state, entry, objects | 应用经镜像差异下发；条目载对象句柄、对表布局 |
+| shader → types, binds, entry | 反射登记对表管线布局 |
 | draw → types, state, binds, context | 录制用镜像与应用绑定 |
 | upload → types, objects, context, formats | 直写缓存对象 |
 
@@ -43,6 +48,7 @@ flowchart TD
   entry --> surface
   entry --> context
   entry --> caps
+  entry --> state
   entry --> objects
   entry --> binds
   entry --> shader
@@ -61,10 +67,16 @@ flowchart TD
   objects --> types
   objects --> context
   objects --> formats
+  objects --> state
   formats --> types
+  formats --> caps
   binds --> types
+  binds --> state
+  binds --> entry
+  binds --> objects
   shader --> types
   shader --> binds
+  shader --> entry
   draw --> types
   draw --> state
   draw --> binds

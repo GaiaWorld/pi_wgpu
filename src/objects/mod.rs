@@ -4,8 +4,8 @@
 use crate::state::StateMirror;
 
 /// GL 对象名（glGen* 原始产物）。只做类型区分，数值本身不含生命周期信息。
-/// 元组字段=驱动原始名号 u32（native 实形；glow native 的 NonZeroU32 包装由芯边界转换，Web 形态句柄
-/// 包装随官方挂接批处理——见 data 册对象句柄层表示行）。 @internal
+/// 元组字段=驱动原始名号 u32（native 实形；glow native 的 NonZeroU32 包装由芯边界转换；Web 形态句柄
+/// 包装随官方挂接批处理）。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)] pub(crate) struct GlHandle(pub u32);
 /// 一对一资源域：直建三件套=全部合法域（复用域另列四类合同）。供删除分派与域校验。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -22,13 +22,13 @@
 | Surface::get_current_texture | src/surface/mod.rs | src/surface/surface_inner.rs | 结果面③ SurfaceError{Timeout/Outdated/Lost/OutOfMemory}；Lost=代号+1 整面失效 | |
 | SurfaceTexture::present(self) | src/surface/mod.rs | src/surface/surface_inner.rs | 自消费=类型级禁重复呈现（无运行时态） | 替旧实现运行时 panic——更强且兼容 |
 | CommandEncoder::begin_render_pass | src/draw/mod.rs | src/draw/draw_inner.rs | 颜色目标恰一 Some，其余断言；失败后通道未建 | |
-| RenderPass::{set_pipeline,set_bind_group,set_vertex_buffer,set_index_buffer,set_viewport,set_scissor_rect,set_stencil_reference,set_blend_constant,draw,draw_indexed} | src/draw/mod.rs | src/draw/draw_inner.rs | 全经镜像差异下发；draw 参数级约束（first_instance=0/base_vertex=0）=断言；Drop=通道结束（此后资源可销毁） | viewport wgpu 坐标内翻=汇合层 |
+| RenderPass::{set_pipeline,set_bind_group,set_vertex_buffer,set_index_buffer,set_viewport,set_scissor_rect,set_stencil_reference,set_blend_constant,draw,draw_indexed} | src/draw/mod.rs | src/draw/draw_inner.rs | 全经镜像差异下发；draw 参数级约束（draw 无 first_instance 形参；draw_indexed 的 base_vertex=0）=断言；Drop=通道结束（此后资源可销毁） | viewport wgpu 坐标内翻=汇合层 |
 | util::DeviceExt::{create_buffer_init,create_texture_with_data} | src/utils/mod.rs | src/utils/utils_inner.rs | 组合调用（无新契约） | |
 | util::{backend_bits_from_env,power_preference_from_env,parse_backends_from_comma_list} | src/utils/mod.rs | src/utils/utils_inner.rs | 恒 GL 语义（登记差异：WGPU_BACKEND 不生效） | |
 | trait PiWgpuAdapter | src/lib.rs | — | 伞面统一双参 request_device（use_wgpu 下适配官方） | 被否：两侧签名各异 |
 
 ## 库内操作（@internal，芯互访面；契约同法住壳）
-清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
+清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}（芯另暴露 set_*/bind_* 差异下发族：程序/VAO/目标/上传/UBO·纹理·采样器槽/开关函数/模板/视口——签名与契约见 state 芯，消费方=draw/binds）、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
 
 <!-- 词汇/描述符 85 项全量对表=相-2 批（L7 自记载荷声明）；相-1 已落壳仅链上 25 结构。 -->
 
