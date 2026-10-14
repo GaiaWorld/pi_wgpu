@@ -45,7 +45,7 @@ const GL_BLEND: u32 = 0x0BE2;
 const GL_SCISSOR_TEST: u32 = 0x0C11;
 const GL_SCISSOR_BOX: u32 = 0x0C22;
 /// 视口与深度区间参数号。
-const GL_VIEWPORT: u32 = 0x8472;
+const GL_VIEWPORT: u32 = 0x0BA2;
 const GL_DEPTH_RANGE: u32 = 0x0B70;
 /// 多边形偏置开关参数号。
 const GL_POLYGON_OFFSET_FILL: u32 = 0x8E30;
