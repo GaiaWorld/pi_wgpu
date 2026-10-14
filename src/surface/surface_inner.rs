@@ -63,6 +63,8 @@ pub(crate) fn present_impl(_t: SurfaceTexture) {
     if let Err(e) = crate::context_inner::surface_swap() {
         log::error!("surface {:?}", e);
     }
+    // 换帧=帧边界：推进状态芯帧门（可回读档每帧只做一次驱动回读）。
+    crate::state_inner::bump_frame();
 }
 
 /// Debug 委托：字段级输出（目标形态 + 是否已配置）。

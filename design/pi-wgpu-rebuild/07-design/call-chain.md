@@ -3,7 +3,7 @@
 | 行为 | 节点序列 | 路径 |
 |---|---|---|
 | 初始化 | entry.Instance::new→context.attach→caps.probe→entry.create_surface→entry.request_adapter→entry.request_device→surface.configure | 失败②③=结果值；configure=断言前全量校验无半配置 |
-| 每帧 | surface.get_current_texture→draw.begin→(set_*→flush_if_changed〔可回读档读驱动比对、整发档比水位，差异才发〕)→draw.draw→Drop→surface.present | 失=四态（lost→链8）；present 类型级不可能重 |
+| 每帧 | surface.get_current_texture→draw.begin→(set_*→flush_if_changed〔可回读档帧门内读驱动比对、整发档比水位，差异才发〕)→draw.draw→Drop→surface.present（换帧=推进状态芯帧门） | 失=四态（lost→链8）；present 类型级不可能重 |
 | 建管线 | entry.create_render_pipeline→shader.compile_to_es300→shader.emit_stage→objects.ensure_reuse（命中++/建+登记） | 源错=短错误码上递（决定⑪）、无半项 |
 | 建资源（1:1） | entry.create_texture→formats.to_gl_params + formats.target_of→直建（2D/3D/数组/cube 按目标分配）；entry.create_view→视图目标覆盖 | 越界/维度不相容=断言 |
 | 绑定应用 | draw.set_bind_group→binds.apply_layout（reorder→偏移→下发；signature 无 pipe）→state.flush_if_changed | 计数不符/槽满=断言，绑定未变 |

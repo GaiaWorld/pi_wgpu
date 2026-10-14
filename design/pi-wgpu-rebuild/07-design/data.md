@@ -18,7 +18,7 @@
 | SurfaceTexture（帧租约） | src/surface/mod.rs | present 消自——同时至多一帧的不变量类型级成立；view()=帧视图取值（examples 片） |
 | 附着体 Attachment | src/context/mod.rs | 芯内进程驻留附着槽：EGL/WGL 实例对（glow 入口由实例借出）+ 持锁线程重入门锁 + TLS 层数 + 代号原子（非 Arc 引用链）；Web 形态零 EGL、GL 入口由呈现配置链注入；代号单调增；跨线程搬运前提见壳 attach 注释条款 |
 | 对象句柄层 | src/objects/mod.rs | L7 解冻重落定：GlHandle=u32 原生产物（glow native NonZeroU32 包装由芯边界转换）；DirectHandle=Share<DirectHandleState{kind, handle:Cell<Option<GlHandle>>, generation}>（决定⑫ 共享计数：Clone 共享名、末引用 Drop 三路删除分派+死名登记）；HandleCache=pi_hash XHashMap/FxHash64，行持物理名模板；计数真相与死名刷失驻留 objects/state 芯——归零即删+登记，invalidate 纯记账幂等 |
-| 状态镜像 StateMirror | src/state/mod.rs | L7 解冻展齐：全驱动分组字段；值类型词汇无 PartialEq→比较器经映射原语拆量住芯；被否 dirty 位图（散落易漏）；两档重 sync=可回读档比对+不可回读组（GL 程序.current/WebGL 句柄绑定/UBO 槽/fork 掩码面）按已下发水位比对增量发（决定⑬：+water 字段=非回读组「上次实际下发」原语快照，住 state 芯 Water；水位空/死名命中=整组强发）+整面销记；对象死=死名登记强发 |
+| 状态镜像 StateMirror | src/state/mod.rs | L7 解冻展齐：全驱动分组字段；值类型词汇无 PartialEq→比较器经映射原语拆量住芯；被否 dirty 位图（散落易漏）；两档重 sync=可回读档比对+不可回读组（GL 程序.current/WebGL 句柄绑定/UBO 槽/fork 掩码面）按已下发水位比对增量发（决定⑬：+water 字段=非回读组「上次实际下发」原语快照，住 state 芯 Water；水位空/死名命中=整组强发）+整面销记；决定⑭：+readback_frame 帧门（可回读档每帧一次回读，present 推进帧号）；对象死=死名登记强发 |
 
 | 绑定槽表 SlotTable | src/binds/mod.rs | 双段定长数组 ubo[Option<u32>;16]+单元段[Option<u32>;16]（域映射 Uniform→ubo 段、Texture/Sampler→共用单元段）；索引=GL 绑定点/单元号，值=占槽 (set,binding) 打包键（set 高 16 位/binding 低 16 位）；设备级单表、建管线时按该布局重排（多管线切换正确性=已登记限制）；被否键值表（热路径）；满=断言 |
 | 绑定组条目 BoundEntry | src/binds/mod.rs | 声明序条目集：binding+domain(Uniform/Texture/Sampler)+资源强引用 DirectHandle（共享计数 clone，决定⑫：组持副本不删用户资源）+offset/size/dynamic+target（纹理条目=自 TextureView 的 GL 绑定目标；非纹理=0）；动态声明数=dynamic 位计数（consume 校验源） |

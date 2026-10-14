@@ -68,7 +68,7 @@ const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
 const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
 const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
 
-pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], l: &ImageDataLayout, e: Extent3d) {
+pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], l: &ImageDataLayout, e: Extent3d) {
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
@@ -101,6 +101,7 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
     let lay = convert_impl(l, &e);
     let bpp = p.block_bytes.max(1) as u64;
     let target = t.texture._target;
+    let restore_unit = upload_restore_unit(q);
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
         gl.bind_texture(target, Some(pi_glow::NativeTexture(nn)));
@@ -124,8 +125,16 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
                 gl.tex_sub_image_2d(target, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, e.width as i32, e.height as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
             }
         }
-        gl.active_texture(GL_TEXTURE0);
+        gl.active_texture(GL_TEXTURE0 + restore_unit);
     });
+}
+
+/// 上传专用单元的「恢复单元」=镜像记录的当前 active 单元（上传只在专用单元操作，事后恢复到镜像期望）。\n/// 恢复镜像值而非盲还原 0，以维持「驱动 active == 镜像 active」不变量（帧门跳过回读时不至于错位）。
+fn upload_restore_unit(q: &Queue) -> u32 {
+    match q._dev.as_ref() {
+        Some(d) => d._inner.state.lock().unwrap_or_else(|e| e.into_inner()).active_texture_unit.unwrap_or(0),
+        None => 0,
+    }
 }
 
 // 设计预期（伪码·示意·不可验证）：
@@ -133,7 +142,7 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
 // 2. 入参类型校验：非位图值=log::error!(NotBitmap)。
 // 3. 直接把位图句柄推进上传通道——零字节路径（唯一公开分形态点，桌面/安卓不存在此步）。
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn write_js_impl(_q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bindgen::JsValue) {
+pub(crate) fn write_js_impl(q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bindgen::JsValue) {
     use wasm_bindgen::JsCast;
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
@@ -153,7 +162,7 @@ pub(crate) fn write_js_impl(_q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_b
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
         gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nn)));
         gl.tex_sub_image_2d_with_image_bitmap(GL_TEXTURE_2D, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, p.format, p.pixel_type, &bmp);
-        gl.active_texture(GL_TEXTURE0);
+        gl.active_texture(GL_TEXTURE0 + upload_restore_unit(q));
     });
 }
 

@@ -67,11 +67,14 @@ pub(crate) struct StateMirror {
     /// 整发档已下发水位（优化件：非回读组「上次实际下发」的原语快照，差异才发；缺省=从未发=首轮全发）。
     /// 死名表非空或整面重置（reset_all）时归零=下轮强发一轮。值域与比较语义见 state 芯 Water 注释。 @internal
     pub(crate) water: crate::state_inner::Water,
+    /// 可回读档帧门：上次执行驱动回读比对的帧号（None=从未）；与当前帧号不等时才重做回读。
+    pub(crate) readback_frame: Option<u32>,
 }
 impl StateMirror {
     /// 两档重同步：可回读档（标量参数：开关/函数/单元/视口框）读驱动实值比对、差异才下发；
     /// 不可回读档（GL 无 current-program 回读、WebGL 对象绑定不可查、UBO 绑定点无标量口、fork 掩码无下发面）
-    /// 按上次下发水位（water）比对、差异才发（水位空或死名登记命中=整组强发一次）。死名命中下发后销记。失败面：无同步错误通道（见不变量），
+    /// 按上次下发水位（water）比对、差异才发（水位空或死名登记命中=整组强发一次）。死名命中下发后销记。
+    /// 可回读档另受帧门约束：每帧（surface.present 推进帧号）只做一次驱动回读比对，帧内复用镜像态。失败面：无同步错误通道（见不变量），
     /// 下发即入驱动队列，驱动侧恢复语义由消费面（探针/lost 重建）闭合。 @internal
     pub(crate) fn flush_if_changed(&mut self) { crate::state_inner::flush_impl(self) }
     /// 对象死亡即时通知（逐名）：置空引用该句柄名的镜像字段——下次下发按「镜像未知」强制重设，

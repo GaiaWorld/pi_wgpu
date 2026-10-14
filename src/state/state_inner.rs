@@ -1,12 +1,13 @@
 // 设计：pi-wgpu-rebuild
 //! state 芯 · 驱动状态镜像——两段式差异下发：
 //! ① set_* 组 helper（B6/B8/B10 消费）：先比对镜像期望值，相同=零下发；差异=下发、成功后落镜像（不变量执行体）。
-//! ② flush_if_changed（pass begin / reset_state 消费）：可回读组向驱动实值比对、差异才重下发；
+//! ② flush_if_changed（draw 前消费）：可回读组每帧一次向驱动实值比对、差异才重下发（帧门，present 推进帧号）；
 //!    驱动侧不可回读组（WebGL 对象绑定查询返回 JS 对象、UBO 绑定点无标量回读）按「上次已下发水位」（Water）
 //!    比对、差异才发——水位空（首轮/整面重置）或死名表非空=整组强发一轮。
 //! 死名驻留：objects 删除路径已删名登记；表非空=整发档强发，整发档末尾整面销记。
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use once_cell::sync::Lazy;
 use pi_hash::XHashSet;
@@ -57,8 +58,8 @@ const GL_BACK: u32 = 0x0405;
 /// 双面朝向号（polygon_mode 落发用）。
 const GL_FRONT_AND_BACK: u32 = 0x0408;
 
-/// 测试构建下发观测计数器：0=useProgram 下发次数、1=flush 整组重发次数（产品路径不读）。
-static TEST_PROBE: Lazy<Mutex<[u32; 2]>> = Lazy::new(|| Mutex::new([0; 2]));
+/// 测试构建下发观测计数器：0=useProgram 下发次数、1=flush 整组重发次数、2=回读段执行次数（产品路径不读）。
+static TEST_PROBE: Lazy<Mutex<[u32; 3]>> = Lazy::new(|| Mutex::new([0; 3]));
 
 /// 计数观测（test 构建生效；产品构建编译期为空）。
 #[cfg(test)]
@@ -112,6 +113,19 @@ pub(crate) fn invalidate_texture_water(m: &mut StateMirror) {
     for slot in m.water.tex.iter_mut() {
         *slot = None;
     }
+}
+
+/// 帧序号：present 每次换帧推进一格（可回读档帧门的钟）。
+static FRAME: AtomicU32 = AtomicU32::new(0);
+
+/// 推进帧号（surface.present 换帧时调用）——回读帧门的唯一推进点。
+pub(crate) fn bump_frame() {
+    FRAME.fetch_add(1, Ordering::Relaxed);
+}
+
+/// 当前帧号（回读帧门比较用）。
+fn frame_now() -> u32 {
+    FRAME.load(Ordering::Relaxed)
 }
 
 /// 整发档已下发水位：非回读组「上次实际下发」的原语快照（比较基准；缺省=从未发→首轮全发）。
@@ -618,70 +632,76 @@ pub(crate) fn set_sample_mask(m: &mut StateMirror, mask: u64) {
     m.sample_mask = Some(mask);
 }
 
-// 1. 可回读档：单元/开关/函数/视口/裁剪框 与驱动实值比对，差异才重下发镜像期望。
+// 1. 可回读档：单元/开关/函数/视口/裁剪框——帧门内（每帧首次 flush）与驱动实值比对，差异才重下发镜像期望。
+//    帧门：present 推进帧号，同帧内后续 draw 不再回读（帧内状态变化由 set_* 直发与整发档水位保证）。
 // 2. 整发档：句柄绑定类在 WebGL 面不可回读 + UBO 槽无标量回读——按上次下发水位（water）比对、差异才发；
 //    水位空（首轮/整面重置）或死名表非空（镜像可能仍指名被删对象）=整组强发一轮。
 // 3. 下发后镜像不动（镜像即期望）、水位更新为实际下发值；死名表在整发档末尾整面清空。
 pub(crate) fn flush_impl(m: &mut StateMirror) {
     with_gl(|gl| unsafe {
         let exp_active = m.active_texture_unit.unwrap_or(0);
-        let real_active = (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
-        if exp_active != real_active {
-            gl.active_texture(GL_TEXTURE0 + exp_active);
-        }
-        let exp_depth = m.depth_test_enabled.unwrap_or(false);
-        if (gl.get_parameter_i32(GL_DEPTH_TEST) != 0) != exp_depth {
-            set_enable(gl, GL_DEPTH_TEST, exp_depth);
-        }
-        if let Some(cmp) = m.depth_compare {
-            if (gl.get_parameter_i32(GL_DEPTH_FUNC) as u32) != cmp_to_gl(cmp) {
-                gl.depth_func(cmp_to_gl(cmp));
+        let rb_frame = frame_now();
+        if m.readback_frame != Some(rb_frame) {
+            m.readback_frame = Some(rb_frame);
+            probe(2);
+            let real_active = (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
+            if exp_active != real_active {
+                gl.active_texture(GL_TEXTURE0 + exp_active);
             }
-        }
-        if let Some(wr) = m.depth_write_enabled {
-            gl.depth_mask(wr);
-        }
-        let exp_cull = cull_mode_to_gl(m.cull_mode.unwrap_or(None));
-        let real_cull_mode = gl.get_parameter_i32(GL_CULL_FACE_MODE) as u32;
-        if (gl.get_parameter_i32(GL_CULL_FACE) != 0) != exp_cull.is_some() {
-            set_enable(gl, GL_CULL_FACE, exp_cull.is_some());
-        }
-        if let Some(mode) = exp_cull {
-            if mode != real_cull_mode {
-                gl.cull_face(mode);
+            let exp_depth = m.depth_test_enabled.unwrap_or(false);
+            if (gl.get_parameter_i32(GL_DEPTH_TEST) != 0) != exp_depth {
+                set_enable(gl, GL_DEPTH_TEST, exp_depth);
             }
-        }
-        if let Some(f) = m.front_face {
-            if (gl.get_parameter_i32(GL_FRONT_FACE) as u32) != front_face_to_gl(f) {
-                gl.front_face(front_face_to_gl(f));
+            if let Some(cmp) = m.depth_compare {
+                if (gl.get_parameter_i32(GL_DEPTH_FUNC) as u32) != cmp_to_gl(cmp) {
+                    gl.depth_func(cmp_to_gl(cmp));
+                }
             }
-        }
-        let exp_scissor = m.scissor_test.unwrap_or(false);
-        if (gl.get_parameter_i32(GL_SCISSOR_TEST) != 0) != exp_scissor {
-            set_enable(gl, GL_SCISSOR_TEST, exp_scissor);
-        }
-        let exp_blend = m.blend.map(|b| b.is_some()).unwrap_or(false);
-        if (gl.get_parameter_i32(GL_BLEND) != 0) != exp_blend {
-            set_enable(gl, GL_BLEND, exp_blend);
-        }
-        let mut box4 = [0i32; 4];
-        gl.get_parameter_i32_slice(GL_SCISSOR_BOX, &mut box4);
-        if m.scissor != Some(box4) {
-            if let Some(b) = m.scissor {
-                gl.scissor(b[0], b[1], b[2], b[3]);
+            if let Some(wr) = m.depth_write_enabled {
+                gl.depth_mask(wr);
             }
-        }
-        if let Some(v) = m.viewport {
-            let mut vp = [0i32; 4];
-            gl.get_parameter_i32_slice(GL_VIEWPORT, &mut vp);
-            let mut dr = [0f32; 2];
-            gl.get_parameter_f32_slice(GL_DEPTH_RANGE, &mut dr);
-            let want = [v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32];
-            if vp != want {
-                gl.viewport(v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32);
+            let exp_cull = cull_mode_to_gl(m.cull_mode.unwrap_or(None));
+            let real_cull_mode = gl.get_parameter_i32(GL_CULL_FACE_MODE) as u32;
+            if (gl.get_parameter_i32(GL_CULL_FACE) != 0) != exp_cull.is_some() {
+                set_enable(gl, GL_CULL_FACE, exp_cull.is_some());
             }
-            if dr != [v[4], v[5]] {
-                gl.depth_range_f32(v[4], v[5]);
+            if let Some(mode) = exp_cull {
+                if mode != real_cull_mode {
+                    gl.cull_face(mode);
+                }
+            }
+            if let Some(f) = m.front_face {
+                if (gl.get_parameter_i32(GL_FRONT_FACE) as u32) != front_face_to_gl(f) {
+                    gl.front_face(front_face_to_gl(f));
+                }
+            }
+            let exp_scissor = m.scissor_test.unwrap_or(false);
+            if (gl.get_parameter_i32(GL_SCISSOR_TEST) != 0) != exp_scissor {
+                set_enable(gl, GL_SCISSOR_TEST, exp_scissor);
+            }
+            let exp_blend = m.blend.map(|b| b.is_some()).unwrap_or(false);
+            if (gl.get_parameter_i32(GL_BLEND) != 0) != exp_blend {
+                set_enable(gl, GL_BLEND, exp_blend);
+            }
+            let mut box4 = [0i32; 4];
+            gl.get_parameter_i32_slice(GL_SCISSOR_BOX, &mut box4);
+            if m.scissor != Some(box4) {
+                if let Some(b) = m.scissor {
+                    gl.scissor(b[0], b[1], b[2], b[3]);
+                }
+            }
+            if let Some(v) = m.viewport {
+                let mut vp = [0i32; 4];
+                gl.get_parameter_i32_slice(GL_VIEWPORT, &mut vp);
+                let mut dr = [0f32; 2];
+                gl.get_parameter_f32_slice(GL_DEPTH_RANGE, &mut dr);
+                let want = [v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32];
+                if vp != want {
+                    gl.viewport(v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32);
+                }
+                if dr != [v[4], v[5]] {
+                    gl.depth_range_f32(v[4], v[5]);
+                }
             }
         }
         // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）

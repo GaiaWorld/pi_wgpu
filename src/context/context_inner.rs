@@ -405,6 +405,14 @@ mod tests {
         mirror.flush_if_changed();
         assert_eq!(crate::state_inner::probe_count(0), after_flush, "水位命中：二次 flush 程序组零下发");
         assert_eq!(crate::state_inner::probe_count(1), flush_groups, "水位命中：二次 flush 整发档零下发组");
+        // 帧门：回读段每帧只做一次；换帧后重做。
+        let rb = crate::state_inner::probe_count(2);
+        assert!(rb > 0, "首帧回读段执行过");
+        mirror.flush_if_changed();
+        assert_eq!(crate::state_inner::probe_count(2), rb, "同帧不再回读（帧门）");
+        crate::state_inner::bump_frame();
+        mirror.flush_if_changed();
+        assert_eq!(crate::state_inner::probe_count(2), rb + 1, "换帧后重做回读（帧门推进）");
         let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
