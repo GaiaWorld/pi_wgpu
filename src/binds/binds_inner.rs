@@ -71,7 +71,7 @@ pub(crate) fn apply_impl(set: u32, group: &BindGroup, offsets: &[DynamicOffset],
         panic!("binds 断言: 动态偏移个数 {} ≠ 组声明数 {need}", offsets.len());
     }
     for e in group._bound.iter() {
-        if e.handle.handle.is_none() {
+        if e.handle.name().is_none() {
             panic!("binds 断言: 死句柄 set={set} binding={}", e.binding);
         }
         let _ = lookup_slot(table, e.domain, set, e.binding);
@@ -79,7 +79,7 @@ pub(crate) fn apply_impl(set: u32, group: &BindGroup, offsets: &[DynamicOffset],
     let mut di = 0usize;
     for e in group._bound.iter() {
         let slot = lookup_slot(table, e.domain, set, e.binding);
-        let name = e.handle.handle.unwrap_or_else(|| panic!("binds 断言: 死句柄 set={set} binding={}", e.binding));
+        let name = e.handle.name().unwrap_or_else(|| panic!("binds 断言: 死句柄 set={set} binding={}", e.binding));
         match e.domain {
             BindDomain::Uniform => {
                 let dyn_off = if e.dynamic {
@@ -134,7 +134,7 @@ mod tests {
     fn bgl(entries: Vec<BindGroupLayoutEntry>) -> BindGroupLayout { BindGroupLayout { _entries: entries } }
     /// 条目夹具（死句柄：consume 不读句柄；drop 早退不触 with_gl）。
     fn be(binding: u32, dynamic: bool) -> BoundEntry {
-        BoundEntry { binding, domain: BindDomain::Uniform, handle: DirectHandle { kind: DirectKind::Buffer, handle: None, generation: 1 }, offset: 0, size: None, dynamic }
+        BoundEntry { binding, domain: BindDomain::Uniform, handle: DirectHandle::placeholder(DirectKind::Buffer, 1), offset: 0, size: None, dynamic }
     }
 
     /// alloc：分域紧凑编号、键=打包(set,binding)、未占槽为 None。

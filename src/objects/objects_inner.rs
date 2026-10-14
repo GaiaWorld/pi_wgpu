@@ -14,7 +14,8 @@ use pi_hash::XHashMap;
 use pi_glow::HasContext;
 
 use crate::context_inner::{generation_now, with_gl};
-use crate::objects::{DirectHandle, DirectKind, GlHandle, HandleCache, Reusable, ReuseKey};
+use crate::objects::{DirectHandle, DirectHandleState, DirectKind, GlHandle, HandleCache, Reusable, ReuseKey};
+use pi_share::Share;
 use crate::state::StateMirror;
 use crate::state_inner::note_removed;
 
@@ -142,9 +143,21 @@ pub(crate) fn release_reuse_impl(item: &Reusable) {
 // 1. 先置 None（防重入：Drop 与手动 mark_dead 竞到一起只删一次）。
 // 2. 即调该资源域 glDelete*（1:1 资源无延迟队列、无等待 GC）。
 // 3. 登记死名刷失（引用名集=state 芯驻留）；此后句柄为死态，消费方对死代号的使用=其自身断言拦截。
-pub(crate) fn mark_dead_impl(h: &mut DirectHandle) {
-    let Some(name) = h.handle.take() else { return };
-    let kind = h.kind;
+pub(crate) fn mark_dead_impl(h: &DirectHandle) {
+    if let Some(name) = h.inner.handle.replace(None) {
+        delete_direct(h.inner.kind, name);
+    }
+}
+
+// 末引用析构入口（Drop for DirectHandleState）：与显式 mark_dead 同语义（先置 None 防重入，再删+登记）。
+pub(crate) fn drop_impl(s: &mut DirectHandleState) {
+    if let Some(name) = s.handle.replace(None) {
+        delete_direct(s.kind, name);
+    }
+}
+
+/// 直建资源物理删除 + 死名登记（mark_dead 与末引用析构共用）。
+fn delete_direct(kind: DirectKind, name: GlHandle) {
     with_gl(|gl| {
         let nn = nz_name(name.0, "direct");
         unsafe {
@@ -176,7 +189,7 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
 }
 
 /// 直建一对一资源（entry 创建链 B11 消费）：glGen*/glCreate* 得活态名，代号=当前附着快照。
-/// 域删除在 Drop 自动发生（合同=死亡即删）；跨线程搬运前提见 context 壳 attach 条款。
+/// 域删除在末引用 Drop 自动发生（共享计数；合同=死亡即删）；跨线程搬运前提见 context 壳 attach 条款。
 pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
     let name = with_gl(|gl| -> u32 {
         unsafe {
@@ -187,5 +200,5 @@ pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
             }
         }
     });
-    DirectHandle { kind, handle: Some(GlHandle(name)), generation: generation_now() }
+    DirectHandle { inner: Share::new(DirectHandleState { kind, handle: Cell::new(Some(GlHandle(name))), generation: generation_now() }) }
 }

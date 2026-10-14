@@ -30,7 +30,7 @@ const UPLOAD_TEX_UNIT: u32 = crate::state::BIND_SLOTS as u32;
 // 3. 目标缓冲绑 GL_COPY_WRITE_BUFFER 后调子数据写入——即时生效，无排队、无提交点。
 // 4. 数据写入不是状态：不碰状态镜像（无需 flush）。
 pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u8]) {
-    let Some(name) = b._h.handle else {
+    let Some(name) = b._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
     };
@@ -62,7 +62,7 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
 // 3. 锁附着，上传专用单元绑 GL_TEXTURE_2D 后写到 dst 指定 mip 层与起点。
 // 4. 目标带 mip 链且为全量上传 → 触发整链重生成（formats::mip_convert 的成本合同）。
 pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], l: &ImageDataLayout, e: Extent3d) {
-    let Some(name) = t.texture._h.handle else {
+    let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
     };
@@ -126,7 +126,7 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn write_js_impl(_q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bindgen::JsValue) {
     use wasm_bindgen::JsCast;
-    let Some(name) = t.texture._h.handle else {
+    let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
     };
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn write_buffer_dead_handle_no_panic_test() {
         let q = Queue { _dev: None };
-        let b = Buffer { _h: DirectHandle { kind: DirectKind::Buffer, handle: None, generation: 1 }, size: 16 };
+        let b = Buffer { _h: DirectHandle::placeholder(DirectKind::Buffer, 1), size: 16 };
         write_buffer_impl(&q, &b, 0, &[0u8; 4]);
     }
 }

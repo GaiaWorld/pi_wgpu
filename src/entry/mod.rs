@@ -44,7 +44,7 @@ pub(crate) struct DeviceInner {
 /// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
 #[derive(Debug)] pub struct CommandBuffer;
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
-/// Drop 即调驱动删除，并通知镜像刷失相关字段。 @public
+/// 末引用 Drop 才调驱动删除（共享计数：绑定组与用户双持时互不删）；死句柄使用=错误码。 @public
 #[derive(Debug)]
 pub struct Buffer {
     /// 直建句柄（活态判定 + 驱动名）。
@@ -52,7 +52,7 @@ pub struct Buffer {
     /// 缓冲字节长度（创建期定格、4 字节倍数）；upload 范围校验消费。
     pub(crate) size: crate::types::BufferAddress,
 }
-/// 一对一直建的 GL 纹理。句柄契约同 Buffer：Drop 即删驱动资源、死句柄使用=错误码。 @public
+/// 一对一直建的 GL 纹理。句柄契约同 Buffer：末引用 Drop 才删驱动资源、死句柄使用=错误码。 @public
 #[derive(Debug)]
 pub struct Texture {
     /// 直建句柄（活态判定 + 驱动名）。

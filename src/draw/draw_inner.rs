@@ -137,7 +137,7 @@ pub(crate) fn set_bind_group_impl(p: &mut RenderPass<'_>, s: u32, g: &BindGroup,
 
 // 设计预期：句柄活态+范围校验；槽 i 记录缓冲/偏移/步长 → 属性批配属性。
 pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64, s: u64) {
-    let name = b._h.handle.expect("draw str-assert: 死顶点缓冲句柄");
+    let name = b._h.name().expect("draw str-assert: 死顶点缓冲句柄");
     let layout: VertexLayout = p._vertex.get(i as usize).expect("draw str-assert: 顶点槽越界").clone();
     assert!(s == layout.array_stride, "draw str-assert: 顶点步长与布局不符");
     // VAO 经 objects 复用通道（复用键=整管线布局哈希；通道内持有、end 释放）。
@@ -170,7 +170,7 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
 
 // 设计预期：句柄活态+偏移范围；镜像记索引绑定（格式仅记录）。
 pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: IndexFormat, c: u64) {
-    let name = b._h.handle.expect("draw str-assert: 死索引缓冲句柄");
+    let name = b._h.name().expect("draw str-assert: 死索引缓冲句柄");
     assert!(o + c * index_width(f) <= b.size || c == 0, "draw str-assert: 索引范围越界");
     with_gl(|gl| unsafe {
         gl.bind_buffer(GL_ELEMENT_ARRAY_BUFFER, Some(pi_glow::NativeBuffer(nz(name.0))));

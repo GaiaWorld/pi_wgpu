@@ -15,6 +15,7 @@
 | ⑩ | feature 开关保留 gl/single_thread/geterror/webgl/webgl_context、**删除 webgpu**；零 src 内当前 cfg 消费者=属相-2 实现批的内部 cfg（geterror 探针=upload wasm 路径、single_thread=context 退化、webgl*=驱动形态分支），非公开 API 扩展点 | R13 复判：开关=构造面声明（实现批即消费者），留痕本行；**webgpu 与 problem OUT「非 GL 系后端」相抵=删** | 全留（被否：webgpu 违判据 6+OUT 冲突） |
 | ⑨ | 复用类句柄的删除=全部持有者释放后（引用规则细节 L7 定） | 键复用对象的固有约束；即删语义对 1:1 类不变 | 复用对象也即删（其余持有者悬空） |
 | ⑪ | 错误处理：优先上递错误码（`Result<_, ErrCode>`），避免原地 panic 使运行崩溃；不便上递处 `log::error!` 记码后降级/继续；错误信息=短错误码（枚举），禁长文本；断言仅留「绝不该发生」的编程合同违反且用短码 | 运行时稳健性优先（原地 panic=整体崩溃，用户判不可接受）；错误码便于程序化处理与低噪日志 | 全断言（现状，崩溃面大）；anyhow/String 长文本（噪音大、不可程序化） |
+| ⑫ | 1:1 资源句柄 DirectHandle 改**共享计数**（Share<T>：Clone 共享同一驱动名，末引用 Drop 才删）；绑定组条目持 clone，用户与绑定组双持互不删（对齐 pi_render `Share<wgpu::BindGroup>` / `Arc<RWBufferRange>` 强引用） | B11 整合暴露：create_bind_group 只拿 &Buffer，持有型句柄无法既入组又不双重删除；共享计数=wgpu/pi_render 既有范式 | 非持有快照 HandleRef{name,generation}（无法实现「资源先于组销毁=断言」，探不到用户释放）；并列反转本册数据册早前「被否 Arc+refcount」条目 |
 
 ## 可行性验证（高风险假设）
 

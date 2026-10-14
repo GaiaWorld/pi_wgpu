@@ -58,3 +58,4 @@
 | 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
 | 2026-10-14 | L7 | 返工（B10 表示层同步）：data 更新 Instance/Adapter/Device/Queue/CommandEncoder 行（Device=Share<DeviceInner{三字段 ShareMutex}>）+ 新增 DeviceInner 行 + PassCtx→RenderPass（通道态字段）；units PassRecorder 补属性/离屏差异；call-chain 绑定应用行标 apply_layout 无 pipe。设备接线=路线 A（据 pi_render/wgpu: 编码器持共享设备柄）。 | 设计表示层与 B10 壳芯一致；B11 entry 编排可开工。 |
 | 2026-10-14 | L9 | B10 返工轮 L9 复审（子代理）：有条件放行→9 ❌ 同场收口——索引格式/偏移载体、begin/end 契约收窄、芯册号自含、恒真断言删、哑消费修、VAO 走复用+镜像、视口双口径统一、deps 补 3 边、glossary SurfaceErr 死变体清；附注 errors 链号+描述符断言口径。09-review.md=放行；20 测试绿。 | B10 表示层与壳芯一致 |
+| 2026-10-14 | L7 | 决策⑫：DirectHandle 改共享计数（Share）；B11 整合暴露持有型句柄与 create_bind_group(&Buffer) 冲突。据 pi_render 强引用线索（Share<wgpu::BindGroup>/Arc<RWBufferRange>）落共享化；改 objects 壳+芯、draw/binds/upload 取用点、测试占位构造 placeholder；data 册 4 行同步（资源句柄/复用对象/对象句柄层/BoundEntry）。 | 对象句柄层所有权语义 + 绑定组资源存续 |
