@@ -24,8 +24,8 @@ pub struct RenderPass<'pass> {
     pub(crate) _index_format: Option<crate::types::IndexFormat>,
     /// 索引缓冲字节偏移（draw_indexed 计算起始偏移用）。
     pub(crate) _index_offset: u64,
-    /// 通道内顶点布局 VAO 持有（Drop=end 时释放；复用键=布局哈希）。
-    pub(crate) _vao: Option<crate::objects::Reusable>,
+    /// 当前管线 VAO 名（管线级复用对象；由 set_pipeline 提供，通道不持有其生命周期）。
+    pub(crate) _vao: Option<crate::objects::GlHandle>,
 }
 /// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
 #[derive(Debug, Clone)]
@@ -63,5 +63,5 @@ impl<'pass> RenderPass<'pass> {
   pub fn draw_indexed(&mut self, start: u32, count: u32, base: i32) { crate::draw_inner::draw_idx_impl(self, start, count, base) }
 }
 /// Drop=通道结束：释放编码器单通道守卫、存储动作按描述符落定；
-/// 自此起本通道绑定的资源方可合法销毁（引用合同：通道存续期间绑定受强引用保护）。 @public
+/// 自此起本通道绑定的资源方可合法销毁（引用合同：经绑定组持有的资源受强引用保护；program/VAO 由管线存活期覆盖——管线须存活至通道结束）。 @public
 impl Drop for RenderPass<'_> { fn drop(&mut self) { crate::draw_inner::end_impl(self) } }

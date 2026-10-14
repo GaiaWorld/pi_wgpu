@@ -8,8 +8,8 @@
 | 设备共享内芯 DeviceInner | src/entry/mod.rs | 三字段 state/cache/slots 各 ShareMutex；锁序=state 先、with_gl 后（与 set_*/flush 同序） |
 | 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | DirectHandle=共享计数（Share<DirectHandleState>，Clone 共享驱动名、末引用 Drop 才删，决定⑫）；name()→Option<GlHandle>（死用=binds 断言 / upload 错误码）；活态 ⟺ 上下文代号=当前；Buffer 另持 size、Texture 另持 GlParams + 目标/维度/层数（_target/_dim/_layers，创建期定格；upload 与视图相容性消费） |
 | 上传错误码 UploadErr | src/upload/mod.rs | DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） |
-| 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | 表示行合入本册「对象句柄层」行（计数真相=芯全局驻留表、行=物理名模板）；1:1 句柄已改共享计数（决定⑫），本类复用对象仍走芯全局计数表（非 Share） |
-| BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同）；ShaderModule 另持转译产物 _compiled |
+| 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | 表示行合入本册「对象句柄层」行（计数真相=芯全局驻留表、行=物理名模板）；1:1 句柄已改共享计数（决定⑫），本类复用对象仍走芯全局计数表（非 Share）；VAO 生命周期=**管线级**（随 RenderPipeline 建/删，每 pass 不再建删）；通道 `RenderPass._vao` 只记名不持有 |
+| BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同）；ShaderModule 另持转译产物 _compiled；RenderPipeline 另持 _vao:Reusable（管线级复用对象），Drop 释放 _program/_vao |
 | 着色器产物 CompiledEs300/ShaderIr | src/shader/mod.rs | CompiledEs300{hash, modules:Vec<ShaderIr{module,info}>}；hash=源文本哈希（复用键）；GLSL 出码延到管线创建 |
 | 纹理视图 TextureView | src/entry/mod.rs | {_tex:Option<Texture>, _target:u32, _dim:TextureViewDimension}；视图目标按维度覆盖；帧视图=无宿主且目标 0；经 Texture::create_view 构造（纹理切片） |
 | 反射登记表 ReflectionTable | src/shader/mod.rs | entries:Vec<RefEntry{group,binding,kind:BindingKind{UniformBuffer,Texture,Sampler},name}>；与程序转译哈希同生命周期 |

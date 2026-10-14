@@ -85,9 +85,20 @@ impl Texture {
 #[derive(Debug)] pub struct BindGroup { pub(crate) _bound: Vec<crate::binds::BoundEntry> }
 /// 管线布局：持成员绑定组布局强链。set 归属域 0-3 且成员不重复，创建时校验。 @public
 #[derive(Debug)] pub struct PipelineLayout { pub(crate) _bgls: Vec<BindGroupLayout> }
-/// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）与顶点属性布局（复用键=布局哈希）。
-/// 复用对象引用归零时物理删除并刷失镜像，由对象层保证。 @public
-#[derive(Debug)] pub struct RenderPipeline { pub(crate) _program: crate::objects::Reusable, pub(crate) _vertex: Vec<crate::draw::VertexLayout>, pub(crate) _topology: crate::types::PrimitiveTopology }
+/// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）、管线级 VAO（复用键=布局哈希）与顶点属性布局。
+/// 复用对象引用归零时物理删除并刷失镜像，由对象层保证。
+/// 生命周期合同：管线须存活至引用它的 RenderPass 结束（通道只记名、不持复用对象强引用；管线 Drop 释放 _program/_vao）。 @public
+#[derive(Debug)]
+pub struct RenderPipeline {
+    /// 转译哈希键复用的程序对象（管线级）。
+    pub(crate) _program: crate::objects::Reusable,
+    /// 布局哈希键复用的 VAO（管线级；随管线建/删）。
+    pub(crate) _vao: crate::objects::Reusable,
+    /// 顶点属性布局（拥有版；供通道配属性）。
+    pub(crate) _vertex: Vec<crate::draw::VertexLayout>,
+    /// 图元拓扑（供 draw 选 GL 图元）。
+    pub(crate) _topology: crate::types::PrimitiveTopology,
+}
 /// 着色器模块：持反射登记表（(set,binding)↔类别/名映射）与转译产物（IR，供管线创建按入口出码）。 @public
 #[derive(Debug)] pub struct ShaderModule { pub(crate) _refl: crate::shader::ReflectionTable, pub(crate) _compiled: crate::shader::CompiledEs300 }
 
@@ -127,6 +138,15 @@ impl Adapter {
 
 /// Device 的资源创建面与查询面。创建族共同合同：即时创建、描述符在边界一次全量校验，
 /// 违约=断言（报 desc.label 与违约字段）且断言前不发任何驱动调用、无半建对象。 @public
+impl Drop for RenderPipeline {
+    /// 管线销毁=释放其持有的程序与管线级 VAO（引用归零即物理删）。
+    /// 限界：invalidate_generations 清计数后仍存活时，此释放命中零计数=断言（当前仅测试面调用/未接线 Lost 路径）。 @internal
+    fn drop(&mut self) {
+        crate::objects::release_reuse(&self._program);
+        crate::objects::release_reuse(&self._vao);
+    }
+}
+
 impl Device {
     /// 建缓冲。检查项：usage 非空且在支持位内；size>0 且为 4 字节倍数。一对一创建，无对象级复用。 @public
     pub fn create_buffer(&self, desc: &BufferDescriptor<'_>) -> Buffer { crate::entry_inner::create_buffer_impl(self, desc) }

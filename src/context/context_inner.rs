@@ -412,7 +412,7 @@ mod tests {
         table.ubo[0] = Some((0u32 << 16) | 0);
         table.sampler[0] = Some((0u32 << 16) | 1);
         table.sampler[1] = Some((0u32 << 16) | 2);
-        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache), _vertex: Vec::new(), _topology: crate::types::PrimitiveTopology::TriangleList };
+        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache), _vao: crate::objects::ensure_reuse(crate::objects::ReuseKey::Vao(0xB6_0000_02), &mut cache), _vertex: Vec::new(), _topology: crate::types::PrimitiveTopology::TriangleList };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
         let smph = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);

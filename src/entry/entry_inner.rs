@@ -306,12 +306,16 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         }
         prog
     };
-    let vertex = p.vertex.layouts.iter().map(|vb| crate::draw::VertexLayout {
+    let vertex: Vec<crate::draw::VertexLayout> = p.vertex.layouts.iter().map(|vb| crate::draw::VertexLayout {
         array_stride: vb.array_stride,
         step_mode: vb.step_mode,
         attributes: vb.attributes.to_vec(),
     }).collect();
-    RenderPipeline { _program: prog, _vertex: vertex, _topology: p.primitive.topology }
+    let vao = {
+        let mut cache = d._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
+        objects::ensure_reuse(ReuseKey::Vao(crate::draw_inner::layout_hash(&vertex)), &mut cache)
+    };
+    RenderPipeline { _program: prog, _vao: vao, _vertex: vertex, _topology: p.primitive.topology }
 }
 
 /// 把 GLSL ES 3.0 源编译+链接进给定程序对象（仅新程序路径；复用命中不重链）。

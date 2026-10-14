@@ -65,7 +65,7 @@ fn fmt_code(f: crate::types::VertexFormat) -> u8 {
 /// 索引宽（字节）。
 fn index_width(f: IndexFormat) -> u64 { match f { IndexFormat::Uint16 => 2, IndexFormat::Uint32 => 4 } }
 /// 布局哈希（VAO 复用键）。
-fn layout_hash(v: &[VertexLayout]) -> u64 {
+pub(crate) fn layout_hash(v: &[VertexLayout]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for l in v {
@@ -122,6 +122,7 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
     }
     p._vertex = x._vertex.clone();
     p._topology = x._topology;
+    p._vao = Some(x._vao.handle.expect("draw str-assert: 死 VAO 句柄"));
     p._pipe_set = true;
 }
 
@@ -140,13 +141,8 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
     let name = b._h.name().expect("draw str-assert: 死顶点缓冲句柄");
     let layout: VertexLayout = p._vertex.get(i as usize).expect("draw str-assert: 顶点槽越界").clone();
     assert!(s == layout.array_stride, "draw str-assert: 顶点步长与布局不符");
-    // VAO 经 objects 复用通道（复用键=整管线布局哈希；通道内持有、end 释放）。
-    let key = crate::objects::ReuseKey::Vao(layout_hash(&p._vertex));
-    let va = {
-        let mut cache = p._enc._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
-        crate::objects::ensure_reuse(key, &mut cache)
-    };
-    let vao_name = va.handle.expect("draw str-assert: VAO 无句柄");
+    // VAO=管线级复用对象（由 set_pipeline 提供；本处只绑 + 重设属性，不建删）。
+    let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
     let mut m = lock_state(p);
     with_gl(|gl| unsafe {
         gl.bind_vertex_array(Some(pi_glow::NativeVertexArray(nz(vao_name.0))));
@@ -164,7 +160,6 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
     });
     state_inner::set_vao(&mut m, Some(vao_name));
     drop(m);
-    p._vao = Some(va);
     p._vertex_ready = true;
 }
 
@@ -236,8 +231,5 @@ pub(crate) fn draw_idx_impl(p: &mut RenderPass<'_>, s: u32, c: u32, b: i32) {
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
     with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
-    if let Some(va) = p._vao.take() {
-        crate::objects::release_reuse(&va);
-    }
     p._enc._opened_pass = false;
 }
