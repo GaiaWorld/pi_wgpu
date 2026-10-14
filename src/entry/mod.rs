@@ -52,16 +52,29 @@ pub struct Buffer {
     /// 缓冲字节长度（创建期定格、4 字节倍数）；upload 范围校验消费。
     pub(crate) size: crate::types::BufferAddress,
 }
-/// 一对一直建的 GL 纹理。句柄契约同 Buffer：末引用 Drop 才删驱动资源、死句柄使用=错误码。 @public
-#[derive(Debug)]
+/// 一对一直建的 GL 纹理。句柄契约同 Buffer：末引用 Drop 才删驱动资源、死句柄使用=错误码。
+/// 目标/维度/层数创建期定格（决定 upload 写路径与视图相容性）。 @public
+#[derive(Debug, Clone)]
 pub struct Texture {
-    /// 直建句柄（活态判定 + 驱动名）。
+    /// 直建句柄（活态判定 + 驱动名；Clone=共享计数）。
     pub(crate) _h: crate::objects::DirectHandle,
     /// 驱动参数组（创建期由 formats::to_gl_params 定格）；upload 写路径消费 format/pixel_type/bpp。
     pub(crate) params: crate::formats::GlParams,
+    /// GL 目标（创建期由 formats::target_of 定格：2D/3D/2D_ARRAY/CUBE_MAP/CUBE_MAP_ARRAY）。
+    pub(crate) _target: u32,
+    /// 纹理维度（视图相容性判定用）。
+    pub(crate) _dim: crate::types::TextureDimension,
+    /// 数组层/深度（cube 面数=6）。
+    pub(crate) _layers: u32,
 }
-/// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。 @public
-#[derive(Debug)] pub struct TextureView { pub(crate) _tex: Option<Texture> }
+impl Texture {
+    /// 建纹理视图（唯一 @public 视图入口）：维度须与纹理相容（Cube/CubeArray 需层数%6==0）；
+    /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。 @public
+    pub fn create_view(&self, desc: &TextureViewDescriptor<'_>) -> TextureView { crate::entry_inner::create_view_impl(self, desc) }
+}
+/// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。
+/// 目标/维度由视图维度定格（cube/cube-array 覆盖纹理目标；帧视图=无宿主且目标 0）。 @public
+#[derive(Debug, Clone)] pub struct TextureView { pub(crate) _tex: Option<Texture>, pub(crate) _target: u32, pub(crate) _dim: crate::types::TextureViewDimension }
 /// 一对一直建的 GL 采样器。句柄契约同 Buffer。 @public
 #[derive(Debug)] pub struct Sampler { pub(crate) _h: crate::objects::DirectHandle }
 /// 绑定组布局：持有解析后的条目强链（合法性已在创建边界全部检查，此后不再复查）。

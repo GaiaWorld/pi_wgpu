@@ -40,7 +40,7 @@ pub(crate) fn get_current_impl(s: &Surface<'_>) -> std::result::Result<SurfaceTe
         log::error!("surface {:?}", SurfaceErr::NotConfigured);
         return Err(SurfaceError::Outdated);
     }
-    Ok(SurfaceTexture { _view: crate::entry::TextureView { _tex: None }, _suboptimal: true })
+        Ok(SurfaceTexture { _view: crate::entry::TextureView { _tex: None, _target: 0, _dim: crate::types::TextureViewDimension::D2 }, _suboptimal: true })
 }
 
 // 设计预期（伪码·示意·非唯一实现）：

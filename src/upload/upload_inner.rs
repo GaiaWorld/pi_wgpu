@@ -61,6 +61,13 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
 // 2. 目标矩形/偏移校验，两档处理同 write_buffer（错误码 log，不谎报）。
 // 3. 锁附着，上传专用单元绑 GL_TEXTURE_2D 后写到 dst 指定 mip 层与起点。
 // 4. 目标带 mip 链且为全量上传 → 触发整链重生成（formats::mip_convert 的成本合同）。
+/// GL 纹理目标常量（与 formats/entry 同源规范值）。
+const GL_TEXTURE_3D: u32 = 0x806F;
+const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
+const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
+const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
+const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
+
 pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], l: &ImageDataLayout, e: Extent3d) {
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
@@ -93,9 +100,10 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
     };
     let lay = convert_impl(l, &e);
     let bpp = p.block_bytes.max(1) as u64;
+    let target = t.texture._target;
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
-        gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nn)));
+        gl.bind_texture(target, Some(pi_glow::NativeTexture(nn)));
         match lay.bytes_per_row {
             Some(bpr) => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, (bpr.get() as u64 / bpp) as i32),
             None => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0),
@@ -104,17 +112,18 @@ pub(crate) fn write_texture_impl(_q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8],
             Some(rpi) => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, rpi.get() as i32),
             None => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, 0),
         }
-        gl.tex_sub_image_2d(
-            GL_TEXTURE_2D,
-            t.mip_level as i32,
-            t.origin.x as i32,
-            t.origin.y as i32,
-            e.width as i32,
-            e.height as i32,
-            p.format,
-            p.pixel_type,
-            pi_glow::PixelUnpackData::Slice(src),
-        );
+        match target {
+            GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {
+                gl.tex_sub_image_3d(target, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, t.origin.z as i32, e.width as i32, e.height as i32, e.depth_or_array_layers as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+            }
+            GL_TEXTURE_CUBE_MAP => {
+                let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z;
+                gl.tex_sub_image_2d(face, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, e.width as i32, e.height as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+            }
+            _ => {
+                gl.tex_sub_image_2d(target, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, e.width as i32, e.height as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+            }
+        }
         gl.active_texture(GL_TEXTURE0);
     });
 }

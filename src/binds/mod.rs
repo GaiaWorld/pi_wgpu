@@ -31,6 +31,8 @@ pub(crate) struct BoundEntry {
     pub(crate) size: Option<u32>,
     /// 是否动态偏移条目（consume 计数来源；应用期按声明序消耗偏移值）。
     pub(crate) dynamic: bool,
+    /// 纹理条目的 GL 绑定目标（自 TextureView；非纹理=0）。
+    pub(crate) target: u32,
 }
 
 /// 槽表：UBO 与纹理单元各 16 个定长槽；值=占槽条目的 (set,binding) 打包键（set<<16|binding），索引即 GL 绑定点号/单元号。

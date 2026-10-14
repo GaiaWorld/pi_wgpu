@@ -420,20 +420,20 @@ mod tests {
         let tex_name = texh.name().expect("Texture 名").0;
         let smp_name = smph.name().expect("Sampler 名").0;
         let group = crate::entry::BindGroup { _bound: vec![
-            crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: buf, offset: 0, size: None, dynamic: false },
-            crate::binds::BoundEntry { binding: 1, domain: crate::binds::BindDomain::Texture, handle: texh, offset: 0, size: None, dynamic: false },
-            crate::binds::BoundEntry { binding: 2, domain: crate::binds::BindDomain::Sampler, handle: smph, offset: 0, size: None, dynamic: false },
+            crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: buf, offset: 0, size: None, dynamic: false, target: 0 },
+            crate::binds::BoundEntry { binding: 1, domain: crate::binds::BindDomain::Texture, handle: texh, offset: 0, size: None, dynamic: false, target: 0x0DE1 },
+            crate::binds::BoundEntry { binding: 2, domain: crate::binds::BindDomain::Sampler, handle: smph, offset: 0, size: None, dynamic: false, target: 0 },
         ] };
         let mut m2 = crate::state::StateMirror::default();
         let _ = &rp;
         crate::binds::apply_layout(0, &group, &[], &table, &mut m2);
         assert_eq!(m2.ubo_bindings[0], Some((crate::objects::GlHandle(buf_name), 0, 0)), "UBO 槽落镜像=名");
-        assert_eq!(m2.texture_bindings[0], Some(crate::objects::GlHandle(tex_name)), "纹理落单元 0（槽表定位）");
+        assert_eq!(m2.texture_bindings[0], Some((crate::objects::GlHandle(tex_name), 0x0DE1)), "纹理落单元 0（槽表定位，目标=GL_TEXTURE_2D）");
         assert_eq!(m2.sampler_bindings[1], Some(crate::objects::GlHandle(smp_name)), "采样器落单元 1（槽表定位）");
         m2.flush_if_changed();
         let dead_h = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         dead_h.mark_dead();
-        let gbad = crate::entry::BindGroup { _bound: vec![crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: dead_h, offset: 0, size: None, dynamic: false }] };
+        let gbad = crate::entry::BindGroup { _bound: vec![crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: dead_h, offset: 0, size: None, dynamic: false, target: 0 }] };
         let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::binds::apply_layout(0, &gbad, &[], &table, &mut m2)));
         assert!(rbad.is_err(), "死句柄=断言（动作前）");
         drop(gbad);
@@ -450,7 +450,7 @@ mod tests {
         };
         let dev = crate::entry::Device { _inner: pi_share::Share::new(di) };
         let mut enc = crate::entry::CommandEncoder { _opened_pass: false, _inner: dev._inner.clone() };
-        let view = crate::entry::TextureView { _tex: None };
+        let view = crate::entry::TextureView { _tex: None, _target: 0, _dim: crate::types::TextureViewDimension::D2 };
         let ca = crate::types::RenderPassColorAttachment {
             view: &view,
             resolve_target: None,

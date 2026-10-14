@@ -15,8 +15,12 @@ use pi_share::{Share, ShareMutex};
 use std::num::NonZeroU32;
 use std::path::Path;
 
-/// GL_TEXTURE_2D（纹理创建分配目标；GL_* 名面未导出故内联规范值）。
+/// GL 纹理目标常量（GL_* 名面未导出故内联规范值）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
+const GL_TEXTURE_3D: u32 = 0x806F;
+const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
+const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
+const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
 /// get_parameter_string 名：供应商/渲染器/版本。
 const GL_VENDOR: u32 = 0x1F00;
 const GL_RENDERER: u32 = 0x1F01;
@@ -127,8 +131,8 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
 }
 
 pub(crate) fn create_texture_impl(_d: &Device, t: &TextureDescriptor<'_>) -> Texture {
-    assert!(matches!(t.dim, TextureDimension::D2), "entry 断言: 纹理维度仅 D2（field=dim, label={:?}）", t.label);
     assert!(t.size.width >= 1 && t.size.height >= 1, "entry 断言: 纹理宽高须≥1（field=size, label={:?}）", t.label);
+    assert!(t.size.depth_or_array_layers >= 1, "entry 断言: depth_or_array_layers 须≥1（field=size, label={:?}）", t.label);
     assert!(t.mip_level_count >= 1, "entry 断言: mip_level_count 须≥1（field=mip_level_count={}, label={:?}）", t.mip_level_count, t.label);
     assert!(t.sample_count == 1 || t.sample_count == 4, "entry 断言: sample_count 仅 1/4（field=sample_count={}, label={:?}）", t.sample_count, t.label);
     assert_eq!(t.usage.0 & !TEXTURE_USAGE_MASK, 0, "entry 断言: 纹理 usage 含非支持位（field=usage={:#x}, label={:?}）", t.usage.0, t.label);
@@ -136,13 +140,41 @@ pub(crate) fn create_texture_impl(_d: &Device, t: &TextureDescriptor<'_>) -> Tex
         assert!(same_family(*vf, t.format), "entry 断言: view_format 与主格式非同族（field=view_formats, label={:?}）", t.label);
     }
     let params = formats::to_gl_params(t, t.format);
+    let target = formats::target_of(t);
+    let layers = t.size.depth_or_array_layers;
     let h = crate::objects_inner::create_direct(DirectKind::Texture);
     let name = h.name().expect("entry 断言: 新纹理无名");
     crate::context_inner::with_gl(|gl| unsafe {
-        gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nz(name))));
-        gl.tex_storage_2d(GL_TEXTURE_2D, t.mip_level_count as i32, params.internal_format, t.size.width as i32, t.size.height as i32);
+        gl.bind_texture(target, Some(pi_glow::NativeTexture(nz(name))));
+        match target {
+            GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {
+                gl.tex_storage_3d(target, t.mip_level_count as i32, params.internal_format, t.size.width as i32, t.size.height as i32, layers as i32);
+            }
+            _ => {
+                gl.tex_storage_2d(target, t.mip_level_count as i32, params.internal_format, t.size.width as i32, t.size.height as i32);
+            }
+        }
     });
-    Texture { _h: h, params }
+    Texture { _h: h, params, _target: target, _dim: t.dim, _layers: layers }
+}
+
+/// 建纹理视图（唯一 @public 视图入口）：维度相容校验 + 视图目标覆盖（Cube/CubeArray）。
+pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> TextureView {
+    use crate::types::TextureViewDimension as VD;
+    let ok = match (tex._dim, d.dimension) {
+        (TextureDimension::D1, VD::D1) => true,
+        (TextureDimension::D2, VD::D2 | VD::D2Array) => true,
+        (TextureDimension::D2, VD::Cube | VD::CubeArray) => tex._layers % 6 == 0,
+        (TextureDimension::D3, VD::D3) => true,
+        _ => false,
+    };
+    assert!(ok, "entry 断言: 视图维度与纹理维度不相容（field=dimension, label={:?}）", d.label);
+    let target = match d.dimension {
+        VD::Cube => GL_TEXTURE_CUBE_MAP,
+        VD::CubeArray => GL_TEXTURE_CUBE_MAP_ARRAY,
+        _ => tex._target,
+    };
+    TextureView { _tex: Some(tex.clone()), _target: target, _dim: d.dimension }
 }
 
 /// 主格式族：含/不含 sRGB 视为同族（兼容子集；深度同值）。
@@ -203,6 +235,10 @@ pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGr
     for e in b.entries {
         let le = b.layout._entries.iter().find(|l| l.binding == e.binding)
             .unwrap_or_else(|| panic!("entry 断言: 绑定组条目不在布局中（field=binding={}, label={:?}）", e.binding, b.label));
+        let target = match e.resource {
+            BindingResource::TextureView(tv) => tv._target,
+            _ => 0,
+        };
         match (&le.ty, &e.resource) {
             (BindingType::Buffer { .. }, BindingResource::Buffer(_)) => {}
             (BindingType::Sampler(_), BindingResource::Sampler(_)) => {}
@@ -226,7 +262,7 @@ pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGr
             BindingResource::Sampler(sm) => (crate::binds::BindDomain::Sampler, sm._h.clone(), 0, None, false),
         };
         assert!(handle.name().is_some(), "entry 断言: 绑定资源句柄已死（field=resource, binding={}, label={:?}）", e.binding, b.label);
-        bound.push(crate::binds::BoundEntry { binding: e.binding, domain, handle, offset, size, dynamic });
+        bound.push(crate::binds::BoundEntry { binding: e.binding, domain, handle, offset, size, dynamic, target });
     }
     BindGroup { _bound: bound }
 }

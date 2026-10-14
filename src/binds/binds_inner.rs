@@ -92,7 +92,7 @@ pub(crate) fn apply_impl(set: u32, group: &BindGroup, offsets: &[DynamicOffset],
                 let size = e.size.unwrap_or(0);
                 bind_ubo(state, slot, Some(name), e.offset + dyn_off, size);
             }
-            BindDomain::Texture => bind_texture(state, slot, Some(name)),
+            BindDomain::Texture => bind_texture(state, slot, e.target, Some(name)),
             BindDomain::Sampler => bind_sampler(state, slot, Some(name)),
         }
     }
@@ -134,7 +134,7 @@ mod tests {
     fn bgl(entries: Vec<BindGroupLayoutEntry>) -> BindGroupLayout { BindGroupLayout { _entries: entries } }
     /// 条目夹具（死句柄：consume 不读句柄；drop 早退不触 with_gl）。
     fn be(binding: u32, dynamic: bool) -> BoundEntry {
-        BoundEntry { binding, domain: BindDomain::Uniform, handle: DirectHandle::placeholder(DirectKind::Buffer, 1), offset: 0, size: None, dynamic }
+        BoundEntry { binding, domain: BindDomain::Uniform, handle: DirectHandle::placeholder(DirectKind::Buffer, 1), offset: 0, size: None, dynamic, target: 0 }
     }
 
     /// alloc：分域紧凑编号、键=打包(set,binding)、未占槽为 None。

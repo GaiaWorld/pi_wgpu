@@ -93,6 +93,37 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
 // 1. 上传完备后整链一次生成：在当前附着+已绑定目标纹理上执行 generate（调用方=upload 写路径在整链上传完成后接线）。
 // 2. 成本合同：内容再更新=整链重生成——levels<=1 无链=空操作；无局部刷一级分支。
 // 3. 目标按层数选（单层 2D/多层 2D Array）；宽或高 0=越界断言（创建期保证本不该到）。
+/// GL 纹理目标常量（GL_* 名面未导出故内联规范值；2D/2D_ARRAY 已在上方定义）。
+const GL_TEXTURE_3D: u32 = 0x806F;
+const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
+const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
+
+/// cube 兼容判定（镜像 wgpu is_cube_compatible）。
+pub(crate) fn cube_compat_impl(desc: &TextureDescriptor<'_>) -> bool {
+    matches!(desc.dim, crate::types::TextureDimension::D2)
+        && desc.size.depth_or_array_layers % 6 == 0
+        && desc.sample_count == 1
+        && desc.size.width == desc.size.height
+}
+
+/// 纹理 GL 目标选择（镜像 wgpu get_info_from_desc）。
+pub(crate) fn target_impl(desc: &TextureDescriptor<'_>) -> u32 {
+    use crate::types::TextureDimension;
+    match desc.dim {
+        TextureDimension::D1 => GL_TEXTURE_2D,
+        TextureDimension::D3 => GL_TEXTURE_3D,
+        TextureDimension::D2 => {
+            let layers = desc.size.depth_or_array_layers;
+            match (cube_compat_impl(desc), layers) {
+                (false, 1) => GL_TEXTURE_2D,
+                (false, _) => GL_TEXTURE_2D_ARRAY,
+                (true, 6) => GL_TEXTURE_CUBE_MAP,
+                (true, _) => GL_TEXTURE_CUBE_MAP_ARRAY,
+            }
+        }
+    }
+}
+
 pub(crate) fn mip_impl(extent: Extent3d, levels: u32) {
     if levels <= 1 {
         return;

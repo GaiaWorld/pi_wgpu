@@ -374,23 +374,24 @@ pub(crate) fn bind_ubo(m: &mut StateMirror, index: u32, name: Option<GlHandle>, 
 }
 
 /// 纹理槽 set：必要时先切 ACTIVE_TEXTURE（单元号比对防冗余切换），再绑定并落槽表。
-pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, name: Option<GlHandle>) {
+pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, target: u32, name: Option<GlHandle>) {
     let idx = unit as usize;
     if idx >= BIND_SLOTS {
         panic!("state 断言: 纹理单元 {unit} 超上限 {BIND_SLOTS}");
     }
-    if m.texture_bindings[idx] == name {
+    let want = name.map(|g| (g, target));
+    if m.texture_bindings[idx] == want {
         return;
     }
-    m.texture_bindings[idx] = name;
+    m.texture_bindings[idx] = want;
     with_gl(|gl| unsafe {
         if m.active_texture_unit != Some(unit) {
             gl.active_texture(GL_TEXTURE0 + unit);
             m.active_texture_unit = Some(unit);
         }
         match name {
-            Some(g) => gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nz(g.0)))),
-            None => gl.bind_texture(GL_TEXTURE_2D, None),
+            Some(g) => gl.bind_texture(target, Some(pi_glow::NativeTexture(nz(g.0)))),
+            None => gl.bind_texture(target, None),
         };
     });
 }
@@ -656,7 +657,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             }
             gl.active_texture(GL_TEXTURE0 + i as u32);
             match m.texture_bindings[i] {
-                Some(g) => gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nz(g.0)))),
+                Some((g, tg)) => gl.bind_texture(tg, Some(pi_glow::NativeTexture(nz(g.0)))),
                 None => gl.bind_texture(GL_TEXTURE_2D, None),
             };
             match m.sampler_bindings[i] {
@@ -723,8 +724,13 @@ pub(crate) fn invalidate_impl(m: &mut StateMirror, dead: GlHandle) {
     for slot in m.ubo_bindings.iter_mut() {
         hit_buf(slot);
     }
+    let hit_tex = |o: &mut Option<(GlHandle, u32)>| {
+        if o.map(|(g, _)| g == dead).unwrap_or(false) {
+            *o = None;
+        }
+    };
     for slot in m.texture_bindings.iter_mut() {
-        hit(slot);
+        hit_tex(slot);
     }
     for slot in m.sampler_bindings.iter_mut() {
         hit(slot);

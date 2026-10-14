@@ -22,8 +22,8 @@ pub(crate) struct StateMirror {
     pub(crate) ubo_bindings: [Option<(GlHandle, u32, u32)>; BIND_SLOTS],
     /// 纹理组：最近 ACTIVE_TEXTURE 单元号。
     pub(crate) active_texture_unit: Option<u32>,
-    /// 纹理槽表：各单元 TEXTURE_2D 绑定对象名（active 单元切换后逐名比对下发）。
-    pub(crate) texture_bindings: [Option<GlHandle>; BIND_SLOTS],
+    /// 纹理槽表：各单元绑定 (对象名, GL 目标) 二元（active 单元切换后逐名+目标比对下发；目标随视图维度）。
+    pub(crate) texture_bindings: [Option<(GlHandle, u32)>; BIND_SLOTS],
     /// 采样器槽表：各单元绑定采样器名（WebGL2 兼容语义，binds 消费）。
     pub(crate) sampler_bindings: [Option<GlHandle>; BIND_SLOTS],
     /// 视口组：最终下发六元组（x,y,w,h,min_depth,max_depth；内翻换算在 draw 汇合层完成后入镜像）。
