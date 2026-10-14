@@ -107,7 +107,8 @@ flowchart TD
 | entry/objects/formats/binds/draw/upload → pi_share 0.5.2 | 跨线程共享所有权（持有引用链原语） |
 | state/objects → pi_hash 0.1.1 | 高速哈希表（复用键与镜像缓存） |
 | entry → thiserror/log/bitflags/lazy_static/ordered-float/derive_more/profiling/codespan-reporting 等 | 通用基础 crate（crates.io，沿用旧清单版本） |
-| ——边界线—— | **本库不依赖 pi_assets / pi_time**（资产出库校准）；ndk-glue 仅 examples dev 链；wgpu 25.0.* 仅 use_wgpu 对照可选 |
+| lib(use_wgpu) → wgpu 25.0.2（path ../wgpu/wgpu，可选；与 gl 互斥） | 官方对照实现（薄壳 facade）：整面 re-export + PiWgpuAdapter 委托 |
+| ——边界线—— | **本库不依赖 pi_assets / pi_time**（资产出库校准）；ndk-glue 仅 examples dev 链 |
 
 ## 平台/外部汇合图（源=上表；虚线=生态非依赖）
 
@@ -308,6 +309,6 @@ flowchart LR
 | pi_egl | shared-stdcxx=[] | off | 安卓 c++ STL 共享链接 | 链接期选项，examples/apk 构建批判定 |
 | pi_egl | fps=[] | off | 平台帧率统计（诊断向） | 与本库 FR-15 探针重叠=不开（避免双轨计数源） |
 | pi_egl | platform 目录（windows/android/**web**） | cfg 选 | 三平台实现分目录；web=emscripten 风 EGL 仿真层 | **本库 Web 形态不走 egl 路径**（画布直取上下文，差异矩阵⑩行钉死）；platform/web 永不接入 |
-| 本库自身 | gl/use_wgpu/single_thread/geterror/webgl_context/webgl(裸 cfg --cfg 注入) | — | 语义开关=实现批芯内 cfg(feature) 接线（判⑩留痕） | gl=manifest 名；single_thread=context 芯退化；geterror=upload 芯 wasm 探针；webgl_context=state/pipeline 行为分支（相-2） |
+| 本库自身 | gl/use_wgpu/single_thread/geterror/webgl_context/webgl(裸 cfg --cfg 注入) | — | 语义开关=实现批芯内 cfg(feature) 接线（判⑩留痕） | gl=manifest 名；single_thread=context 芯退化；geterror=upload 芯 wasm 探针；webgl_context=state/pipeline 行为分支（相-2）；use_wgpu=薄壳 facade（与 gl 互斥：需 --no-default-features） |
 
 结构结论：**地基两 crate 不带环境 if**（glow 零 feature 纯 target；egl 平台目录=cfg 非 feature）；三形态差异在我们层按差异矩阵四道闸收口——本表为对账总闸，被否=「在库内对 glow/egl 加 feature 包装层」（地基已按 target 分好，再包=第二套门控，散落风险回归）。

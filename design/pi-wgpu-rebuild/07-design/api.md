@@ -26,7 +26,7 @@
 | RenderPass::{set_pipeline,set_bind_group,set_vertex_buffer,set_index_buffer,set_viewport,set_scissor_rect,set_stencil_reference,set_blend_constant,draw,draw_indexed} | src/draw/mod.rs | src/draw/draw_inner.rs | 全经镜像差异下发；draw 参数级约束（draw 无 first_instance 形参；draw_indexed 的 base_vertex=0）=断言；Drop=通道结束（此后资源可销毁） | viewport wgpu 坐标内翻=汇合层 |
 | util::DeviceExt::{create_buffer_init,create_texture_with_data} | src/utils/mod.rs | src/utils/utils_inner.rs | 组合调用（无新契约）；登记(B12)：create_texture_with_data 仅 mip0 单段直写，order 多段排布未实现 | |
 | util::{backend_bits_from_env,power_preference_from_env,parse_backends_from_comma_list} | src/utils/mod.rs | src/utils/utils_inner.rs | 恒 GL 语义（登记差异：WGPU_BACKEND 不生效） | |
-| trait PiWgpuAdapter | src/lib.rs | — | 伞面统一双参 request_device（use_wgpu 下适配官方） | 被否：两侧签名各异 |
+| trait PiWgpuAdapter | src/lib.rs | src/lib_inner.rs | 伞面统一双参 request_device（use_wgpu 下适配官方）。B13 落地=薄壳 facade：use_wgpu 下 `pub use wgpu::*` + 自有模块 cfg(not(use_wgpu)) 整体关闭 + 两条 cfg 版 trait（自有/官方各返回本侧类型）；lib_inner::uw_request_impl 承接官方单参→双参（trace 丢弃）；与 gl 互斥（compile_error） | 被否：两侧签名各异；被否 B 并存+适配层（wgpu::Device→entry::Device 无源） |
 
 ## 库内操作（@internal，芯互访面；契约同法住壳）
 清单（L9 名实对账=壳实名）：objects::{ensure_reuse, release_reuse, invalidate_generations}、state::{flush_if_changed, drop_invalidate}（芯另暴露 set_*/bind_* 差异下发族：程序/VAO/目标/上传/UBO·纹理·采样器槽/开关函数/模板/视口——签名与契约见 state 芯，消费方=draw/binds）、binds::{alloc_slots, apply_layout, consume_dynamic_offsets}、shader::{compile_to_es300, reflection_register, emit_stage}、formats::{to_gl_params, mip_convert}、context::{attach, let_go, gen_bump}、context_inner::{with_gl, generation_now}（驱动调用闸/代号读，全芯共用）、context_inner::{surface_attach→Result<(),SurfaceOpErr>（建面+make_current；失败槽保持原状）、surface_swap→Result<(),SurfaceOpErr>（租约已消耗、不回传错误值、记 log）、web_bind_glow（Web GL 入口注入）}、caps::{probe, fill_features}、surface::{configure_impl, get_current_impl, present_impl, capabilities_impl, debug_impl}——方法级签名见对应壳文件。
@@ -35,9 +35,9 @@
 
 ## 落壳批注记（相-1 收口）
 
-- 落壳清单：src/{entry,entry_inner,surface,surface_inner,context,context_inner,caps,caps_inner,objects,objects_inner,state,state_inner,binds,binds_inner,shader,shader_inner,formats,formats_inner,draw,draw_inner,upload,upload_inner,utils,utils_inner}.rs + src/types/mod.rs + src/lib.rs + Cargo.toml。
+- 落壳清单：src/{entry,entry_inner,surface,surface_inner,context,context_inner,caps,caps_inner,objects,objects_inner,state,state_inner,binds,binds_inner,shader,shader_inner,formats,formats_inner,draw,draw_inner,upload,upload_inner,utils,utils_inner}.rs + src/types/mod.rs + src/lib.rs + src/lib_inner.rs（B13 挂接芯）+ Cargo.toml。
 - use_wgpu：骨架批=lib compile_error 防呆桩（官方依赖挂接=相-2，非静默）；once_cell=1.21.3 钉死为 naga fork 传递依赖可用版（新解析缺 sync 模块）——登记依赖清单勘误。
 - 壳体即空声明两处（finish/submit）=契约本身为空壳，非违规桩（决定②）。
 - 词汇面=链上 25 结构落地，types 全量 85 项对表=相-2（本册顶注同源）。
 
-- use_wgpu 侧定形（相-2 挂接时照此）：`pub use wgpu::*` + impl PiWgpuAdapter for wgpu::Adapter 委托 lib_inner::uw_request_impl（官方单参→双参、trace 丢弃），官方面**无自有芯**；骨架期 compile_error 防呆锁 A/B 验收=已登记待落地清单 C。
+- use_wgpu 侧定形【B13 已落】：`pub use wgpu::*` + impl PiWgpuAdapter for wgpu::Adapter 委托 lib_inner::uw_request_impl（官方单参→双参、trace 丢弃），官方面**无自有芯**；A/B 验收=`--features gl` / `--no-default-features --features use_wgpu` 对照编译（均已 Finished，见 call-chain B13 行）。

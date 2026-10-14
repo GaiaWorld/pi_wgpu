@@ -14,6 +14,7 @@
 | 动态偏移 | 声明允许偏移的绑定条目之起始字节偏移，按声明顺序消耗 | L1 需求 |
 | 共享计数 | 1:1 资源句柄（DirectHandle）经 Share 共享同一驱动名：Clone 共享、末引用 Drop 才删；绑定组与用户双持互不删（决定⑫，对齐 pi_render 强引用） | 决定⑫ |
 | DirectHandle | 一对一资源（Buffer/Texture/Sampler）共享句柄=Share<DirectHandleState{kind,handle,generation}>；name()→Option<GlHandle>（死用=binds 断言/upload 错误码）；活态⟺代号=当前 | 决定⑫ |
+| 薄壳 facade | use_wgpu 下 crate 退化为官方 wgpu 的薄壳：整面 re-export + PiWgpuAdapter 委托；自有模块整体关闭（与 gl 互斥） | B13 |
 | 延迟回收 | （作废·L1→L5 返工 2026-10-13）原指库内超时回收队列；资产出库后由「即删+镜像刷失」替代，留行防复活 | L1 需求 |
 | 三硬规则 | 资源销毁三前提：draw 后/渲染通道结束后/与绑定组同弃，使用方保证 | L1 需求 |
 | 取帧与呈现 | 一帧生命周期：取得可写帧纹理→渲染→呈现一次 | L1 需求 |
