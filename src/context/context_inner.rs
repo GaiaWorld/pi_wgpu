@@ -88,7 +88,7 @@ static OWNER: Mutex<Owner> = Mutex::new(Owner { thread: None });
 static READY: Condvar = Condvar::new();
 /// 附着代号：0=未初始化哨兵；首附着 compare_exchange 立基线 1，此后仅 gen_bump 单调增；锁外可读（失配判定用）。
 static GENERATION: AtomicU32 = AtomicU32::new(0);
-/// 本线程持有层数：>0 即同线程重入快路标志；attach/让出计层，归零才真正交还持锁位。
+// 本线程持有层数：>0 即同线程重入快路标志；attach/让出计层，归零才真正交还持锁位。
 thread_local! { static HELD: Cell<u32> = const { Cell::new(0) }; }
 
 /// 异线程争锁的限时等待上限：超时=持锁方违约未让出 → trace 持锁线程后断言（锁合同）。

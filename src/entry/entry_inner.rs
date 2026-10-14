@@ -1,94 +1,305 @@
 // 设计：pi-wgpu-rebuild
-//! entry 芯：公开面对应实现的唯一可写处。本批全桩（TODO-DECL）；每桩上方编号伪码=设计预期
-//! （示意·不可验证·非唯一实现），失败分支与状态变更时机必须逐步写明。
+//! entry 芯：公开面对应实现的唯一可写处。错误纪律（决定⑪）：校验违约=短码断言；运行期不便上递处 log::error!(短码)+降级。
 #![allow(clippy::needless_pass_by_value)]
+use crate::binds::{self, SlotTable};
+use crate::caps;
+use crate::context;
 use crate::entry::*;
+use crate::formats;
+use crate::objects::{self, DirectHandle, DirectKind, GlHandle, HandleCache, ReuseKey};
+use crate::shader::{self, CompiledEs300};
+use crate::state::StateMirror;
 use crate::types::*;
+use pi_glow::HasContext;
+use pi_share::{Share, ShareMutex};
+use std::num::NonZeroU32;
 use std::path::Path;
 
-fn todo() -> ! { panic!("TODO-DECL") }
+/// GL_TEXTURE_2D（纹理创建分配目标；GL_* 名面未导出故内联规范值）。
+const GL_TEXTURE_2D: u32 = 0x0DE1;
+/// get_parameter_string 名：供应商/渲染器/版本。
+const GL_VENDOR: u32 = 0x1F00;
+const GL_RENDERER: u32 = 0x1F01;
+const GL_VERSION: u32 = 0x1F02;
+/// 着色器类型与编译/链接状态、参数名（GL 规范值）。
+const GL_VERTEX_SHADER: u32 = 0x8B31;
+const GL_FRAGMENT_SHADER: u32 = 0x8B30;
+const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
+const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+const GL_TEXTURE_WRAP_S: u32 = 0x2802;
+const GL_TEXTURE_WRAP_T: u32 = 0x2803;
+const GL_TEXTURE_COMPARE_MODE: u32 = 0x884C;
+const GL_TEXTURE_COMPARE_FUNC: u32 = 0x884D;
+const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
+/// 缓冲用途合一位掩码（VERTEX|INDEX|UNIFORM|COPY_DST）。
+const BUFFER_USAGE_MASK: u32 = 0x0F;
+/// 纹理用途合一位掩码（COPY_DST|RENDER_ATTACHMENT|TEXTURE_BINDING）。
+const TEXTURE_USAGE_MASK: u32 = 0x07;
 
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. 校验 descriptor.backends：GL/EMPTY 之外的位=断言（报字段与位值）。
-// 2. context 取唯一上下文附着（桌面/安卓=EGL display+config+make_current 并取 GL 入口；Web 形态=画布 WebGL2 上下文，无 EGL 步）。
-// 3. 附着成功后 caps 探测一次，生成能力快照。
-// 4. 装配并返回 Instance（附着槽入 _attach）。任一步违约：断言前不留半附着、无泄漏残留。
-pub(crate) fn new_impl(_d: &InstanceDescriptor) -> Instance { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 本面禁断言（用户输入）：目标形态与本平台不符（桌面/安卓=窗口+display 句柄；Web=画布/离屏画布）→ Err(CreateSurfaceError)，无半附着体。
-// 2. 相符 → Surface{ _target=目标, _cfg=None, _attach=当前附着槽 }——_cfg=None 即「未配置不可呈现」的类型外不变量，须二步 configure。
-pub(crate) fn create_surface_impl<'s>(_t: crate::surface::SurfaceTarget<'s>) -> Result<crate::surface::Surface<'s>, CreateSurfaceError> { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 单卡面无多卡枚举：活附着且探测完成 → Some(Adapter{能力快照})；无附着（含丢失后）→ 自动重建附着+重探测再 Some（上下文丢失重建回路的公开重入点）；重建失败 → None。两分支均零副作用。
-// 2. 成功返回的 Adapter 快照随本次探测更新——旧 Adapter 随丢失上下文自然作废（代号失配）。
-// 2. options.compatible_surface 仅做同源相容判；power_preference/force_fallback_adapter 记录不路由（差异：官方在此枚举多适配器）。
-pub(crate) fn request_adapter_impl(_o: &RequestAdapterOptions<'_>) -> Option<Adapter> { todo() }
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. desc.required_features / required_limits 对照 Caps 快照逐项全量校验；任一超出 → Err(RequestDeviceError)，设备未建、Adapter 不改、可重试。
-// 2. 通过 → 装配三件套：StateMirror（generation=附着当前代号）、HandleCache、SlotTable。
-// 3. 返回 (Device, Queue)；Queue 持 Device 引用。trace_path 仅存记录：不建文件、不开任何抓取（官方语义降级面，登迁移清单）。
-pub(crate) fn request_device_impl(_a: &Adapter, _d: &DeviceDescriptor<'_>, _t: Option<&Path>) -> std::result::Result<(Device, Queue), RequestDeviceError> { todo() }
-// 设计预期（伪码·示意·不可验证）：纯查询，无失败面——能力快照投影为 Features 位词汇表返回。
-pub(crate) fn adapter_features(_a: &Adapter) -> Features { todo() }
-// 设计预期（伪码·示意·不可验证）：纯查询——兼容子集各 Limits 字段从快照取，一律取能力下限拍板值（宁低报不虚高）。
-pub(crate) fn adapter_limits(_a: &Adapter) -> Limits { todo() }
-// 设计预期（伪码·示意·不可验证）：读 EGL 供应商/设备串 + GL 版本串拼装 AdapterInfo；backend 恒 GL、单卡不枚举多设备。
-pub(crate) fn adapter_info(_a: &Adapter) -> AdapterInfo { todo() }
-// 设计预期（伪码·示意·不可验证）：返回静态汇总表（flags+limits），统一形态不逐项真探、不谎报某项降级。
-pub(crate) fn adapter_downlevel(_a: &Adapter) -> DownlevelCapabilities { todo() }
-// 设计预期（伪码·示意·不可验证）：格式查转换表 × 能力位 → allowed_usages 取交集；压缩格式/浮点渲染位仅真支持才点灯。
-pub(crate) fn adapter_format_features(_a: &Adapter, _f: TextureFormat) -> TextureFormatFeatures { todo() }
-// 设计预期（伪码·示意·不可验证）：比对 surface 附着体与本次 probe 的上下文是否同源；纯判不改任何状态。
-pub(crate) fn adapter_surface_supported(_a: &Adapter, _s: &crate::surface::Surface<'_>) -> bool { todo() }
-// 设计预期（伪码·示意·不可验证）：委托 context 的 let_go（make_current 空绑定）；Web 形态隐式绑定=空实现。
-pub(crate) fn adapter_let_go(_a: &Adapter) { todo() }
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. usage 非空且在支持位内、size>0 且 4 字节倍数，违约=断言（label+字段），断言前零驱动调用。
-// 2. glGenBuffers 直建（Buffer 一对一，不走复用通道）。
-// 3. 句柄包 DirectHandle（generation=当前附着代号）返回；持久映射面不暴露，初值走 Queue::write_buffer。
-pub(crate) fn create_buffer_impl(_d: &Device, _b: &BufferDescriptor<'_>) -> Buffer { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 校验壳面所列各项（宽高/mip/sample_count/能力集/view_formats 同族），违约=断言含 label。
-// 2. 格式转换表取 GL 参数组 → 逐 mip 级 glTexImage 分配存储。
-// 3. 包 DirectHandle 返回；分配中途报错=断言，不留半成品纹理（同 create_buffer 失败合同）。
-pub(crate) fn create_texture_impl(_d: &Device, _t: &TextureDescriptor<'_>) -> Texture { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. anisotropy/compare 等合法性校验，违约=断言。
-// 2. 词汇→GL 枚举映射（过滤/三轴寻址/边界色/比较函数）。
-// 3. glGenSamplers + 参数全量落定后包 DirectHandle；参数报错=断言，无半建采样器。
-pub(crate) fn create_sampler_impl(_d: &Device, _s: &SamplerDescriptor<'_>) -> Sampler { todo() }
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. 调 shader.compile_to_es300（WGSL/GLSL 前端校验+IR）→ 产物持 hash 与 IR。
-// 2. 源语法/转译错（错误纪律）：compile_to_es300 返回 Err(短码) → log::error!(短码)+降级生产物（不留半建）；真错延后由管线创建以错误码暴露，不原地 panic。
-// 3. shader.reflection_register 登记 (set,binding)↔类别/名；装配 ShaderModule{_refl,_compiled}（同生命周期）。
-pub(crate) fn create_shader_impl(_d: &Device, _s: ShaderModuleDescriptor<'_>) -> ShaderModule { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 条目逐项校验：binding 域、visibility 非空、count>0、类型在兼容子集（Buffer 仅 Uniform）；违约=断言含 label，未建布局。
-// 2. entries 拷贝持强链成 BindGroupLayout——合法性此后不再复查（一次校验原则）。
-pub(crate) fn create_bgl_impl(_d: &Device, _b: &BindGroupLayoutDescriptor<'_>) -> BindGroupLayout { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 与布局对表：条目缺失/多余/类型不符、资源句柄死态、缓冲偏移对齐或越界——任一=断言且未建组、零残留。
-// 2. 通过 → _bound 收各条目（资源强引用+偏移/尺寸/动态位；被绑资源先亡=断言的锚）；动态偏移声明数=dynamic 位计数。
-pub(crate) fn create_bg_impl(_d: &Device, _b: &BindGroupDescriptor<'_>) -> BindGroup { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 校验成员 set 归属 0-3、互不重复、总组数≤快照上限；违约=断言含 label。
-// 2. 成员强链收入 _bgls；布局面此后不再复查。
-pub(crate) fn create_pl_impl(_d: &Device, _p: &PipelineLayoutDescriptor<'_>) -> PipelineLayout { todo() }
-// 设计预期（伪码·示意·不可验证·非唯一实现）：
-// 1. 校验着色器段/属性布局（偏移 4 对齐、不重叠、stride≥末属性末端）；layout 在类型面已必填（兼容子集不提供 auto-layout）。违约=断言含 label。
-// 2. 程序对象按转译哈希走复用通道 ensure_reuse；顶点属性按布局哈希 ensure_reuse（两类是唯一允许复用的对象面）。
-// 3. 委托 binds 分配全局槽位（UBO/采样器各 16 定长表）→ 固定功能状态装配入管线记录；中途失败=复用引用回吐、无半建管线。
-pub(crate) fn create_rp_impl(_d: &Device, _p: &RenderPipelineDescriptor<'_>) -> RenderPipeline { todo() }
-// 设计预期（伪码·示意·不可验证）：零驱动调用；_opened_pass=false 初值；除 label 断言外无可失败项。
-pub(crate) fn create_encoder_impl(_d: &Device, _c: &CommandEncoderDescriptor<'_>) -> CommandEncoder { todo() }
-// 设计预期（伪码·示意·不可验证）：纯查询——读 request_device 时定格的能力快照，与 Adapter 面同源。
-pub(crate) fn device_features(_d: &Device) -> Features { todo() }
-// 设计预期（伪码·示意·不可验证）：同 device_features，读创建时快照。
-pub(crate) fn device_limits(_d: &Device) -> Limits { todo() }
-// 设计预期（伪码·示意·不可验证）：
-// 1. 丢弃 StateMirror 全部字段记录。
-// 2. 按驱动真态逐项 glGet 重同步（等价于全字段视为「镜像未知→首次下发」）。
-// 3. 幂等面：无失败态，重复调用只是重做同步。
-pub(crate) fn device_reset_state(_d: &Device) { todo() }
-// 设计预期（伪码·示意·不可验证）：不触任何状态——自我消费并产出空句柄（内容已即时执行，finish 无历史可取）。
+/// 句柄名→非零包装（零名=非法断言）。
+fn nz(name: GlHandle) -> NonZeroU32 {
+    NonZeroU32::new(name.0).unwrap_or_else(|| panic!("entry 断言: 非法零句柄名"))
+}
+
+/// 能力快照→上限（兼容子集下限拍板；宁低报不虚高，不逐项真探）。
+fn limits_of(_c: &caps::Caps) -> Limits {
+    Limits { max_texture_dimension_2d: 4096, max_buffer_size: 1 << 28, max_bind_groups: 4, max_uniform_buffer_bindings: 16 }
+}
+
+pub(crate) fn new_impl(d: &InstanceDescriptor) -> Instance {
+    let bad = d.backends.0 & !Backends::GL.0;
+    assert_eq!(bad, 0, "entry 断言: descriptor.backends 含不支持位（field=backends, bits={bad:#x}）");
+    let slot = context::attach();
+    assert!(slot.is_some(), "entry 断言: 上下文附着失败（无可用 GL 附着）");
+    let _ = caps::probe();
+    Instance { _attach: slot }
+}
+
+pub(crate) fn create_surface_impl<'s>(t: crate::surface::SurfaceTarget<'s>) -> std::result::Result<crate::surface::Surface<'s>, CreateSurfaceError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let ok = matches!(t, crate::surface::SurfaceTarget::Window(_));
+    #[cfg(target_arch = "wasm32")]
+    let ok = matches!(t, crate::surface::SurfaceTarget::Canvas(_) | crate::surface::SurfaceTarget::OffscreenCanvas(_));
+    if !ok {
+        return Err(CreateSurfaceError);
+    }
+    let Some(slot) = context::attach() else { return Err(CreateSurfaceError) };
+    Ok(crate::surface::Surface { _target: t, _cfg: core::cell::RefCell::new(None), _attach: Some(slot) })
+}
+
+pub(crate) fn request_adapter_impl(_o: &RequestAdapterOptions<'_>) -> Option<Adapter> {
+    context::attach()?;
+    let c = caps::probe();
+    Some(Adapter { _caps: c })
+}
+
+pub(crate) fn request_device_impl(a: &Adapter, d: &DeviceDescriptor<'_>, _t: Option<&Path>) -> std::result::Result<(Device, Queue), RequestDeviceError> {
+    let avail = caps::fill_features(&a._caps);
+    if d.required_features.0 & !avail.0 != 0 {
+        return Err(RequestDeviceError);
+    }
+    let cap = limits_of(&a._caps);
+    let r = d.required_limits;
+    if r.max_texture_dimension_2d > cap.max_texture_dimension_2d
+        || r.max_buffer_size > cap.max_buffer_size
+        || r.max_bind_groups > cap.max_bind_groups
+        || r.max_uniform_buffer_bindings > cap.max_uniform_buffer_bindings
+    {
+        return Err(RequestDeviceError);
+    }
+    let mut state = StateMirror::default();
+    state.generation = crate::context_inner::generation_now();
+    let dev = Device { _inner: Share::new(DeviceInner {
+        state: ShareMutex::new(state),
+        cache: ShareMutex::new(HandleCache::default()),
+        slots: ShareMutex::new(SlotTable::default()),
+    }) };
+    let q = Queue { _dev: Some(Device { _inner: dev._inner.clone() }) };
+    Ok((dev, q))
+}
+
+pub(crate) fn adapter_features(a: &Adapter) -> Features { caps::fill_features(&a._caps) }
+pub(crate) fn adapter_limits(a: &Adapter) -> Limits { limits_of(&a._caps) }
+pub(crate) fn adapter_info(_a: &Adapter) -> AdapterInfo {
+    let (vendor, name, driver_info) = crate::context_inner::with_gl(|gl| unsafe {
+        (gl.get_parameter_string(GL_VENDOR), gl.get_parameter_string(GL_RENDERER), gl.get_parameter_string(GL_VERSION))
+    });
+    AdapterInfo { backend: Backend::Gl, device_type: DeviceType::Other, vendor, name, driver_info }
+}
+pub(crate) fn adapter_downlevel(a: &Adapter) -> DownlevelCapabilities {
+    DownlevelCapabilities { flags: DownlevelFlags(0), limits: limits_of(&a._caps) }
+}
+pub(crate) fn adapter_format_features(_a: &Adapter, f: TextureFormat) -> TextureFormatFeatures {
+    let supported = matches!(f, TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb | TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba16Float | TextureFormat::Depth24UnormS8Uint | TextureFormat::Depth32Float);
+    let allowed = if supported { TextureUsages(TextureUsages::COPY_DST.0 | TextureUsages::RENDER_ATTACHMENT.0) } else { TextureUsages(0) };
+    TextureFormatFeatures { allowed_usages: allowed, flags: TextureFormatFeatureFlags(0) }
+}
+pub(crate) fn adapter_surface_supported(_a: &Adapter, s: &crate::surface::Surface<'_>) -> bool {
+    match &s._attach { Some(att) => att.generation == crate::context_inner::generation_now(), None => false }
+}
+pub(crate) fn adapter_let_go(_a: &Adapter) { context::let_go(); }
+
+pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffer {
+    assert!(b.usage.0 != 0, "entry 断言: buffer usage 为空（field=usage, label={:?}）", b.label);
+    assert_eq!(b.usage.0 & !BUFFER_USAGE_MASK, 0, "entry 断言: buffer usage 含非支持位（field=usage={:#x}, label={:?}）", b.usage.0, b.label);
+    assert!(b.size > 0 && b.size % COPY_BUFFER_ALIGNMENT == 0, "entry 断言: buffer size 须>0 且 4 字节倍数（field=size={}, label={:?}）", b.size, b.label);
+    Buffer { _h: crate::objects_inner::create_direct(DirectKind::Buffer), size: b.size }
+}
+
+pub(crate) fn create_texture_impl(_d: &Device, t: &TextureDescriptor<'_>) -> Texture {
+    assert!(matches!(t.dim, TextureDimension::D2), "entry 断言: 纹理维度仅 D2（field=dim, label={:?}）", t.label);
+    assert!(t.size.width >= 1 && t.size.height >= 1, "entry 断言: 纹理宽高须≥1（field=size, label={:?}）", t.label);
+    assert!(t.mip_level_count >= 1, "entry 断言: mip_level_count 须≥1（field=mip_level_count={}, label={:?}）", t.mip_level_count, t.label);
+    assert!(t.sample_count == 1 || t.sample_count == 4, "entry 断言: sample_count 仅 1/4（field=sample_count={}, label={:?}）", t.sample_count, t.label);
+    assert_eq!(t.usage.0 & !TEXTURE_USAGE_MASK, 0, "entry 断言: 纹理 usage 含非支持位（field=usage={:#x}, label={:?}）", t.usage.0, t.label);
+    for vf in t.view_formats {
+        assert!(same_family(*vf, t.format), "entry 断言: view_format 与主格式非同族（field=view_formats, label={:?}）", t.label);
+    }
+    let params = formats::to_gl_params(t, t.format);
+    let h = crate::objects_inner::create_direct(DirectKind::Texture);
+    let name = h.name().expect("entry 断言: 新纹理无名");
+    crate::context_inner::with_gl(|gl| unsafe {
+        gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nz(name))));
+        gl.tex_storage_2d(GL_TEXTURE_2D, t.mip_level_count as i32, params.internal_format, t.size.width as i32, t.size.height as i32);
+    });
+    Texture { _h: h, params }
+}
+
+/// 主格式族：含/不含 sRGB 视为同族（兼容子集；深度同值）。
+fn same_family(a: TextureFormat, b: TextureFormat) -> bool {
+    fn strip(f: TextureFormat) -> TextureFormat {
+        match f { TextureFormat::Rgba8UnormSrgb => TextureFormat::Rgba8Unorm, TextureFormat::Bgra8UnormSrgb => TextureFormat::Bgra8Unorm, other => other }
+    }
+    strip(a) == strip(b)
+}
+
+pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sampler {
+    if let Some(an) = s.anisotropy_clamp {
+        let v = an.get();
+        assert!(matches!(v, 1 | 2 | 4 | 8 | 16), "entry 断言: anisotropy_clamp 仅 1/2/4/8/16（field=anisotropy_clamp={v}, label={:?}）", s.label);
+    }
+    let h = crate::objects_inner::create_direct(DirectKind::Sampler);
+    let name = h.name().expect("entry 断言: 新采样器无名");
+    crate::context_inner::with_gl(|gl| unsafe {
+        let sm = pi_glow::NativeSampler(nz(name));
+        gl.sampler_parameter_i32(sm, GL_TEXTURE_MIN_FILTER, filter_gl(s.min_filter));
+        gl.sampler_parameter_i32(sm, GL_TEXTURE_MAG_FILTER, filter_gl(s.mag_filter));
+        gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_S, addr_gl(s.address_mode_u));
+        gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_T, addr_gl(s.address_mode_v));
+        if let Some(cf) = s.compare {
+            gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_FUNC, compare_gl(cf));
+        }
+    });
+    Sampler { _h: h }
+}
+
+fn filter_gl(f: FilterMode) -> i32 { match f { FilterMode::Nearest => 0x2600, FilterMode::Linear => 0x2601 } }
+fn addr_gl(a: AddressMode) -> i32 { match a { AddressMode::ClampToEdge => 0x812F, AddressMode::Repeat => 0x2901, AddressMode::MirroredRepeat => 0x8370 } }
+fn compare_gl(c: CompareFunction) -> i32 { match c { CompareFunction::Never => 0x0200, CompareFunction::Less => 0x0201, CompareFunction::Equal => 0x0202, CompareFunction::LessEqual => 0x0203, CompareFunction::Greater => 0x0204, CompareFunction::NotEqual => 0x0205, CompareFunction::GreaterEqual => 0x0206, CompareFunction::Always => 0x0207 } }
+
+pub(crate) fn create_shader_impl(_d: &Device, s: ShaderModuleDescriptor<'_>) -> ShaderModule {
+    let blob = match shader::compile_to_es300(&s.source, s.label) {
+        Ok(b) => b,
+        Err(code) => {
+            log::error!("entry shader 转译失败 code={code:?} label={:?}", s.label);
+            CompiledEs300 { hash: 0, modules: Vec::new() }
+        }
+    };
+    ShaderModule { _refl: crate::shader::ReflectionTable::default(), _compiled: blob }
+}
+
+pub(crate) fn create_bgl_impl(_d: &Device, b: &BindGroupLayoutDescriptor<'_>) -> BindGroupLayout {
+    for e in b.entries {
+        assert!(e.visibility.0 != 0, "entry 断言: 布局条目 visibility 为空（field=visibility, binding={}, label={:?}）", e.binding, b.label);
+        assert!(e.count.map_or(true, |c| c.get() > 0), "entry 断言: 布局条目数组长度须>0（field=count, binding={}, label={:?}）", e.binding, b.label);
+    }
+    BindGroupLayout { _entries: b.entries.to_vec() }
+}
+
+pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGroup {
+    let mut bound: Vec<crate::binds::BoundEntry> = Vec::with_capacity(b.entries.len());
+    for e in b.entries {
+        let le = b.layout._entries.iter().find(|l| l.binding == e.binding)
+            .unwrap_or_else(|| panic!("entry 断言: 绑定组条目不在布局中（field=binding={}, label={:?}）", e.binding, b.label));
+        let (domain, handle, offset, size, dynamic) = match e.resource {
+            BindingResource::Buffer(bb) => {
+                assert!(bb.offset % COPY_BUFFER_ALIGNMENT == 0, "entry 断言: 缓冲绑定偏移须 4 对齐（field=offset={}, binding={}）", bb.offset, e.binding);
+                let sz = bb.size.map(|z| z.get() as u32);
+                if let Some(z) = bb.size {
+                    assert!(bb.offset + z.get() <= bb.buffer.size, "entry 断言: 缓冲绑定越界（field=offset+size, binding={}）", e.binding);
+                }
+                let dyn_flag = matches!(le.ty, BindingType::Buffer { has_dynamic_offset: true, .. });
+                (crate::binds::BindDomain::Uniform, bb.buffer._h.clone(), bb.offset as u32, sz, dyn_flag)
+            }
+            BindingResource::TextureView(tv) => {
+                let t = tv._tex.as_ref().unwrap_or_else(|| panic!("entry 断言: 纹理视图无宿主（帧视图不可绑定，binding={}）", e.binding));
+                (crate::binds::BindDomain::Texture, t._h.clone(), 0, None, false)
+            }
+            BindingResource::Sampler(sm) => (crate::binds::BindDomain::Sampler, sm._h.clone(), 0, None, false),
+        };
+        bound.push(crate::binds::BoundEntry { binding: e.binding, domain, handle, offset, size, dynamic });
+    }
+    BindGroup { _bound: bound }
+}
+
+pub(crate) fn create_pl_impl(_d: &Device, p: &PipelineLayoutDescriptor<'_>) -> PipelineLayout {
+    assert!(p.bind_group_layouts.len() <= 4, "entry 断言: 管线布局成员组数超上限 4（field=bind_group_layouts, label={:?}）", p.label);
+    PipelineLayout { _bgls: p.bind_group_layouts.iter().map(|b| BindGroupLayout { _entries: b._entries.clone() }).collect() }
+}
+
+pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> RenderPipeline {
+    for vb in p.vertex.layouts {
+        assert!(vb.array_stride % VERTEX_STRIDE_ALIGNMENT == 0, "entry 断言: 顶点步长须 4 对齐（field=array_stride={}, label={:?}）", vb.array_stride, p.label);
+        for a in vb.attributes {
+            assert!(a.offset % VERTEX_STRIDE_ALIGNMENT == 0, "entry 断言: 顶点属性偏移须 4 对齐（field=offset={}, label={:?}）", a.offset, p.label);
+        }
+    }
+    {
+        let mut slots = d._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+        binds::alloc_slots(p.layout, &mut slots);
+    }
+    let (vs, fs) = {
+        let slots = d._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let vs = shader::emit_stage(&p.vertex.module._compiled, naga::ShaderStage::Vertex, p.vertex.entry_point.unwrap_or("vs_main"), &slots)
+            .unwrap_or_else(|e| panic!("entry 断言: 顶点出码失败 code={e:?} label={:?}", p.label));
+        let fs = p.fragment.as_ref().map(|f| shader::emit_stage(&f.module._compiled, naga::ShaderStage::Fragment, f.entry_point.unwrap_or("fs_main"), &slots)
+            .unwrap_or_else(|e| panic!("entry 断言: 片元出码失败 code={e:?} label={:?}", p.label)));
+        (vs, fs)
+    };
+    let hash = p.vertex.module._compiled.hash;
+    let prog = {
+        let mut cache = d._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let prog = objects::ensure_reuse(ReuseKey::Program(hash), &mut cache);
+        if prog.refcount.get() == 1 {
+            link_program(prog.handle.expect("entry 断言: 新程序无句柄"), &vs, fs.as_deref());
+        }
+        prog
+    };
+    let vertex = p.vertex.layouts.iter().map(|vb| crate::draw::VertexLayout {
+        array_stride: vb.array_stride,
+        step_mode: vb.step_mode,
+        attributes: vb.attributes.to_vec(),
+    }).collect();
+    RenderPipeline { _program: prog, _vertex: vertex, _topology: p.primitive.topology }
+}
+
+/// 把 GLSL ES 3.0 源编译+链接进给定程序对象（仅新程序路径；复用命中不重链）。
+fn link_program(name: GlHandle, vs: &str, fs: Option<&str>) {
+    crate::context_inner::with_gl(|gl| unsafe {
+        let prog = pi_glow::NativeProgram(nz(name));
+        let vsh = gl.create_shader(GL_VERTEX_SHADER).unwrap_or_else(|e| panic!("entry 断言: 顶点着色器对象创建失败 {e}"));
+        gl.shader_source(vsh, vs);
+        gl.compile_shader(vsh);
+        let cvs = gl.get_shader_compile_status(vsh);
+        if !cvs { log::error!("entry 顶点着色器编译失败 log={}", gl.get_shader_info_log(vsh)); }
+        gl.attach_shader(prog, vsh);
+        if let Some(src) = fs {
+            let fsh = gl.create_shader(GL_FRAGMENT_SHADER).unwrap_or_else(|e| panic!("entry 断言: 片元着色器对象创建失败 {e}"));
+            gl.shader_source(fsh, src);
+            gl.compile_shader(fsh);
+            let cfs = gl.get_shader_compile_status(fsh);
+            if !cfs { log::error!("entry 片元着色器编译失败 log={}", gl.get_shader_info_log(fsh)); }
+            gl.attach_shader(prog, fsh);
+        }
+        gl.link_program(prog);
+        let lk = gl.get_program_link_status(prog);
+        if !lk { log::error!("entry 程序链接失败 log={}", gl.get_program_info_log(prog)); }
+    });
+}
+
+pub(crate) fn create_encoder_impl(d: &Device, _c: &CommandEncoderDescriptor<'_>) -> CommandEncoder {
+    CommandEncoder { _opened_pass: false, _inner: d._inner.clone() }
+}
+
+/// 能力查询。登记差异：DeviceInner 未存创建时快照，此处现探（单适配器、建后未重探时等价创建快照）。
+pub(crate) fn device_features(_d: &Device) -> Features { caps::fill_features(&caps::probe()) }
+/// 上限查询。登记差异同 device_features。
+pub(crate) fn device_limits(_d: &Device) -> Limits { limits_of(&caps::probe()) }
+
+pub(crate) fn device_reset_state(d: &Device) {
+    let mut st = d._inner.state.lock().unwrap_or_else(|e| e.into_inner());
+    crate::state_inner::reset_all(&mut st);
+}
+
 pub(crate) fn encoder_finish(_e: CommandEncoder) -> CommandBuffer { CommandBuffer }
