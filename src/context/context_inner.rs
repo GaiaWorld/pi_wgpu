@@ -19,7 +19,7 @@ use pi_glow as glow;
 use crate::context::{Attachment, AttachmentSlot};
 
 #[cfg(not(target_arch = "wasm32"))]
-use pi_egl::{Context as EglContext, Instance as EglInstance, PowerPreference as EglPower};
+use pi_egl::{Context as EglContext, Instance as EglInstance, PowerPreference as EglPower, Surface as EglSurface};
 
 /// 桌面/安卓附着体：EGL/WGL 实例（内含隐窗与 glow 入口表，构造于首次 attach）+ 上下文句柄对。
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,6 +28,31 @@ struct Attached {
     instance: EglInstance,
     /// 地基上下文句柄：仅与实例成对使用（跨线程换绑时作 make_current 入参）。
     context: EglContext,
+    /// 呈现表面（configure 后存在；None=未配置，取帧/换帧不可用）。
+    surface: Option<EglSurface>,
+}
+
+/// dyn 窗口目标的 Sized 转发壳（pi_egl::create_surface 需 Sized W；trait 对象无法直传）。
+#[cfg(not(target_arch = "wasm32"))]
+struct WindowFwd<'a>(&'a dyn crate::surface::WindowHandle);
+#[cfg(not(target_arch = "wasm32"))]
+impl raw_window_handle::HasWindowHandle for WindowFwd<'_> {
+    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> { self.0.window_handle() }
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl raw_window_handle::HasDisplayHandle for WindowFwd<'_> {
+    fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> { self.0.display_handle() }
+}
+
+/// 表面操作错误码（决定⑪；诊断原文走 log::error!）。 @internal
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SurfaceOpErr {
+    /// 附着未建立。
+    NotAttached,
+    /// 平台表面创建失败。
+    CreateSurface,
+    /// 无已建表面（未 configure）。
+    NoSurface,
 }
 
 /// Web 形态附着体：无 EGL 部件，仅画布 GL 入口占位（由呈现配置链注入后才可用）。
@@ -96,12 +121,12 @@ fn bind_current_thread() {
             .create_context()
             .unwrap_or_else(|e| panic!("context attach: 上下文创建失败 err={e:?}"));
         instance.make_current(None, Some(&context));
-        slot.attached = Some(Attached { instance, context });
+        slot.attached = Some(Attached { instance, context, surface: None });
         slot.bound = Some(me);
         ensure_generation();
     } else if slot.bound != Some(me) {
         let attached = slot.attached.as_mut().expect("context attach: 附着体必先存在");
-        let Attached { instance, context } = attached;
+        let Attached { instance, context, .. } = attached;
         instance.make_current(None, Some(context));
         slot.bound = Some(me);
     }
@@ -261,6 +286,53 @@ pub(crate) fn gen_bump_impl() -> u32 {
     GENERATION.fetch_add(1, Ordering::SeqCst) + 1
 }
 
+/// 建/重绑呈现表面并 make_current（configure 调用点；须附着已建立）。
+/// 桌面/安卓：窗口目标→平台表面→make_current(面, 上下文)→存槽；失败=Err(码)，槽保持原状。
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn surface_attach(window: &dyn crate::surface::WindowHandle) -> Result<(), SurfaceOpErr> {
+    claim_and_attach();
+    let out = (|| {
+        let slot = unsafe { &mut *SLOT.0.get() };
+        let attached = slot.attached.as_mut().ok_or(SurfaceOpErr::NotAttached)?;
+        let surface = attached.instance.create_surface(&WindowFwd(window)).map_err(|_| SurfaceOpErr::CreateSurface)?;
+        attached.instance.make_current(Some(&surface), Some(&attached.context));
+        attached.surface = Some(surface);
+        Ok(())
+    })();
+    release_one_layer();
+    out
+}
+
+/// Web：无 EGL 表面步（画布即表面）；仅校验附着已登记。
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn surface_attach(_window: &dyn crate::surface::WindowHandle) -> Result<(), SurfaceOpErr> {
+    if unsafe { &*SLOT.0.get() }.attached.is_none() {
+        return Err(SurfaceOpErr::NotAttached);
+    }
+    Ok(())
+}
+
+/// 换帧（present 调用点）：桌面/安卓=swap_buffers；Web=空操作（隐式合成）。
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn surface_swap() -> Result<(), SurfaceOpErr> {
+    claim_and_attach();
+    let out = (|| {
+        let slot = unsafe { &*SLOT.0.get() };
+        let attached = slot.attached.as_ref().ok_or(SurfaceOpErr::NotAttached)?;
+        let surface = attached.surface.as_ref().ok_or(SurfaceOpErr::NoSurface)?;
+        attached.instance.swap_buffers(surface);
+        Ok(())
+    })();
+    release_one_layer();
+    out
+}
+
+/// Web：换帧空操作。
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn surface_swap() -> Result<(), SurfaceOpErr> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,6 +437,10 @@ mod tests {
         assert!(rbad.is_err(), "死句柄=断言（动作前）");
         drop(gbad);
         drop(group);
+        // —— B9 surface 合验（能力候选查询；全帧循环待 B11 实例化窗口）——
+        let ad = crate::entry::Adapter { _caps: crate::caps_inner::probe_impl() };
+        let sc = crate::surface_inner::capabilities_impl(&ad);
+        assert!(!sc.formats.is_empty() && !sc.present_modes.is_empty(), "能力候选非空");
         let_go_impl();
     }
 
