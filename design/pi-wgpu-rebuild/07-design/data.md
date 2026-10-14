@@ -4,9 +4,9 @@
 
 | 结构 | 壳 | 表示选择 / 被否方案 |
 |---|---|---|
-| Instance/Adapter/Device/Queue/CommandEncoder | src/entry/mod.rs | 引用链=Share：Device{_inner:Share<DeviceInner{state/cache/slots:ShareMutex}>}；CommandEncoder 持 _inner（克隆共享）；被否 Rc（线程合同破） |
+| Instance/Adapter/Device/Queue/CommandEncoder | src/entry/mod.rs | 引用链=Share：Device{_inner:Share<DeviceInner{state/cache/slots:ShareMutex}>}；CommandEncoder 持 _inner（克隆共享）；被否 Rc（线程合同破）；登记差异(B11)：DeviceInner 未存能力快照——device_features/limits 现探 caps；create_texture 创建期 tex_storage_2d 分配（绑 GL_TEXTURE_2D 未过镜像）；原「被否 Arc+refcount」条为决定⑫ 反转 |
 | 设备共享内芯 DeviceInner | src/entry/mod.rs | 三字段 state/cache/slots 各 ShareMutex；锁序=state 先、with_gl 后（与 set_*/flush 同序） |
-| 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | DirectHandle=共享计数（Share<DirectHandleState>，Clone 共享驱动名、末引用 Drop 才删，决定⑫）；name()→Option<GlHandle>（死用=错误码）；活态 ⟺ 上下文代号=当前；Buffer 另持 size、Texture 另持驱动参数组 GlParams（写路径消费） |
+| 资源句柄对象（1:1：Buffer/Texture/Sampler/TextureView） | src/objects/mod.rs | DirectHandle=共享计数（Share<DirectHandleState>，Clone 共享驱动名、末引用 Drop 才删，决定⑫）；name()→Option<GlHandle>（死用=binds 断言 / upload 错误码）；活态 ⟺ 上下文代号=当前；Buffer 另持 size、Texture 另持驱动参数组 GlParams（写路径消费） |
 | 上传错误码 UploadErr | src/upload/mod.rs | DeadHandle/Misaligned/RowPitch/OutOfRange/NotBitmap/OffMainThread；公开非 Result 面=log 短码（决定⑪） |
 | 复用对象（程序/VAO/FBO/RBO） | src/objects/mod.rs | 表示行合入本册「对象句柄层」行（计数真相=芯全局驻留表、行=物理名模板）；1:1 句柄已改共享计数（决定⑫），本类复用对象仍走芯全局计数表（非 Share） |
 | BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule | src/entry/mod.rs | 描述符解析后持强链（三硬规则库内形态=引用图+使用方合同）；ShaderModule 另持转译产物 _compiled |

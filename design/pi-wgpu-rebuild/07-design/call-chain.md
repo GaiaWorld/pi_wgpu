@@ -11,7 +11,7 @@
 | 写 | upload.write_texture→convert_upload_layout→context.attach→驱动入口→formats.mip_convert | 违约=错误码 log（debug 不下发/release 留痕+下发） |
 | lost 失效 | get_current_texture 捕获→context.gen_bump→旧句柄/镜像随代号失配集体退场→上层重走 request_device | 降级=重配置；账面由上层资产层处理 |
 | 外部干扰 | entry.reset_state→state 重探测→flush | 无失败态 |
-| 着色器 | shader.compile_to_es300→shader.reflection_register→objects.ensure_reuse | 源/布局错=短错误码上递（决定⑪）、log 诊断 |
+| 着色器 | shader.compile_to_es300（create_shader_module）→ objects.ensure_reuse（程序复用）→ shader.emit_stage 出码（create_render_pipeline） | 源错=短错误码上递+log 诊断；**reflection_register 待接线**（需 layout+可写模块：模块创建期无布局、管线期只拿 &module；_refl 当前零消费者，emit_stage 走 SlotTable，登记未闭环） |
 | 便捷面 | utils.create_buffer_init→entry.create_buffer+upload | 同上游契约 |
 
 闭包核对（2026-10-13 L9 对账修订）：11 链节点均解析到壳实名；链号=首表行号、1 基。例外三类：Queue::submit/Encoder::finish=空壳契约本身不入链；write_texture_jsbuffer=链7（写）的 JS 旁路源；get_capabilities 与 Adapter 查询族=纯查询无链叙事价值。其余公开操作≥1 链引用。
@@ -43,7 +43,7 @@ sequenceDiagram
     E-->>U: (Device,Queue)|错误②（设备未建）
     U->>S: configure(合法组合校验→无半配置)
     S->>C: surface_attach（建平台表面+make_current）
-    U->>E: create_shader_module（shader.compile_to_es300→reflection_register）
+    U->>E: create_shader_module（shader.compile_to_es300）
     U->>E: create_render_pipeline（shader.emit_stage 按入口出 ES300→objects.ensure_reuse）
 ```
 

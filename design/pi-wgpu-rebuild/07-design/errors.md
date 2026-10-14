@@ -39,4 +39,4 @@ geterror/trace=诊断机制，非错误策略。链失败/降级收口：仅链8
 - 错误信息=**短错误码**（枚举），避免长文本；诊断原文（编译器 codespan 等）走 `log::error!`，不进 panic 消息。
 - `assert/panic` 仅保留「绝不该发生」的编程合同违反，且消息用短码。
 - 应用：B7 起从严；B1–B6 既有断言面登记为「待清理」清单（后续批按需收敛）。
-- **边界（公开非 Result 面）**：输入类失败（如着色器源语法错）=log::error!(短码)+降级（不留半建），真错延后上递；仅「绝不该发生」的编程合同违反（如零句柄名、计数成对破）才断言。三条显式 Result 面（request_device/create_surface/get_current_texture）走结果值。
+- **边界（公开非 Result 面）**：输入类失败（如着色器源语法错）=log::error!(短码)+降级（不留半建），真错延后上递；仅「绝不该发生」的编程合同违反（如零句柄名、计数成对破）才断言。三条显式 Result 面（request_device/create_surface/get_current_texture）走结果值。**非 Result 面的延后真错无处上递**：如 create_render_pipeline（返回 RenderPipeline 无错误通道）遇空产物 emit_stage 失败=编程合同违反，短码断言（模块创建期已 log 降级）。

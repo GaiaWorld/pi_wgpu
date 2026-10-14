@@ -1,5 +1,5 @@
 // 设计：pi-wgpu-rebuild
-//! entry 芯：公开面对应实现的唯一可写处。错误纪律（决定⑪）：校验违约=短码断言；运行期不便上递处 log::error!(短码)+降级。
+//! entry 芯：公开面对应实现的唯一可写处。错误纪律：校验违约=短码断言；运行期不便上递处 log::error!(短码)+降级。
 #![allow(clippy::needless_pass_by_value)]
 use crate::binds::{self, SlotTable};
 use crate::caps;
@@ -193,6 +193,7 @@ pub(crate) fn create_bgl_impl(_d: &Device, b: &BindGroupLayoutDescriptor<'_>) ->
     for e in b.entries {
         assert!(e.visibility.0 != 0, "entry 断言: 布局条目 visibility 为空（field=visibility, binding={}, label={:?}）", e.binding, b.label);
         assert!(e.count.map_or(true, |c| c.get() > 0), "entry 断言: 布局条目数组长度须>0（field=count, binding={}, label={:?}）", e.binding, b.label);
+        assert!(e.binding < 65_536, "entry 断言: 布局条目 binding 域超 16 位（field=binding={}, label={:?}）", e.binding, b.label);
     }
     BindGroupLayout { _entries: b.entries.to_vec() }
 }
@@ -202,6 +203,12 @@ pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGr
     for e in b.entries {
         let le = b.layout._entries.iter().find(|l| l.binding == e.binding)
             .unwrap_or_else(|| panic!("entry 断言: 绑定组条目不在布局中（field=binding={}, label={:?}）", e.binding, b.label));
+        match (&le.ty, &e.resource) {
+            (BindingType::Buffer { .. }, BindingResource::Buffer(_)) => {}
+            (BindingType::Sampler(_), BindingResource::Sampler(_)) => {}
+            (BindingType::Texture { .. }, BindingResource::TextureView(_)) => {}
+            _ => panic!("entry 断言: 绑定资源类型与布局不符（field=ty, binding={}, label={:?}）", e.binding, b.label),
+        }
         let (domain, handle, offset, size, dynamic) = match e.resource {
             BindingResource::Buffer(bb) => {
                 assert!(bb.offset % COPY_BUFFER_ALIGNMENT == 0, "entry 断言: 缓冲绑定偏移须 4 对齐（field=offset={}, binding={}）", bb.offset, e.binding);
@@ -218,6 +225,7 @@ pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGr
             }
             BindingResource::Sampler(sm) => (crate::binds::BindDomain::Sampler, sm._h.clone(), 0, None, false),
         };
+        assert!(handle.name().is_some(), "entry 断言: 绑定资源句柄已死（field=resource, binding={}, label={:?}）", e.binding, b.label);
         bound.push(crate::binds::BoundEntry { binding: e.binding, domain, handle, offset, size, dynamic });
     }
     BindGroup { _bound: bound }
@@ -225,6 +233,11 @@ pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGr
 
 pub(crate) fn create_pl_impl(_d: &Device, p: &PipelineLayoutDescriptor<'_>) -> PipelineLayout {
     assert!(p.bind_group_layouts.len() <= 4, "entry 断言: 管线布局成员组数超上限 4（field=bind_group_layouts, label={:?}）", p.label);
+    for i in 0..p.bind_group_layouts.len() {
+        for j in (i + 1)..p.bind_group_layouts.len() {
+            assert!(!std::ptr::eq(p.bind_group_layouts[i], p.bind_group_layouts[j]), "entry 断言: 管线布局成员重复（field=bind_group_layouts, label={:?}）", p.label);
+        }
+    }
     PipelineLayout { _bgls: p.bind_group_layouts.iter().map(|b| BindGroupLayout { _entries: b._entries.clone() }).collect() }
 }
 

@@ -11,10 +11,10 @@
 | Instance::create_surface | src/entry/mod.rs | src/entry/entry_inner.rs | 结果面①；错=无半附着可重试 | 结果面=轮2 拍板封闭三处 |
 | Instance::request_adapter | src/entry/mod.rs | src/entry/entry_inner.rs | Future<Option<Adapter>> 同步包装；None=无可适配、无副作用 | 被否：多枚举（EGL 恒单卡） |
 | Adapter::request_device | src/entry/mod.rs | src/entry/entry_inner.rs | 结果面②；错=设备未建、Adapter 仍可用；trace 参数忽略仅记录 | PiWgpuAdapter 双参统一（两 feature 同形） |
-| Adapter::{features,limits,get_info,get_downlevel_capabilities,get_texture_format_features,is_surface_supported,unmake_current} | src/entry/mod.rs | src/entry/entry_inner.rs | 纯查询→不失败；unmake_current=私有差异（登迁移清单） | |
-| Device 创建族 create_{buffer,texture,sampler,shader_module,bind_group_layout,bind_group,pipeline_layout,render_pipeline,command_encoder} | src/entry/mod.rs | src/entry/entry_inner.rs | 即时创建/命中复用；非法描述符=断言含 desc.label，无半建 | layout 必填 Some=参数级约束 |
-| Device::create_shader_module 产物 | src/shader/mod.rs | src/shader/shader_inner.rs | 转译产物=IR{hash,modules}；GLSL 出码延到管线创建（emit_stage 按 stage/entry_point）；解析/校验失败=错误码上递+log 诊断（错误规则） | wgpu 模块/入口点分离 |
-| Device::{features,limits,reset_state} | src/entry/mod.rs | src/entry/entry_inner.rs | reset_state=重建镜像（外部 GL 干扰），失败后不存在 | 私有差异登记 |
+| Adapter::{features,limits,get_info,get_downlevel_capabilities,get_texture_format_features,is_surface_supported,unmake_current} | src/entry/mod.rs | src/entry/entry_inner.rs | 纯查询→不失败；unmake_current=私有差异（登迁移清单）；登记差异(B11)：is_surface_supported 按附着世代比对（非逐格式真判） | |
+| Device 创建族 create_{buffer,texture,sampler,shader_module,bind_group_layout,bind_group,pipeline_layout,render_pipeline,command_encoder} | src/entry/mod.rs | src/entry/entry_inner.rs | 即时创建/命中复用；非法描述符=断言含 desc.label，无半建。登记差异(B11)：纹理存储=创建期 tex_storage_2d 整链分配（绑 GL_TEXTURE_2D 未过镜像）；程序=新程序（refcount==1）内联编译+链接（复用命中不重链） | layout 必填 Some=参数级约束 |
+| Device::create_shader_module 产物 | src/shader/mod.rs | src/shader/shader_inner.rs | 转译产物=IR{hash,modules}；GLSL 出码延到管线创建（emit_stage 按 stage/entry_point）；解析/校验失败=错误码上递+log 诊断（错误规则）；登记(B11)：reflection_register 待接线（需 layout+可写模块，_refl 恒空，emit_stage 走 SlotTable） | wgpu 模块/入口点分离 |
+| Device::{features,limits,reset_state} | src/entry/mod.rs | src/entry/entry_inner.rs | reset_state=重建镜像（外部 GL 干扰），失败后不存在；登记差异(B11)：features/limits 现探 caps（DeviceInner 未存创建时快照） | 私有差异登记 |
 | Queue::submit / CommandEncoder::finish | src/entry/mod.rs | src/entry/entry_inner.rs | 空壳→无失败语义；契约：上层不得依赖提交生效点 | FR-13 |
 | Queue::{write_buffer,write_texture} | src/upload/mod.rs | src/upload/upload_inner.rs | 即时下发；违约=log::error!(UploadErr)（debug 不下发/release 留痕+GL 兜底，不谎报，决定⑪） | 语义收窄进差异清单 |
 | Queue::write_texture_jsbuffer [wasm] | src/upload/mod.rs | src/upload/upload_inner.rs | 私有扩展：JS 位图直传零字节拷贝；非位图/离线程=log::error!(UploadErr)（决定⑪） | 唯一公开分形态点 |

@@ -46,7 +46,8 @@ impl DirectHandle {
         Self { inner: Share::new(DirectHandleState { kind, handle: std::cell::Cell::new(None), generation }) }
     }
     /// 置死并物理删除：先置空句柄名防重入，再即调驱动删除（本库无延迟删除队列、无等待 GC），
-    /// 并把（域,名）登记进 state 芯死名表——镜像对已删名不谎报持有，下次 flush 强制重下发后销记。 @internal
+    /// 并把（域,名）登记进 state 芯死名表——镜像对已删名不谎报持有，下次 flush 强制重下发后销记。
+    /// 注意（共享计数）：对任一 clone 调本方法=连坐删除（对全部持有者生效），仅适用单持有/整面失效；常规死亡走末引用 Drop。 @internal
     pub(crate) fn mark_dead(&self) { crate::objects_inner::mark_dead_impl(self) }
 }
 impl Drop for DirectHandleState { fn drop(&mut self) { crate::objects_inner::drop_impl(self) } }
