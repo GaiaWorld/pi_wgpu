@@ -1,6 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! shader 芯：naga 转译（源→校验→IR）+ 反射登记 + 按入口出码（glsl-out）。
-//! 错误处理（决定⑪）：解析/校验/出码失败=短错误码上递；诊断原文走 log::error!。
+//! 错误处理（错误纪律）：解析/校验/出码失败=短错误码上递；诊断原文走 log::error!。
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 

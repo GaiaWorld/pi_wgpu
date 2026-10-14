@@ -59,7 +59,7 @@ pub(crate) fn create_texture_impl(_d: &Device, _t: &TextureDescriptor<'_>) -> Te
 pub(crate) fn create_sampler_impl(_d: &Device, _s: &SamplerDescriptor<'_>) -> Sampler { todo() }
 // 设计预期（伪码·示意·不可验证·非唯一实现）：
 // 1. 调 shader.compile_to_es300（WGSL/GLSL 前端校验+IR）→ 产物持 hash 与 IR。
-// 2. 源语法/转译错（决定⑪）：compile_to_es300 返回 Err(短码) → log::error!(短码)+降级生产物（不留半建）；真错延后由管线创建以错误码暴露，不原地 panic。
+// 2. 源语法/转译错（错误纪律）：compile_to_es300 返回 Err(短码) → log::error!(短码)+降级生产物（不留半建）；真错延后由管线创建以错误码暴露，不原地 panic。
 // 3. shader.reflection_register 登记 (set,binding)↔类别/名；装配 ShaderModule{_refl,_compiled}（同生命周期）。
 pub(crate) fn create_shader_impl(_d: &Device, _s: ShaderModuleDescriptor<'_>) -> ShaderModule { todo() }
 // 设计预期（伪码·示意·不可验证）：

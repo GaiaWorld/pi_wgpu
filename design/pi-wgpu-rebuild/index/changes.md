@@ -52,3 +52,6 @@
 | 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
 | 2026-10-14 | L7 | 返工（B9 表示层同步）：07-design 随 B9 接口增量同步——data 增 Surface 行（_cfg RefCell/平台表面驻附着槽/帧视图标记）；api configure/get_current 契约改错误码+未配置口径；errors configure 行改错误码；units Presenter 补建面/换帧；glossary 补 SurfaceErr。 | 设计表示层与 B9 壳芯一致；B10 draw 可开工。 |
 | 2026-10-14 | L9 | B9 返工轮 L9 复审（子代理）：有条件放行→3 ❌ 同场收口——glossary 补 SurfaceOpErr、SurfaceErr 去死变体并分工 SurfaceErr/SurfaceOpErr、api/data/errors 补登并改壳注释码一致；附注 call-chain B9 行/deps 共用闸注/lib.rs 话术。09-review.md=放行；20 测试绿。 | B9 表示层与壳芯一致 |
+| 2026-10-14 | 返工 | 作废旧 09 报告 | 09-review.md |
+| 2026-10-14 | L7 | 小返工（图示补细节）：call-chain 链1 加 surface_attach（建平台表面+make_current）与 create_render_pipeline（emit_stage→reflection_register→ensure_reuse）；链2 加 surface_swap（换帧/Web 空操作）。图随表（链节点结构未变，仅补函数级步骤）。 | 图示与 B7/B9 实现对齐；图已原文贴入会话。 |
+| 2026-10-14 | L9 | 图示补细节轮 L9 复审（子代理）：有条件放行→3 ❌ 同场收口——链1 拆 shader/管线两步并对齐源行、链2 surface_swap 归属 context（加 participant C）；附注链2 挂点号/ensure_program 实名/壳注释去 design 内号（决定⑪→错误纪律，9 文件）。09-review.md=放行；20 测试绿。 | 图示与源表/B7·B9 实现一致 |

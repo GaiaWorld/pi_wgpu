@@ -25,7 +25,7 @@ pub struct Surface<'surface> {
 }
 impl Surface<'_> {
     /// 配置呈现。先全量校验（宽高≥1、present×alpha 仅 (Fifo, Opaque)），全部通过才建平台表面并写入配置。
-    /// 违约（决定⑪，非 Result 面）：校验类=log::error!(SurfaceErr)；建面失败=log::error!(SurfaceOpErr)，_cfg 保持未写——绝不留半配置。
+    /// 违约（错误纪律，非 Result 面）：校验类=log::error!(SurfaceErr)；建面失败=log::error!(SurfaceOpErr)，_cfg 保持未写——绝不留半配置。
     /// 登记差异：格式合法性未在查（Device 不持 Caps；纹理创建时已按 caps 过，surface 复用同能力面）。 @public
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) { crate::surface_inner::configure_impl(self, device, config) }
     /// 取当前帧（封闭四态错误面；与 request_device/create_surface 同属全库三处显式 Result 面之一）。成功=帧租约 SurfaceTexture；
@@ -52,7 +52,7 @@ impl core::fmt::Debug for Surface<'_> { fn fmt(&self, f: &mut core::fmt::Formatt
 #[derive(Debug, thiserror::Error)] pub enum SurfaceError { #[error("timeout")] Timeout, #[error("outdated")] Outdated, #[error("lost")] Lost, #[error("out of memory")] OutOfMemory }
 /// 表面能力快照（查询面数据，不承载 configure 的合法组合合同）。 @public
 #[derive(Debug, Clone)] pub struct SurfaceCapabilities { pub formats: Vec<TextureFormat>, pub present_modes: Vec<PresentMode>, pub alpha_modes: Vec<CompositeAlphaMode> }
-/// surface 错误码（configure 等非 Result 面=log 短码，决定⑪）。 @internal
+/// surface 错误码（configure 等非 Result 面=log 短码，错误纪律）。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SurfaceErr {
     /// 未配置即取帧/换帧。

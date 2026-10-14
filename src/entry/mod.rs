@@ -112,8 +112,8 @@ impl Device {
     /// 违约后果同创建族共同合同。 @public
     pub fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Sampler { crate::entry_inner::create_sampler_impl(self, desc) }
     /// 建着色器模块。WGSL/GLSL 经 naga 转译为 GLSL ES 3.0（出码延到管线创建）。
-    /// 失败面（决定⑪，非 Result 面）：源语法/转译错=log::error!(短码)+降级（无有效产物、不留半建），
-    /// 真错延后由管线创建（emit_stage/ensure_program）以错误码暴露；诊断原文走 log。 @public
+    /// 失败面（错误纪律，非 Result 面）：源语法/转译错=log::error!(短码)+降级（无有效产物、不留半建），
+    /// 真错延后由管线创建（shader.emit_stage / objects.ensure_reuse(ReuseKey::Program)）以错误码暴露；诊断原文走 log。 @public
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor<'_>) -> ShaderModule { crate::entry_inner::create_shader_impl(self, desc) }
     /// 建绑定组布局。检查项：条目 binding 域合法、visibility 非空、数组长度>0、类型在兼容子集内。
     /// 违约后果同创建族共同合同。 @public

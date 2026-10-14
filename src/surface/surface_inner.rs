@@ -1,6 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! surface 芯 · 附着→配置→取帧→换帧。契约权威文本住壳面注释。
-//! 错误处理（决定⑪）：configure 非 Result 面=log::error!(SurfaceErr)；get_current 走四态 Result。
+//! 错误处理（错误纪律）：configure 非 Result 面=log::error!(SurfaceErr)；get_current 走四态 Result。
 use crate::entry::Device;
 use crate::surface::{Surface, SurfaceCapabilities, SurfaceErr, SurfaceError, SurfaceTarget, SurfaceTexture};
 use crate::types::*;

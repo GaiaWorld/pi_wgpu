@@ -20,7 +20,7 @@
 
 ## 图画法（源=上表；两图）
 
-### 链1·初始化（sequenceDiagram）
+### 链1·初始化（sequenceDiagram，含链3/链10 挂点）
 
 ```mermaid
 sequenceDiagram
@@ -42,10 +42,13 @@ sequenceDiagram
     Note over E,C: Web 形态：configure 必须先于本步
     E-->>U: (Device,Queue)|错误②（设备未建）
     U->>S: configure(合法组合校验→无半配置)
+    S->>C: surface_attach（建平台表面+make_current）
+    U->>E: create_shader_module（shader.compile_to_es300→reflection_register）
+    U->>E: create_render_pipeline（shader.emit_stage 按入口出 ES300→objects.ensure_reuse）
 ```
 
 
-### 链2·每帧（sequenceDiagram，含链4/6/7 挂点）
+### 链2·每帧（sequenceDiagram，含链5/6/8 挂点）
 
 ```mermaid
 sequenceDiagram
@@ -56,6 +59,7 @@ sequenceDiagram
     participant B as binds
     participant M as state
     participant O as objects
+    participant C as context
     U->>S: get_current_texture
     S->>S: get_current_impl 映射（失→四态；Lost→gen_bump→O.invalidate_generations 降级重建）
     S-->>U: SurfaceTexture(租约)
@@ -68,6 +72,7 @@ sequenceDiagram
     end
     U--xD: scope 退出 → Drop=end（释放通道锁·资源方可销毁）
     U->>S: present(self 自消费)
+    S->>C: surface_swap（桌面/安卓换帧；Web 空操作）
     Note over S: Web=浏览器隐式合成；桌面/安卓=换帧+栅栏
     U->>O: 资源 drop→release_reuse（归零即删）→M.drop_invalidate 刷失
 ```

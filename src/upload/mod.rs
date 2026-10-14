@@ -1,11 +1,11 @@
 // 设计：pi-wgpu-rebuild
 //! upload · 即时写路径：写入在调用内生效（录制即执行的直接推论——不存在提交批的等待点）。
 //! 隐藏决定=写入生效时机（即时，无延迟队列）。契约权威文本住本面注释。
-//! 错误处理（决定⑪）：公开非 Result 面 → 违约=log::error!(短码)，debug 档不下发、release 档留痕+下发（不谎报）。
+//! 错误处理（错误纪律）：公开非 Result 面 → 违约=log::error!(短码)，debug 档不下发、release 档留痕+下发（不谎报）。
 use crate::entry::{Buffer, Queue};
 use crate::types::{BufferAddress, Extent3d, ImageCopyTexture, ImageDataLayout};
 
-/// 上传错误码（上递/记录；诊断原文走 log::error!，短码，决定⑪）。 @internal
+/// 上传错误码（上递/记录；诊断原文走 log::error!，短码，错误纪律）。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UploadErr {
     /// 目标资源句柄已死（None）。
@@ -24,7 +24,7 @@ pub(crate) enum UploadErr {
 
 impl Queue {
     /// 写缓冲：offset+data 长度须落在缓冲范围内、offset 为 4 字节倍数。
-    /// 违约（决定⑪）：log::error!(UploadErr)；debug 档不下发，release 档留痕后仍下发——
+    /// 违约（错误纪律）：log::error!(UploadErr)；debug 档不下发，release 档留痕后仍下发——
     /// 由驱动自行拒绝并在错误队列留证，绝不谎报写入成功。 @public
     pub fn write_buffer(&self, buffer: &Buffer, offset: BufferAddress, data: &[u8]) { crate::upload_inner::write_buffer_impl(self, buffer, offset, data) }
     /// 写纹理：偏移须 4 字节倍数、bytes_per_row 给定时须 256 倍数。

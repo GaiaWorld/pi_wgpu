@@ -1,7 +1,7 @@
 // 设计：pi-wgpu-rebuild
 //! shader · 着色器桥：源→GLSL ES 3.0 转译 + 资源反射登记。隐藏决定=转译输出形态与反射契约。
 //! 契约权威文本住本面注释；本面全部 @internal。
-//! 错误处理（决定⑪）：解析/校验/出码失败=短错误码上递，诊断原文走 log::error!，不 panic。
+//! 错误处理（错误纪律）：解析/校验/出码失败=短错误码上递，诊断原文走 log::error!，不 panic。
 use crate::binds::SlotTable;
 use crate::entry::{PipelineLayout, ShaderModule};
 use crate::types::{Label, ShaderSource};
@@ -30,7 +30,7 @@ pub(crate) struct RefEntry {
     pub(crate) name: String,
 }
 
-/// shader 错误码（上递；诊断原文走 log::error!，不进错误值——短码，决定⑪）。 @internal
+/// shader 错误码（上递；诊断原文走 log::error!，不进错误值——短码，错误纪律）。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShaderErr {
     /// WGSL 前端解析失败。

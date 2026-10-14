@@ -1,6 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! upload 芯 · 即时写路径：校验（错误码记录）→ 锁附着 → 驱动子写。契约权威文本住壳面注释。
-//! 错误处理（决定⑪）：违约记 log::error!(UploadErr)；debug 档不下发、release 档留痕+下发（不谎报）。
+//! 错误处理（错误纪律）：违约记 log::error!(UploadErr)；debug 档不下发、release 档留痕+下发（不谎报）。
 use std::num::NonZeroU32;
 
 use pi_glow::HasContext;

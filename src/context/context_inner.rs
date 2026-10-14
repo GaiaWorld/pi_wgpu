@@ -44,7 +44,7 @@ impl raw_window_handle::HasDisplayHandle for WindowFwd<'_> {
     fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> { self.0.display_handle() }
 }
 
-/// 表面操作错误码（决定⑪；诊断原文走 log::error!）。 @internal
+/// 表面操作错误码（错误纪律；诊断原文走 log::error!）。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SurfaceOpErr {
     /// 附着未建立。
