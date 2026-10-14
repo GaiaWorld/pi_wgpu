@@ -23,7 +23,7 @@ pi_egl = { path = "../pi_egl" }
 pi_glow = { package = "pi_glow", path = "../pi_glow" }
 pi_share = { path = "../pi_share" }
 pi_hash = { path = "../pi_hash" }
-naga = { version = "25.0", features = ["glsl-in", "glsl-out"] }
+naga = { version = "25.0", features = ["wgsl-in", "glsl-in", "glsl-out"] }
 thiserror = "1.0"
 log = "0.4"
 raw-window-handle = "0.6"

@@ -51,8 +51,8 @@ use std::path::Path;
 /// 渲染管线：持转译产物的可复用程序对象（复用键=源码转译哈希）与顶点属性布局（复用键=布局哈希）。
 /// 复用对象引用归零时物理删除并刷失镜像，由对象层保证。 @public
 #[derive(Debug)] pub struct RenderPipeline { pub(crate) _program: crate::objects::Reusable }
-/// 着色器模块：持反射登记表——(set,binding)↔location/name 映射，与转译哈希键同生命周期。 @public
-#[derive(Debug)] pub struct ShaderModule { pub(crate) _refl: crate::shader::ReflectionTable }
+/// 着色器模块：持反射登记表（(set,binding)↔类别/名映射）与转译产物（IR，供管线创建按入口出码）。 @public
+#[derive(Debug)] pub struct ShaderModule { pub(crate) _refl: crate::shader::ReflectionTable, pub(crate) _compiled: crate::shader::CompiledEs300 }
 
 /// Instance 的创建与顶层查询入口。 @public
 impl Instance {
