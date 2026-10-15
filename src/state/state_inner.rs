@@ -29,7 +29,7 @@ const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EB;
 const GL_UNIFORM_BUFFER: u32 = 0x8A11;
 /// 纹理单元基号与 ACTIVE_TEXTURE 回读参数号。
 const GL_TEXTURE0: u32 = 0x84C0;
-const GL_ACTIVE_TEXTURE: u32 = 0x8480;
+const GL_ACTIVE_TEXTURE: u32 = 0x84E0;
 /// TEXTURE_2D 目标号。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 /// 深度开关/写掩码/比较参数号。
@@ -44,7 +44,7 @@ const GL_FRONT_FACE: u32 = 0x0B46;
 const GL_BLEND: u32 = 0x0BE2;
 /// 裁剪开关与框参数号。
 const GL_SCISSOR_TEST: u32 = 0x0C11;
-const GL_SCISSOR_BOX: u32 = 0x0C22;
+const GL_SCISSOR_BOX: u32 = 0x0410;
 /// 视口与深度区间参数号。
 const GL_VIEWPORT: u32 = 0x0BA2;
 const GL_DEPTH_RANGE: u32 = 0x0B70;
@@ -683,10 +683,11 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             if (gl.get_parameter_i32(GL_BLEND) != 0) != exp_blend {
                 set_enable(gl, GL_BLEND, exp_blend);
             }
-            let mut box4 = [0i32; 4];
-            gl.get_parameter_i32_slice(GL_SCISSOR_BOX, &mut box4);
-            if m.scissor != Some(box4) {
-                if let Some(b) = m.scissor {
+            // 裁剪框：镜像登记过才回读比对（未设=不发也不读——盲读不可回读的上下文 pname 会污染错误队列）。
+            if let Some(b) = m.scissor {
+                let mut box4 = [0i32; 4];
+                gl.get_parameter_i32_slice(GL_SCISSOR_BOX, &mut box4);
+                if Some(box4) != Some(b) {
                     gl.scissor(b[0], b[1], b[2], b[3]);
                 }
             }

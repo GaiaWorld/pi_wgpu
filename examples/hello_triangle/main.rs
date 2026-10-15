@@ -188,6 +188,7 @@ impl ApplicationHandler for App {
                         };
                         let desc = RenderPassDescriptor { label: Some("tri"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
                         let mut pass = encoder.begin_render_pass(&desc);
+                        pass.set_viewport(0., 0., s.config.width as f32, s.config.height as f32, 0., 1.);
                         pass.set_pipeline(&s.pipeline);
                         pass.set_vertex_buffer(0, &s.vbuf, 0, 24);
                         pass.draw(0, 3);
