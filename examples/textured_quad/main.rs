@@ -87,7 +87,7 @@ impl ApplicationHandler for App {
         // 运行时纹理：USAGE=绑定采样+可写入，mip 单级。
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("grad"),
-            usage: TextureUsages(TextureUsages::TEXTURE_BINDING.0 | TextureUsages::COPY_DST.0),
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             dim: TextureDimension::D2,
             size: Extent3d { width: TEX_W, height: TEX_H, depth_or_array_layers: 1 },
             format: TextureFormat::Rgba8Unorm,
@@ -161,7 +161,7 @@ impl ApplicationHandler for App {
             fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: Some("main"),
-                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites(0xF) })],
+                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })],
             }),
             depth_stencil: None,
             multisample: MultisampleState::default(),

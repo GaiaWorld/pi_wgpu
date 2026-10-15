@@ -44,7 +44,7 @@
 | BufferBindingType | Uniform/Storage{read_only} | 仅 Uniform | storage buffer 无 |
 | TextureSampleType | Float{filterable}/Sint/Uint/**Depth** | 3（缺 Depth） | 深度采样未收 |
 | BlendFactor | 17 值（含 Src/Dst/OneMinus*/Constant/…） | 6（Zero/One/SrcAlpha/OneMinusSrcAlpha/DstAlpha/OneMinusDstAlpha） | 裁剪 |
-| ColorWrites | 具名常量（RED/GREEN/BLUE/ALPHA/COLOR/ALL） | 裸 u8 位集（无具名常量） | 缺常量面 |
+| ColorWrites | 具名常量（RED/GREEN/BLUE/ALPHA/COLOR/ALL） | R/G/B/A/ALL 具名（u8 宽，官方 u32——挂接批注意位宽对表） | 常量面已齐（B20） |
 | AddressMode | ClampToEdge/Repeat/**MirrorRepeat** | ClampToEdge/Repeat/**MirroredRepeat** | **更名** |
 | Face | {Front,Back} | {**Undef**,Front,Back} | **自加 Undef 哨兵** |
 | PresentMode | 6（AutoVsync/AutoNoVsync/Fifo/FifoRelaxed/Immediate/Mailbox） | 3（Fifo/Mailbox/Immediate） | 余值缺；configure 合法面仅 Fifo |
@@ -62,6 +62,7 @@
 | 项 | 说明 |
 |---|---|
 | Backends::EMPTY | 不选后端哨兵 |
+| `|` 位并集算子 | 六个位集合（Backends/Features/TextureUsages/BufferUsages/ShaderStages/ColorWrites）经 flag_bitor! 宏提供 BitOr（B20）；`&`/contains/BitOrAssign 未承诺，后续批按需补 |
 | Face::Undef | 朝向哨兵（§2 Face 行） |
 | COPY_BYTES_PER_ROW_ALIGNMENT / COPY_BUFFER_ALIGNMENT / VERTEX_STRIDE_ALIGNMENT | 校验常量 |
 | GlslVersion/GlslFragment/GlslVertex/GlslSource/WgslSource | 源包装（wgpu 用 naga 类型） |
@@ -74,6 +75,6 @@
 
 ## 5. 显式断裂（进迁移清单，禁静默）
 
-- 挂接件逐项补对表清单：① Limits 全字段；② TextureFormat 压缩族；③ VertexFormat 全量；④ Buffer/TextureUsages 全位；⑤ ShaderStages COMPUTE/TASK/MESH；⑥ BufferBindingType Storage；⑦ PresentMode 余值；⑧ CompositeAlphaMode 余值；⑨ MemoryHints Manual+默认口径；⑩ DeviceDescriptor.trace；⑪ TextureSampleType Depth；⑫ BlendFactor 余值；⑬ ColorWrites 具名常量。
+- 挂接件逐项补对表清单：① Limits 全字段；② TextureFormat 压缩族；③ VertexFormat 全量；④ Buffer/TextureUsages 全位；⑤ ShaderStages COMPUTE/TASK/MESH；⑥ BufferBindingType Storage；⑦ PresentMode 余值；⑧ CompositeAlphaMode 余值；⑨ MemoryHints Manual+默认口径；⑩ DeviceDescriptor.trace；⑪ TextureSampleType Depth；⑫ BlendFactor 余值；~~⑬ ColorWrites 具名常量~~（B20 已落）。
 - 更名待决：AddressMode.MirroredRepeat、PowerPreference.None→Default、MemoryHints.MemoryUsage→Memory、ImageDataLayout/ImageCopyTexture（wgpu→TexelCopy*）——挂接件决定是否随更（见 §1/§2）。
 - request_device 的 trace_path=丢弃（lib_inner）；DeviceDescriptor.trace 无字段。

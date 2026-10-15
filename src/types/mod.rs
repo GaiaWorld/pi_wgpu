@@ -19,10 +19,13 @@ use std::num::NonZeroU32;
 /// 缓冲字节大小的正值包装：严格大于 0，上限 2^32-1（兼容子集差异：官方为 u64 域）。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, PartialEq, Eq)] pub struct BufferSize(pub NonZeroU32);
 impl BufferSize { pub const fn get(self) -> u64 { self.0.get() as u64 } }
+/// 位集合 `|` 算子生成宏：位并集（组合两个 flags 的位）——所有位集合壳共用；不校验（超集位由消费方校验断言）。`&`/contains 等其余算子后续批按需补。
+macro_rules! flag_bitor { ($t:ty) => { impl core::ops::BitOr for $t { type Output = Self; fn bitor(self, rhs: Self) -> Self { Self(self.0 | rhs.0) } } }; }
 
 /// 后端选位集合（位标记）。本库 GL 单面：GL=1 是唯一有效位，EMPTY=0 表示不选后端；其余位恒不可用。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)] pub struct Backends(pub u32);
 impl Backends { pub const GL: Self = Self(1); pub const EMPTY: Self = Self(0); }
+flag_bitor!(Backends);
 
 /// Instance 创建输入。默认 backends=GL；填其他位只会在创建校验处失败，不会多出后端。
 #[derive(Debug, Clone, Copy)] pub struct InstanceDescriptor { pub backends: Backends }
@@ -38,6 +41,7 @@ impl Default for MemoryHints { fn default() -> Self { Self::Auto } }
 
 /// 能力位集合（u64 位标记）。有效位由 caps 探测填充；探测不到的能力恒 0，不虚报。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default)] pub struct Features(pub u64);
+flag_bitor!(Features);
 
 /// 资源上限子集。request_device 拿它与能力快照对照，任一超出即失败。
 /// TODO-DECL：字段集为兼容子集，挂接批与官方全量 Limits 字段对表补齐。
@@ -50,12 +54,15 @@ impl Default for Limits { fn default() -> Self { Self { max_texture_dimension_2d
 /// 纹理用途位集合（组合）；支持位之外在 create_texture 校验处断言。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default)] pub struct TextureUsages(pub u32);
 impl TextureUsages { pub const COPY_DST: Self = Self(1); pub const RENDER_ATTACHMENT: Self = Self(2); pub const TEXTURE_BINDING: Self = Self(4); }
+flag_bitor!(TextureUsages);
 /// 缓冲用途位集合（组合）；空组合与非支持位在 create_buffer 校验处断言。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default)] pub struct BufferUsages(pub u32);
 impl BufferUsages { pub const VERTEX: Self = Self(1); pub const INDEX: Self = Self(2); pub const UNIFORM: Self = Self(4); pub const COPY_DST: Self = Self(8); }
+flag_bitor!(BufferUsages);
 /// 绑定可见阶段位集合；空集在 create_bind_group_layout 校验处断言。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default)] pub struct ShaderStages(pub u32);
 impl ShaderStages { pub const VERTEX: Self = Self(1); pub const FRAGMENT: Self = Self(2); }
+flag_bitor!(ShaderStages);
 
 /// 尺寸三元组，单位纹素/元素；用它的场合要求宽高≥1（0 值在创建校验处断言）。
 #[derive(Debug, Clone, Copy, Default)] pub struct Extent3d { pub width: u32, pub height: u32, pub depth_or_array_layers: u32 }
@@ -158,6 +165,8 @@ use std::num::NonZeroU16;
 #[derive(Debug, Clone, Copy)] pub struct BlendState { pub color: BlendComponent, pub alpha: BlendComponent }
 /// 通道级颜色写掩码（位集合）。
 #[repr(transparent)] #[derive(Debug, Clone, Copy, Default)] pub struct ColorWrites(pub u8);
+impl ColorWrites { pub const R: Self = Self(1); pub const G: Self = Self(2); pub const B: Self = Self(4); pub const A: Self = Self(8); pub const ALL: Self = Self(15); }
+flag_bitor!(ColorWrites);
 /// 输出目标：格式 + 可选混合 + 写掩码；格式须与实际渲染附件一致。
 #[derive(Debug, Clone, Copy)] pub struct ColorTargetState { pub format: TextureFormat, pub blend: Option<BlendState>, pub write_mask: ColorWrites }
 /// 片元着色器段；fragment=None 表示无颜色写回。

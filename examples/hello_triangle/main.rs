@@ -154,7 +154,7 @@ impl ApplicationHandler for App {
             fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: Some("main"),
-                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites(0xF) })],
+                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })],
             }),
             depth_stencil: None,
             multisample: MultisampleState::default(),
