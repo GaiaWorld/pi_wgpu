@@ -87,8 +87,10 @@ pub struct Texture {
     pub(crate) _layers: u32,
 }
 impl Texture {
-    /// 建纹理视图（唯一 @public 视图入口）：维度须与纹理相容（Cube/CubeArray 需层数%6==0）；
-    /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。 @public
+    /// 建纹理视图（唯一 @public 视图入口，形制=25.0.2 九字段）：dimension/format/usage/count
+    /// None=按宿主纹理取默认（维度依纹理维/层数推定）；维度相容（Cube/CubeArray 需层数%6==0）；
+    /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。
+    /// 本层「取整张」：base/count 切片暂不生效（越界接表归实现批）。 @public
     pub fn create_view(&self, desc: &TextureViewDescriptor<'_>) -> TextureView {
         crate::entry_inner::create_view_impl(self, desc)
     }

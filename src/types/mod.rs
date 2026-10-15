@@ -90,24 +90,88 @@ impl Default for MemoryHints {
 pub struct Features(pub u64);
 flag_bitor!(Features);
 
-/// 资源上限子集。request_device 拿它与能力快照对照，任一超出即失败。
-/// TODO-DECL：字段集为兼容子集，挂接批与官方全量 Limits 字段对表补齐。
-#[derive(Debug, Clone, Copy)]
+/// 资源上限全表（字段名与序照抄 wgpu 25.0.2，36 项）。request_device 拿它与能力快照逐字段对照，
+/// 任一超出即失败。Default=静态下限拍板（宁低报不虚高；0=本层无该面，真机能力以 caps 快照为准）：
+/// 尺寸/绑定类取 ES/WebGL2 spec 保底与槽表实际容量（ubo/sampler 各 16 共享记 16/16）；
+/// 自定义旧字段 max_uniform_buffer_bindings 退役，语义对位 max_uniform_buffers_per_shader_stage=16。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Limits {
+    pub max_texture_dimension_1d: u32,
     pub max_texture_dimension_2d: u32,
-    pub max_buffer_size: BufferAddress,
+    pub max_texture_dimension_3d: u32,
+    pub max_texture_array_layers: u32,
     pub max_bind_groups: u32,
-    pub max_uniform_buffer_bindings: u32,
+    pub max_bindings_per_bind_group: u32,
+    pub max_dynamic_uniform_buffers_per_pipeline_layout: u32,
+    pub max_dynamic_storage_buffers_per_pipeline_layout: u32,
+    pub max_sampled_textures_per_shader_stage: u32,
+    pub max_samplers_per_shader_stage: u32,
+    pub max_storage_buffers_per_shader_stage: u32,
+    pub max_storage_textures_per_shader_stage: u32,
+    pub max_uniform_buffers_per_shader_stage: u32,
+    pub max_binding_array_elements_per_shader_stage: u32,
+    pub max_binding_array_sampler_elements_per_shader_stage: u32,
+    pub max_uniform_buffer_binding_size: u32,
+    pub max_storage_buffer_binding_size: u32,
+    pub max_vertex_buffers: u32,
+    pub max_buffer_size: BufferAddress,
+    pub max_vertex_attributes: u32,
+    pub max_vertex_buffer_array_stride: u32,
+    pub min_uniform_buffer_offset_alignment: u32,
+    pub min_storage_buffer_offset_alignment: u32,
+    pub max_inter_stage_shader_components: u32,
+    pub max_color_attachments: u32,
+    pub max_color_attachment_bytes_per_sample: u32,
+    pub max_compute_workgroup_storage_size: u32,
+    pub max_compute_invocations_per_workgroup: u32,
+    pub max_compute_workgroup_size_x: u32,
+    pub max_compute_workgroup_size_y: u32,
+    pub max_compute_workgroup_size_z: u32,
+    pub max_compute_workgroups_per_dimension: u32,
+    pub min_subgroup_size: u32,
+    pub max_subgroup_size: u32,
     pub max_push_constant_size: u32,
+    pub max_non_sampler_bindings: u32,
 }
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            max_texture_dimension_1d: 2048,
             max_texture_dimension_2d: 4096,
-            max_buffer_size: 1 << 28,
+            max_texture_dimension_3d: 2048,
+            max_texture_array_layers: 256,
             max_bind_groups: 4,
-            max_uniform_buffer_bindings: 16,
+            max_bindings_per_bind_group: 32,
+            max_dynamic_uniform_buffers_per_pipeline_layout: 12,
+            max_dynamic_storage_buffers_per_pipeline_layout: 0,
+            max_sampled_textures_per_shader_stage: 16,
+            max_samplers_per_shader_stage: 16,
+            max_storage_buffers_per_shader_stage: 0,
+            max_storage_textures_per_shader_stage: 0,
+            max_uniform_buffers_per_shader_stage: 16,
+            max_binding_array_elements_per_shader_stage: 0,
+            max_binding_array_sampler_elements_per_shader_stage: 0,
+            max_uniform_buffer_binding_size: 16384,
+            max_storage_buffer_binding_size: 0,
+            max_vertex_buffers: 16,
+            max_buffer_size: 1 << 28,
+            max_vertex_attributes: 16,
+            max_vertex_buffer_array_stride: 2048,
+            min_uniform_buffer_offset_alignment: 256,
+            min_storage_buffer_offset_alignment: 256,
+            max_inter_stage_shader_components: 60,
+            max_color_attachments: 4,
+            max_color_attachment_bytes_per_sample: 128,
+            max_compute_workgroup_storage_size: 0,
+            max_compute_invocations_per_workgroup: 0,
+            max_compute_workgroup_size_x: 0,
+            max_compute_workgroup_size_y: 0,
+            max_compute_workgroup_size_z: 0,
+            max_compute_workgroups_per_dimension: 0,
+            min_subgroup_size: 0,
+            max_subgroup_size: 0,
             max_push_constant_size: 0,
+            max_non_sampler_bindings: 32,
         }
     }
 }
@@ -389,19 +453,22 @@ pub struct TextureDescriptor<'a> {
     pub sample_count: u32,
     pub view_formats: &'a [TextureFormat],
 }
-/// 纹理视图描述：全默认即「取整张」；维度/宽高面须与宿主纹理兼容。
-#[derive(Debug, Clone, Copy)]
+/// 纹理视图描述（形制照抄 wgpu 25.0.2 九字段）。None=按宿主纹理取默认（上游语义）：
+/// format=宿主格式、dimension=按宿主维度/层数推定、usage=宿主全量、count=None=余量全取。
+/// 本层「取整张」：base/count 切片暂不生效（视图目标覆盖逻辑不变），越界切片接表归实现批。
+/// 全 Default 即「取整张」——TODO-DECL 便捷构造由 Default derive 闭合。
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TextureViewDescriptor<'a> {
     pub label: Label<'a>,
-    pub format: TextureFormat,
-    pub dimension: TextureViewDimension,
+    pub format: Option<TextureFormat>,
+    pub dimension: Option<TextureViewDimension>,
+    pub usage: Option<crate::types::TextureUsages>,
     pub aspect: TextureAspect,
     pub base_mip_level: u32,
-    pub level_count: Option<NonZeroU32>,
+    pub mip_level_count: Option<u32>,
     pub base_array_layer: u32,
-    pub array_layer_count: Option<NonZeroU32>,
+    pub array_layer_count: Option<u32>,
 }
-// TODO-DECL：TextureViewDescriptor 的「按宿主纹理取默认」便捷构造，挂接批定形。
 
 /// 过滤模式。
 #[derive(Debug, Clone, Copy)]
@@ -769,12 +836,14 @@ pub struct RenderPipelineDescriptor<'a> {
 }
 
 /// GLSL 段的归属阶段（对位上游 naga::ShaderStage）：本层不泄 naga，公开侧用本地词汇；
-/// 与 naga 侧的等价映射由转译芯承担（TODO-DECL 后续批）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShaderStage {
-    Vertex,
-    Fragment,
-}
+/// 与 naga 侧的等价映射已由转译芯 From 收敛实现（desc-align-wgpu25 实现批）。
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub enum ShaderStage {
+//     Vertex,
+//     Fragment,
+// }
+pub use naga::ShaderStage;
+
 /// 着色器源（形制对齐 wgpu 25.0.2 的 Wgsl/Glsl 在场变体；SpirV/Naga 属 feature 死面不入，
 /// 变体形制对齐 + 本枚举 #[non_exhaustive] 保留后续扩充余地）。WGSL 走 naga 转译为 GLSL ES 3.0；
 /// GLSL 按阶段单源，目标版本由源码 #version 头自承载（校验透传）。
@@ -795,9 +864,9 @@ pub struct ShaderModuleDescriptor<'a> {
     pub source: ShaderSource<'a>,
 }
 
-/// 设备创建输入。required_features/required_limits 与 Adapter 能力快照全量对照：
+/// 设备创建输入。required_features/required_limits 与 Adapter 能力快照全量逐字段对照：
 /// 任一超出=Err(RequestDeviceError)——设备未建，Adapter 仍可反复重试。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DeviceDescriptor<'a> {
     pub label: Label<'a>,
     pub required_features: Features,

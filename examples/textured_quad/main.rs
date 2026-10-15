@@ -152,13 +152,7 @@ impl ApplicationHandler for App {
         });
         let view = texture.create_view(&TextureViewDescriptor {
             label: Some("v"),
-            format: TextureFormat::Rgba8Unorm,
-            dimension: TextureViewDimension::D2,
-            aspect: TextureAspect::All,
-            base_mip_level: 0,
-            level_count: None,
-            base_array_layer: 0,
-            array_layer_count: None,
+            ..Default::default()
         });
         let bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("qbgl"),

@@ -43,16 +43,16 @@ fn validate(
     })
 }
 
-// 设计预期（伪码·示意·非唯一实现）：
-/// 本地阶段词汇→naga 侧（desc-align-wgpu25 实现批：公开面不泄 naga，映射收敛于此）。
-impl From<crate::types::ShaderStage> for naga::ShaderStage {
-    fn from(s: crate::types::ShaderStage) -> Self {
-        match s {
-            crate::types::ShaderStage::Vertex => Self::Vertex,
-            crate::types::ShaderStage::Fragment => Self::Fragment,
-        }
-    }
-}
+// // 设计预期（伪码·示意·非唯一实现）：
+// // / 本地阶段词汇→naga 侧（desc-align-wgpu25 实现批：公开面不泄 naga，映射收敛于此）。
+// impl From<crate::types::ShaderStage> for naga::ShaderStage {
+//     fn from(s: crate::types::ShaderStage) -> Self {
+//         match s {
+//             crate::types::ShaderStage::Vertex => Self::Vertex,
+//             crate::types::ShaderStage::Fragment => Self::Fragment,
+//         }
+//     }
+// }
 
 // 1. WGSL：前端解析校验（错误=emit_to_string 记 log 后上递 ParseWgsl）→ 校验取信息。
 // 2. GLSL：按阶段单源前端解析校验（语法错=上递 ParseGlsl，诊断记 log；defines 逐对注入 naga 预处理）。

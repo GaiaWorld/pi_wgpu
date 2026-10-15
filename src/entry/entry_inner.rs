@@ -49,16 +49,9 @@ fn nz(name: GlHandle) -> NonZeroU32 {
     NonZeroU32::new(name.0).unwrap_or_else(|| panic!("entry 断言: 非法零句柄名"))
 }
 
-/// 能力快照→上限（兼容子集下限拍板；宁低报不虚高，不逐项真探）。
+/// 能力快照→上限全表（36 字段静态保底拍板=宁低报不虚高，不逐项真探；字段值表住 types::Limits）。
 fn limits_of(_c: &caps::Caps) -> Limits {
-    Limits {
-        max_texture_dimension_2d: 4096,
-        max_buffer_size: 1 << 28,
-        max_bind_groups: 4,
-        max_uniform_buffer_bindings: 16,
-        // desc-align-wgpu25：GL 路无 push constants，下限拍板恒 0（如实不谎报）。
-        max_push_constant_size: 0,
-    }
+    Limits::default()
 }
 
 pub(crate) fn new_impl(d: &InstanceDescriptor) -> Instance {
@@ -106,6 +99,50 @@ pub(crate) fn request_adapter_impl(_o: &RequestAdapterOptions<'_>) -> Option<Ada
     Some(Adapter { _caps: c })
 }
 
+/// required 与快照逐字段对照（desc-align-wgpu25 Limits 全表面：36 项任一超出=true）。
+fn over_limits(r: &Limits, cap: &Limits) -> bool {
+    r.max_texture_dimension_1d > cap.max_texture_dimension_1d
+        || r.max_texture_dimension_2d > cap.max_texture_dimension_2d
+        || r.max_texture_dimension_3d > cap.max_texture_dimension_3d
+        || r.max_texture_array_layers > cap.max_texture_array_layers
+        || r.max_bind_groups > cap.max_bind_groups
+        || r.max_bindings_per_bind_group > cap.max_bindings_per_bind_group
+        || r.max_dynamic_uniform_buffers_per_pipeline_layout
+            > cap.max_dynamic_uniform_buffers_per_pipeline_layout
+        || r.max_dynamic_storage_buffers_per_pipeline_layout
+            > cap.max_dynamic_storage_buffers_per_pipeline_layout
+        || r.max_sampled_textures_per_shader_stage > cap.max_sampled_textures_per_shader_stage
+        || r.max_samplers_per_shader_stage > cap.max_samplers_per_shader_stage
+        || r.max_storage_buffers_per_shader_stage > cap.max_storage_buffers_per_shader_stage
+        || r.max_storage_textures_per_shader_stage > cap.max_storage_textures_per_shader_stage
+        || r.max_uniform_buffers_per_shader_stage > cap.max_uniform_buffers_per_shader_stage
+        || r.max_binding_array_elements_per_shader_stage
+            > cap.max_binding_array_elements_per_shader_stage
+        || r.max_binding_array_sampler_elements_per_shader_stage
+            > cap.max_binding_array_sampler_elements_per_shader_stage
+        || r.max_uniform_buffer_binding_size > cap.max_uniform_buffer_binding_size
+        || r.max_storage_buffer_binding_size > cap.max_storage_buffer_binding_size
+        || r.max_vertex_buffers > cap.max_vertex_buffers
+        || r.max_buffer_size > cap.max_buffer_size
+        || r.max_vertex_attributes > cap.max_vertex_attributes
+        || r.max_vertex_buffer_array_stride > cap.max_vertex_buffer_array_stride
+        || r.min_uniform_buffer_offset_alignment > cap.min_uniform_buffer_offset_alignment
+        || r.min_storage_buffer_offset_alignment > cap.min_storage_buffer_offset_alignment
+        || r.max_inter_stage_shader_components > cap.max_inter_stage_shader_components
+        || r.max_color_attachments > cap.max_color_attachments
+        || r.max_color_attachment_bytes_per_sample > cap.max_color_attachment_bytes_per_sample
+        || r.max_compute_workgroup_storage_size > cap.max_compute_workgroup_storage_size
+        || r.max_compute_invocations_per_workgroup > cap.max_compute_invocations_per_workgroup
+        || r.max_compute_workgroup_size_x > cap.max_compute_workgroup_size_x
+        || r.max_compute_workgroup_size_y > cap.max_compute_workgroup_size_y
+        || r.max_compute_workgroup_size_z > cap.max_compute_workgroup_size_z
+        || r.max_compute_workgroups_per_dimension > cap.max_compute_workgroups_per_dimension
+        || r.min_subgroup_size > cap.min_subgroup_size
+        || r.max_subgroup_size > cap.max_subgroup_size
+        || r.max_push_constant_size > cap.max_push_constant_size
+        || r.max_non_sampler_bindings > cap.max_non_sampler_bindings
+}
+
 pub(crate) fn request_device_impl(
     a: &Adapter,
     d: &DeviceDescriptor<'_>,
@@ -117,12 +154,7 @@ pub(crate) fn request_device_impl(
     }
     let cap = limits_of(&a._caps);
     let r = d.required_limits;
-    if r.max_texture_dimension_2d > cap.max_texture_dimension_2d
-        || r.max_buffer_size > cap.max_buffer_size
-        || r.max_bind_groups > cap.max_bind_groups
-        || r.max_uniform_buffer_bindings > cap.max_uniform_buffer_bindings
-        || r.max_push_constant_size > cap.max_push_constant_size
-    {
+    if over_limits(&r, &cap) {
         return Err(RequestDeviceError);
     }
     let mut state = StateMirror::default();
@@ -317,7 +349,17 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
 /// 建纹理视图（唯一 @public 视图入口）：维度相容校验 + 视图目标覆盖（Cube/CubeArray）。
 pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> TextureView {
     use crate::types::TextureViewDimension as VD;
-    let ok = match (tex._dim, d.dimension) {
+    // desc-align-wgpu25：dimension=None=按宿主维度/层数推定（上游语义）；本层「取整张」。
+    let dim = d.dimension.unwrap_or_else(|| match tex._dim {
+        TextureDimension::D1 => VD::D1,
+        TextureDimension::D3 => VD::D3,
+        TextureDimension::D2 => match tex._layers {
+            1 => VD::D2,
+            6 => VD::Cube,
+            _ => VD::D2Array,
+        },
+    });
+    let ok = match (tex._dim, dim) {
         (TextureDimension::D1, VD::D1) => true,
         (TextureDimension::D2, VD::D2 | VD::D2Array) => true,
         (TextureDimension::D2, VD::Cube) => tex._layers == 6,
@@ -327,10 +369,10 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
     };
     assert!(
         ok,
-        "entry 断言: 视图维度与纹理维度不相容（field=dimension, label={:?}）",
+        "entry 断言: 视图维度与纹理维度不相容（field=dimension/dim_inferred, label={:?}）",
         d.label
     );
-    let target = match d.dimension {
+    let target = match dim {
         VD::Cube => GL_TEXTURE_CUBE_MAP,
         VD::CubeArray => GL_TEXTURE_CUBE_MAP_ARRAY,
         _ => tex._target,
@@ -338,7 +380,7 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
     TextureView {
         _tex: Some(tex.clone()),
         _target: target,
-        _dim: d.dimension,
+        _dim: dim,
     }
 }
 
