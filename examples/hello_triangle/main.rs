@@ -195,10 +195,24 @@ impl ApplicationHandler for App {
                     let cmd = encoder.finish();
                     s.queue.submit(cmd);
                     frame.present();
-                    // s.window.request_redraw();
+                    s.window.request_redraw();
                 }
             }
             _ => {}
+        }
+    }
+
+    /// 显式按序销毁（不依赖 Drop 顺序）：GL 资源 → device/queue → surface → 窗口。
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(s) = self.state.take() {
+            let State { window, surface, device, queue, config, pipeline, vbuf } = s;
+            drop(pipeline);
+            drop(vbuf);
+            drop(queue);
+            drop(device);
+            drop(surface);
+            drop(config);
+            drop(window);
         }
     }
 }

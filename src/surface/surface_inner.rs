@@ -7,7 +7,8 @@ use crate::types::*;
 
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. 全量校验：宽高>0、(present×alpha)仅(Fifo,Opaque)——违例=log::error!(SurfaceErr)，配置不写。
-// 2. 桌面/安卓：以窗口目标建平台表面并 make_current（同尺寸+同格式重配置=复用既有平台表面，不重建）；Web：无 EGL 步（画布即表面）。
+// 2. 桌面/安卓：以窗口目标建平台表面并 make_current——**只在未附着时建一次**（重配置不改平台表面；
+//    重 GetDC/SetPixelFormat 同一窗口 DC 是 Windows 禁止的用法）；Web：无 EGL 步（画布即表面）。
 // 3. 驱动步骤全部成功后才写 _cfg=Some；中途失败=log，_cfg 保持未配置（不留半配置）。
 pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfiguration) {
     if c.width == 0 || c.height == 0 {
@@ -20,8 +21,7 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let same = matches!(&*s._cfg.borrow(), Some(o) if o.width == c.width && o.height == c.height && o.format == c.format);
-        if !same {
+        if s._cfg.borrow().is_none() {
             let r = match &s._target {
                 SurfaceTarget::Window(w) => crate::context_inner::surface_attach(&**w),
             };

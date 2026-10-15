@@ -35,6 +35,10 @@ const GL_TEXTURE_WRAP_T: u32 = 0x2803;
 const GL_TEXTURE_COMPARE_MODE: u32 = 0x884C;
 const GL_TEXTURE_COMPARE_FUNC: u32 = 0x884D;
 const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
+/// GL_COPY_WRITE_BUFFER（通用子写/分配目标；与 upload 芯同源）。
+const GL_COPY_WRITE_BUFFER: u32 = 0x8F3F;
+/// GL_DYNAMIC_DRAW（存储用途提示）。
+const GL_DYNAMIC_DRAW: u32 = 0x88E8;
 /// 缓冲用途合一位掩码（VERTEX|INDEX|UNIFORM|COPY_DST）。
 const BUFFER_USAGE_MASK: u32 = 0x0F;
 /// 纹理用途合一位掩码（COPY_DST|RENDER_ATTACHMENT|TEXTURE_BINDING）。
@@ -127,7 +131,15 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
     assert!(b.usage.0 != 0, "entry 断言: buffer usage 为空（field=usage, label={:?}）", b.label);
     assert_eq!(b.usage.0 & !BUFFER_USAGE_MASK, 0, "entry 断言: buffer usage 含非支持位（field=usage={:#x}, label={:?}）", b.usage.0, b.label);
     assert!(b.size > 0 && b.size % COPY_BUFFER_ALIGNMENT == 0, "entry 断言: buffer size 须>0 且 4 字节倍数（field=size={}, label={:?}）", b.size, b.label);
-    Buffer { _h: crate::objects_inner::create_direct(DirectKind::Buffer), size: b.size }
+    let h = crate::objects_inner::create_direct(DirectKind::Buffer);
+    let name = h.name().expect("entry 断言: 新缓冲无名");
+    // 分配驱动侧存储（glBufferData 等价）——write_buffer 只发子写入，无存储则子写失败、缓冲为空；
+    // 届时顶点读取越界取数（实测在本机 NVIDIA 驱动侧直接崩）。目标用通用 COPY_WRITE_BUFFER（与 upload 芯同源）。
+    crate::context_inner::with_gl(|gl| unsafe {
+        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(pi_glow::NativeBuffer(nz(name))));
+        gl.buffer_data_size(GL_COPY_WRITE_BUFFER, b.size as i32, GL_DYNAMIC_DRAW);
+    });
+    Buffer { _h: h, size: b.size }
 }
 
 pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Texture {
