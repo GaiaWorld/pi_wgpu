@@ -408,11 +408,20 @@ fn same_family(a: TextureFormat, b: TextureFormat) -> bool {
 }
 
 pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sampler {
-    if let Some(an) = s.anisotropy_clamp {
-        let v = an.get();
+    // desc-align 补齐：上游合同——anisotropy ≥1，非 1 时三过滤须全 Linear（旧 2 的幂集校验随形退役）。
+    assert!(
+        s.anisotropy_clamp >= 1,
+        "entry 断言: anisotropy_clamp 须 ≥1（field=anisotropy_clamp={}, label={:?}）",
+        s.anisotropy_clamp,
+        s.label
+    );
+    if s.anisotropy_clamp != 1 {
         assert!(
-            matches!(v, 1 | 2 | 4 | 8 | 16),
-            "entry 断言: anisotropy_clamp 仅 1/2/4/8/16（field=anisotropy_clamp={v}, label={:?}）",
+            matches!(s.mag_filter, crate::types::FilterMode::Linear)
+                && matches!(s.min_filter, crate::types::FilterMode::Linear)
+                && matches!(s.mipmap_filter, crate::types::FilterMode::Linear),
+            "entry 断言: 各向异性非 1 须三过滤全 Linear（field=anisotropy_clamp={}, label={:?}）",
+            s.anisotropy_clamp,
             s.label
         );
     }

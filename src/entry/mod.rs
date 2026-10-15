@@ -158,6 +158,15 @@ pub struct Texture {
     pub(crate) _layers: u32,
 }
 impl Texture {
+    /// 整张缺省拷贝目标（上游同式：mip 0/原点/All）——write_texture/copy_texture 消费。 @public
+    pub fn as_image_copy(&self) -> crate::types::TexelCopyTextureInfo<'_> {
+        crate::types::TexelCopyTextureInfo {
+            texture: self,
+            mip_level: 0,
+            origin: crate::types::Origin3d::ZERO,
+            aspect: crate::types::TextureAspect::All,
+        }
+    }
     /// 建纹理视图（唯一 @public 视图入口，形制=25.0.2 九字段）：dimension/format/usage/count
     /// None=按宿主纹理取默认（维度依纹理维/层数推定）；维度相容（Cube/CubeArray 需层数%6==0）；
     /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。
@@ -316,7 +325,8 @@ impl Device {
     pub fn create_texture(&self, desc: &TextureDescriptor<'_>) -> Texture {
         crate::entry_inner::create_texture_impl(self, desc)
     }
-    /// 建采样器。检查项：anisotropy_clamp 为 None 或 1/2/4/8/16。（compare 与绑定类型的相容性属绑定组对表，不在本步。）
+    /// 建采样器（形制=25.0.2 十二字段）。检查项：anisotropy_clamp ≥1、非 1 时三过滤全 Linear
+    /// （上游合同；lod 夹值/GL 各向异性下发归实现批）。（compare 与绑定类型相容性属绑定组对表，不在本步。）
     /// 违约后果同创建族共同合同。 @public
     pub fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Sampler {
         crate::entry_inner::create_sampler_impl(self, desc)

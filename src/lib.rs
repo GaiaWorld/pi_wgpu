@@ -118,6 +118,12 @@ pub use utils::{
     BufferInitDescriptor, DeviceExt,
 };
 
+#[cfg(not(feature = "use_wgpu"))]
+pub mod util {
+    pub use crate::types::TextureDataOrder;
+    pub use crate::utils::*;
+}
+
 use std::path::Path;
 
 /// 伞面 trait（自产面）：把 request_device 统一成「描述符（含 trace 词位）+ trace_path 历史兼容位」双参形状。

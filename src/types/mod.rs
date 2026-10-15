@@ -14,6 +14,7 @@ pub const COPY_BUFFER_ALIGNMENT: u64 = 4;
 /// 顶点步长（array_stride）与属性偏移必须 4 字节对齐。
 pub const VERTEX_STRIDE_ALIGNMENT: BufferAddress = 4;
 
+use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 
 /// 缓冲字节大小的正值（形制对齐 wgpu 25.0.2：官方已废包装结构，直接别名 NonZeroU64；
@@ -257,6 +258,99 @@ pub enum TextureFormat {
     EacRg11Unorm,
     EacRg11Snorm,
 }
+impl TextureFormat {
+    /// 压缩块宽（上游同式）。 @public
+    #[must_use]
+    pub fn block_width(&self) -> u32 {
+        self.block_dimensions().0
+    }
+    /// 压缩块高（上游同式）。 @public
+    #[must_use]
+    pub fn block_height(&self) -> u32 {
+        self.block_dimensions().1
+    }
+    /// 压缩块粒度（上游同表；本层无 Astc 分支——25.0.2 词汇面无该族，压缩族接表归能力批）。 @public
+    #[must_use]
+    pub fn block_dimensions(&self) -> (u32, u32) {
+        match *self {
+            Self::R8Unorm
+            | Self::R8Snorm
+            | Self::R8Uint
+            | Self::R8Sint
+            | Self::R16Uint
+            | Self::R16Sint
+            | Self::R16Unorm
+            | Self::R16Snorm
+            | Self::R16Float
+            | Self::Rg8Unorm
+            | Self::Rg8Snorm
+            | Self::Rg8Uint
+            | Self::Rg8Sint
+            | Self::R32Uint
+            | Self::R32Sint
+            | Self::R32Float
+            | Self::Rg16Uint
+            | Self::Rg16Sint
+            | Self::Rg16Unorm
+            | Self::Rg16Snorm
+            | Self::Rg16Float
+            | Self::Rgba8Unorm
+            | Self::Rgba8UnormSrgb
+            | Self::Rgba8Snorm
+            | Self::Rgba8Uint
+            | Self::Rgba8Sint
+            | Self::Bgra8Unorm
+            | Self::Bgra8UnormSrgb
+            | Self::Rgb9e5Ufloat
+            | Self::Rgb10a2Uint
+            | Self::Rgb10a2Unorm
+            | Self::Rg11b10Ufloat
+            | Self::R64Uint
+            | Self::Rg32Uint
+            | Self::Rg32Sint
+            | Self::Rg32Float
+            | Self::Rgba16Uint
+            | Self::Rgba16Sint
+            | Self::Rgba16Unorm
+            | Self::Rgba16Snorm
+            | Self::Rgba16Float
+            | Self::Rgba32Uint
+            | Self::Rgba32Sint
+            | Self::Rgba32Float
+            | Self::Stencil8
+            | Self::Depth16Unorm
+            | Self::Depth24Plus
+            | Self::Depth24PlusStencil8
+            | Self::Depth32Float
+            | Self::Depth32FloatStencil8
+            | Self::NV12 => (1, 1),
+            Self::Bc1RgbaUnorm
+            | Self::Bc1RgbaUnormSrgb
+            | Self::Bc2RgbaUnorm
+            | Self::Bc2RgbaUnormSrgb
+            | Self::Bc3RgbaUnorm
+            | Self::Bc3RgbaUnormSrgb
+            | Self::Bc4RUnorm
+            | Self::Bc4RSnorm
+            | Self::Bc5RgUnorm
+            | Self::Bc5RgSnorm
+            | Self::Bc6hRgbUfloat
+            | Self::Bc6hRgbFloat
+            | Self::Bc7RgbaUnorm
+            | Self::Bc7RgbaUnormSrgb => (4, 4),
+            Self::Etc2Rgb8Unorm
+            | Self::Etc2Rgb8UnormSrgb
+            | Self::Etc2Rgb8A1Unorm
+            | Self::Etc2Rgb8A1UnormSrgb
+            | Self::Etc2Rgba8Unorm
+            | Self::Etc2Rgba8UnormSrgb
+            | Self::EacR11Unorm
+            | Self::EacR11Snorm
+            | Self::EacRg11Unorm
+            | Self::EacRg11Snorm => (4, 4),
+        }
+    }
+}
 /// 纹理用途位集合（组合）；支持位之外在 create_texture 校验处断言。
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -295,12 +389,60 @@ pub struct Extent3d {
     pub height: u32,
     pub depth_or_array_layers: u32,
 }
+impl Extent3d {
+    /// 格式的内存物理尺寸（块粒度向上取整；照抄上游——压缩纹理上传/mip 换算用）。
+    #[must_use]
+    pub fn physical_size(&self, format: TextureFormat) -> Self {
+        let (block_width, block_height) = format.block_dimensions();
+        let width = self.width.div_ceil(block_width) * block_width;
+        let height = self.height.div_ceil(block_height) * block_height;
+        Self {
+            width,
+            height,
+            depth_or_array_layers: self.depth_or_array_layers,
+        }
+    }
+    /// 最大 mip 级数（按维度视深度；上游同式）。
+    #[must_use]
+    pub fn max_mips(&self, dim: TextureDimension) -> u32 {
+        match dim {
+            TextureDimension::D1 => 1,
+            TextureDimension::D2 => 32 - self.width.max(self.height).leading_zeros(),
+            TextureDimension::D3 => {
+                32 - self
+                    .width
+                    .max(self.height.max(self.depth_or_array_layers))
+                    .leading_zeros()
+            }
+        }
+    }
+    /// 指定 mip 级逻辑尺寸（不含内存对齐补块；上游同式）。
+    #[must_use]
+    pub fn mip_level_size(&self, level: u32, dim: TextureDimension) -> Self {
+        Self {
+            width: u32::max(1, self.width >> level),
+            height: match dim {
+                TextureDimension::D1 => 1,
+                _ => u32::max(1, self.height >> level),
+            },
+            depth_or_array_layers: match dim {
+                TextureDimension::D1 => 1,
+                TextureDimension::D2 => self.depth_or_array_layers,
+                TextureDimension::D3 => u32::max(1, self.depth_or_array_layers >> level),
+            },
+        }
+    }
+}
 /// 拷贝起点，单位纹素坐标。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Origin3d {
     pub x: u32,
     pub y: u32,
     pub z: u32,
+}
+impl Origin3d {
+    /// 原点常量（上游同形；as_image_copy 等缺省构造消费）。 @public
+    pub const ZERO: Self = Self { x: 0, y: 0, z: 0 };
 }
 /// 纹理维度；本面收录词汇，实际放行按格式能力表在创建时校验。
 #[derive(Debug, Clone, Copy, Default)]
@@ -470,28 +612,32 @@ pub struct TextureViewDescriptor<'a> {
     pub array_layer_count: Option<u32>,
 }
 
-/// 过滤模式。
-#[derive(Debug, Clone, Copy)]
+/// 过滤模式（Default=Nearest，上游同形）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FilterMode {
+    #[default]
     Nearest,
     Linear,
 }
-/// 寻址模式（u/v/w 三轴独立配置）。
-#[derive(Debug, Clone, Copy)]
+/// 寻址模式（u/v/w 三轴独立配置；Default=ClampToEdge，上游同形）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AddressMode {
+    #[default]
     ClampToEdge,
     Repeat,
     MirroredRepeat,
 }
-/// 边界颜色候选。
-#[derive(Debug, Clone, Copy)]
+/// 边界颜色候选（25.0.2 全四变体照抄；旧代 Float 色形已退役不加）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SamplerBorderColor {
     TransparentBlack,
     OpaqueBlack,
     OpaqueWhite,
+    /// 无 alpha 纹理按 OpaqueBlack（Metal 侧差异）；需 ADDRESS_MODE_CLAMP_TO_ZERO 能力，本层无位恒拒。
+    Zero,
 }
 /// 深度/模板比较函数。
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareFunction {
     Never,
     Less,
@@ -502,9 +648,10 @@ pub enum CompareFunction {
     GreaterEqual,
     Always,
 }
-/// 采样器创建输入。anisotropy_clamp 取 None 或 1/2/4/8/16；compare=Some 即 comparison 采样器；
-/// 越界=断言含 label，无半建。
-#[derive(Debug, Clone)]
+/// 采样器创建输入（形制照抄 25.0.2 十二字段序）：anisotropy_clamp 须 ≥1，非 1 时三过滤全 Linear
+/// （上游合同；本层旧「仅 2 的幂集」校验随形退役，GL 驱动自钳制）；compare=Some 即 comparison 采样器；
+/// lod 夹值 [lod,32] 语义收录、GL 消费接表归实现批。越界=断言含 label，无半建。
+#[derive(Debug, Clone, PartialEq)]
 pub struct SamplerDescriptor<'a> {
     pub label: Label<'a>,
     pub address_mode_u: AddressMode,
@@ -512,11 +659,31 @@ pub struct SamplerDescriptor<'a> {
     pub address_mode_w: AddressMode,
     pub mag_filter: FilterMode,
     pub min_filter: FilterMode,
-    pub anisotropy_clamp: Option<NonZeroU16>,
-    pub border_color: Option<SamplerBorderColor>,
+    pub mipmap_filter: FilterMode,
+    pub lod_min_clamp: f32,
+    pub lod_max_clamp: f32,
     pub compare: Option<CompareFunction>,
+    pub anisotropy_clamp: u16,
+    pub border_color: Option<SamplerBorderColor>,
 }
-use std::num::NonZeroU16;
+impl Default for SamplerDescriptor<'_> {
+    fn default() -> Self {
+        Self {
+            label: Default::default(),
+            address_mode_u: Default::default(),
+            address_mode_v: Default::default(),
+            address_mode_w: Default::default(),
+            mag_filter: Default::default(),
+            min_filter: Default::default(),
+            mipmap_filter: Default::default(),
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 32.0,
+            compare: None,
+            anisotropy_clamp: 1,
+            border_color: None,
+        }
+    }
+}
 
 /// RGBA 颜色，各通道 f32；清屏/混合语义按驱动解释（0.0-1.0）。
 #[derive(Debug, Clone, Copy)]
@@ -686,6 +853,15 @@ pub struct ColorTargetState {
     pub format: TextureFormat,
     pub blend: Option<BlendState>,
     pub write_mask: ColorWrites,
+}
+impl From<TextureFormat> for ColorTargetState {
+    fn from(format: TextureFormat) -> Self {
+        Self {
+            format,
+            blend: None,
+            write_mask: ColorWrites::default(),
+        }
+    }
 }
 /// 片元着色器段；fragment=None 表示无颜色写回（形制对齐上游，违约口径同 VertexState）。
 #[derive(Debug, Clone)]
@@ -970,22 +1146,29 @@ pub struct TextureFormatFeatures {
     pub allowed_usages: TextureUsages,
     pub flags: TextureFormatFeatureFlags,
 }
-/// 纹素拷贝目标具例：纹理 + mip 层 + 起点 + 宽高面。
+/// 纹素拷贝目标信息（正名照抄 wgpu 25.0.2 规范名 TexelCopyTextureInfo）。
+/// 上游为泛型 <T> 投影（core/wasm 分面共用）；本层单轨直接持纹理引用（登记泛型投影差异）。
 #[derive(Debug, Clone, Copy)]
-pub struct ImageCopyTexture<'a> {
+pub struct TexelCopyTextureInfo<'a> {
     pub texture: &'a crate::entry::Texture,
     pub mip_level: u32,
     pub origin: Origin3d,
     pub aspect: TextureAspect,
 }
-/// 拷贝源内存布局：offset 须 4 字节对齐；bytes_per_row 给定时须 256 倍数；行/层数缺省按 extent 推定。
-/// 违约后果见 Queue::write_texture 契约（debug=断言 / release=记录留痕、由驱动兜底，不谎报）。
-#[derive(Debug, Clone, Copy)]
-pub struct ImageDataLayout {
+/// 兼容别名：本层历史名（同 ImageDataLayout 别名口径）。 @public
+pub type ImageCopyTexture<'a> = TexelCopyTextureInfo<'a>;
+/// Texel 拷贝缓冲布局（正名照抄 wgpu 25.0.2 规范名 TexelCopyBufferLayout）：
+/// offset 须 4 字节对齐；bytes_per_row 给定时须 256 倍数；Some(0)/缺省=行宽自动
+/// （v25 起值域回归裸 u32，NonZero 旧代形制退役）。违约后果见 Queue::write_texture 契约
+/// （debug=断言 / release=记录留痕、由驱动兜底，不谎报）。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TexelCopyBufferLayout {
     pub offset: BufferAddress,
-    pub bytes_per_row: Option<NonZeroU32>,
-    pub rows_per_image: Option<NonZeroU32>,
+    pub bytes_per_row: Option<u32>,
+    pub rows_per_image: Option<u32>,
 }
+/// 兼容别名：本层历史名（非上游在场符号，登记为兼容延长，后续批可退役）。 @public
+pub type ImageDataLayout = TexelCopyBufferLayout;
 /// 多维纹理数据在内存中的排布顺序。
 #[derive(Debug, Clone, Copy)]
 pub enum TextureDataOrder {

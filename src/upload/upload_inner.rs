@@ -7,7 +7,7 @@ use glow::HasContext;
 
 use crate::context_inner::with_gl;
 use crate::entry::{Buffer, Queue};
-use crate::types::{BufferAddress, Extent3d, ImageCopyTexture, ImageDataLayout};
+use crate::types::{BufferAddress, Extent3d, TexelCopyBufferLayout, TexelCopyTextureInfo};
 use crate::upload::UploadErr;
 
 /// GL_COPY_WRITE_BUFFER（GL3.1+/ES3.0/WebGL2；非镜像/VAO 管辖的通用子写目标）。
@@ -75,9 +75,9 @@ const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
 
 pub(crate) fn write_texture_impl(
     q: &Queue,
-    t: &ImageCopyTexture<'_>,
+    t: &TexelCopyTextureInfo<'_>,
     d: &[u8],
-    l: &ImageDataLayout,
+    l: &TexelCopyBufferLayout,
     e: Extent3d,
 ) {
     let Some(name) = t.texture._h.name() else {
@@ -91,8 +91,8 @@ pub(crate) fn write_texture_impl(
         bad = true;
     }
     if let Some(bpr) = l.bytes_per_row {
-        if bpr.get() % 256 != 0 {
-            log::error!("upload {:?} bpr={}", UploadErr::RowPitch, bpr.get());
+        if bpr % 256 != 0 {
+            log::error!("upload {:?} bpr={}", UploadErr::RowPitch, bpr);
             bad = true;
         }
     }
@@ -121,11 +121,11 @@ pub(crate) fn write_texture_impl(
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
         gl.bind_texture(target, Some(glow::NativeTexture(nn)));
         match lay.bytes_per_row {
-            Some(bpr) => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, (bpr.get() as u64 / bpp) as i32),
+            Some(bpr) => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, (bpr as u64 / bpp) as i32),
             None => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0),
         }
         match lay.rows_per_image {
-            Some(rpi) => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, rpi.get() as i32),
+            Some(rpi) => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, rpi as i32),
             None => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, 0),
         }
         match target {
@@ -195,7 +195,11 @@ fn upload_restore_unit(q: &Queue) -> u32 {
 // 2. 入参类型校验：非位图值=log::error!(NotBitmap)。
 // 3. 直接把位图句柄推进上传通道——零字节路径（唯一公开分形态点，桌面/安卓不存在此步）。
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn write_js_impl(q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bindgen::JsValue) {
+pub(crate) fn write_js_impl(
+    q: &Queue,
+    t: &TexelCopyTextureInfo<'_>,
+    bitmap: wasm_bindgen::JsValue,
+) {
     use wasm_bindgen::JsCast;
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
@@ -229,11 +233,11 @@ pub(crate) fn write_js_impl(q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bi
 
 // 设计预期（伪码·示意·不可验证）：
 // 1. 纯参数换算：256 语义行距→驱动粒度（含缺省行的推定），只算不查——不读驱动、不校验、无状态。
-pub(crate) fn convert_impl(l: &ImageDataLayout, e: &Extent3d) -> ImageDataLayout {
-    ImageDataLayout {
+pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopyBufferLayout {
+    TexelCopyBufferLayout {
         offset: l.offset,
         bytes_per_row: l.bytes_per_row,
-        rows_per_image: l.rows_per_image.or_else(|| NonZeroU32::new(e.height)),
+        rows_per_image: l.rows_per_image.or(Some(e.height)),
     }
 }
 
@@ -246,7 +250,7 @@ mod tests {
     /// convert：缺省层行按 extent.height 推定；bytes_per_row 缺省保持 None。
     #[test]
     fn convert_fills_rows_default_test() {
-        let l = ImageDataLayout {
+        let l = TexelCopyBufferLayout {
             offset: 8,
             bytes_per_row: None,
             rows_per_image: None,
@@ -258,7 +262,7 @@ mod tests {
         };
         let c = convert_upload_layout(&l, &e);
         assert_eq!(c.offset, 8);
-        assert_eq!(c.rows_per_image.map(|x| x.get()), Some(8));
+        assert_eq!(c.rows_per_image, Some(8));
         assert!(c.bytes_per_row.is_none());
     }
 

@@ -2,8 +2,8 @@
 //! utils 芯：便捷构造与环境读取。组合面零新契约——失败/断言=被组合双方原样成立。
 use crate::entry::{Buffer, Device, Queue, Texture};
 use crate::types::{
-    Backends, BufferDescriptor, ImageCopyTexture, ImageDataLayout, MemoryHints, Origin3d,
-    PowerPreference, TextureAspect, TextureDataOrder, TextureDescriptor,
+    Backends, BufferDescriptor, MemoryHints, Origin3d, PowerPreference, TexelCopyBufferLayout,
+    TexelCopyTextureInfo, TextureAspect, TextureDataOrder, TextureDescriptor,
 };
 use crate::utils::BufferInitDescriptor;
 
@@ -32,18 +32,18 @@ pub(crate) fn tex_init_impl(
     data: &[u8],
 ) -> Texture {
     let t = dev.create_texture(d);
-    let dst = ImageCopyTexture {
+    let dst = TexelCopyTextureInfo {
         texture: &t,
         mip_level: 0,
         origin: Origin3d::default(),
         aspect: TextureAspect::All,
     };
-    let layout = ImageDataLayout {
+    let layout = TexelCopyBufferLayout {
         offset: 0,
         bytes_per_row: None,
         rows_per_image: None,
     };
-    q.write_texture(&dst, data, layout, d.size);
+    q.write_texture(dst, data, layout, d.size);
     t
 }
 

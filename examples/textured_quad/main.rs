@@ -122,17 +122,12 @@ impl ApplicationHandler for App {
             view_formats: &[],
         });
         queue.write_texture(
-            &ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: Origin3d::default(),
-                aspect: TextureAspect::All,
-            },
+            texture.as_image_copy(),
             &gradient_bytes(),
-            ImageDataLayout {
+            TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(TEX_W * 4),
-                rows_per_image: NonZeroU32::new(TEX_H),
+                bytes_per_row: Some(TEX_W * 4),
+                rows_per_image: Some(TEX_H),
             },
             Extent3d {
                 width: TEX_W,
@@ -142,14 +137,10 @@ impl ApplicationHandler for App {
         );
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("lin"),
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            anisotropy_clamp: None,
-            border_color: None,
-            compare: None,
+            mipmap_filter: FilterMode::Linear,
+            ..Default::default()
         });
         let view = texture.create_view(&TextureViewDescriptor {
             label: Some("v"),
