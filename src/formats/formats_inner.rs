@@ -42,7 +42,8 @@ const GL_TEXTURE_2D: u32 = 0x0DE1;
 /// GL_TEXTURE_2D_ARRAY：多层 2D 数组目标（0x8C1A）。
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 
-/// 格式转换表：词汇子集→驱动参数组单一转换点。DDS/ASTC 等压缩族在词汇子集外=表无条目→拒。
+/// 格式转换表：词汇→驱动参数组单一转换点。词汇全表 75 项在场（desc-align 后续批），本表当前
+/// 只收录已接 GL 映射的 7 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
 /// 全条目未压缩：block=(1,1)、block_bytes=单像素字节；sRGB 只换内部格式不动采样通路（交 caps/GL 判读）。
 fn table_entry(f: TextureFormat) -> Option<GlParams> {
     let p = match f {
@@ -82,7 +83,7 @@ fn table_entry(f: TextureFormat) -> Option<GlParams> {
             block: (1, 1),
             block_bytes: 8,
         },
-        TextureFormat::Depth24UnormS8Uint => GlParams {
+        TextureFormat::Depth24PlusStencil8 => GlParams {
             internal_format: GL_DEPTH24_STENCIL8,
             format: GL_DEPTH_STENCIL,
             pixel_type: GL_UNSIGNED_INT_24_8,
@@ -96,13 +97,14 @@ fn table_entry(f: TextureFormat) -> Option<GlParams> {
             block: (1, 1),
             block_bytes: 4,
         },
+        _ => return None,
     };
     Some(p)
 }
 
 // 1. 查格式转换表取条目 → 用 caps 最近快照门控（浮点渲染按探测位、形态拒组合缺口）。
 // 2. 表无条目（词汇子集外如压缩族）或门控不过=断言，报格式名+desc.label+拒因——绝不近似替代。
-// 3. 词汇无压缩条目期：块粒度恒 (1,1)；压缩直载开放后本表增块行、归一逻辑在此扩（变更点预留）。
+// 3. 压缩直载开放后本表增块行、归一逻辑在此扩（变更点预留）；表外词汇由第 2 步断言路径恒拒。
 pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlParams {
     let p = match table_entry(f) {
         Some(p) => p,
@@ -131,7 +133,7 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
                 desc.label
             );
         }
-        TextureFormat::Depth24UnormS8Uint if caps.es => {
+        TextureFormat::Depth24PlusStencil8 if caps.es => {
             panic!(
                 "formats 断言: GLES 核心无 D24S8 打包组合（用 D32F_S8），拒 {f:?}（label={:?}）",
                 desc.label
@@ -236,7 +238,7 @@ mod tests {
             (TextureFormat::Bgra8UnormSrgb, GL_SRGB8_ALPHA8, GL_BGRA),
             (TextureFormat::Rgba16Float, GL_RGBA16F, GL_RGBA),
             (
-                TextureFormat::Depth24UnormS8Uint,
+                TextureFormat::Depth24PlusStencil8,
                 GL_DEPTH24_STENCIL8,
                 GL_DEPTH_STENCIL,
             ),
@@ -254,18 +256,35 @@ mod tests {
         }
     }
 
-    /// 门控：桌面对全部子集放行；GLES 拒 D24S8 与 sRGB×BGRA 组合（断言消息含 label 与格式名）。
+    /// 表外词汇=断言拒止：全表新增名（压缩族/未接非色族）无转换条目，创建路径恒拒并报格式名。
+    #[test]
+    fn untabled_format_rejects_test() {
+        inject_latest(0, (4, 5), false);
+        let d = desc("ut");
+        for f in [
+            TextureFormat::Bc1RgbaUnorm,
+            TextureFormat::R8Unorm,
+            TextureFormat::Depth32FloatStencil8,
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| params_impl(&d, f)).is_err(),
+                "{f:?} 表无条目应拒"
+            );
+        }
+    }
+
+    /// 门控：桌面对全部有目条目放行；GLES 拒 D24S8 与 sRGB×BGRA 组合（断言消息含 label 与格式名）。
     #[test]
     fn gate_form_rules_test() {
         inject_latest(0, (4, 5), false);
         let d = desc("desk");
-        let _ = params_impl(&d, TextureFormat::Depth24UnormS8Uint);
+        let _ = params_impl(&d, TextureFormat::Depth24PlusStencil8);
         let _ = params_impl(&d, TextureFormat::Bgra8UnormSrgb);
         let _ = params_impl(&d, TextureFormat::Rgba16Float);
         inject_latest(0, (3, 2), true);
         let d = desc("gles");
         assert!(
-            std::panic::catch_unwind(|| params_impl(&d, TextureFormat::Depth24UnormS8Uint))
+            std::panic::catch_unwind(|| params_impl(&d, TextureFormat::Depth24PlusStencil8))
                 .is_err()
         );
         assert!(

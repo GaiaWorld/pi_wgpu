@@ -178,7 +178,7 @@ pub(crate) fn adapter_format_features(_a: &Adapter, f: TextureFormat) -> Texture
             | TextureFormat::Bgra8Unorm
             | TextureFormat::Bgra8UnormSrgb
             | TextureFormat::Rgba16Float
-            | TextureFormat::Depth24UnormS8Uint
+            | TextureFormat::Depth24PlusStencil8
             | TextureFormat::Depth32Float
     );
     let allowed = if supported {
