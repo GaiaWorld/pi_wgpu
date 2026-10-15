@@ -711,17 +711,18 @@ pub struct Operations<T> {
     pub load: LoadOp<T>,
     pub store: StoreOp,
 }
-/// 颜色附件：view 必填；resolve_target 仅多重采样解析目标用。
+/// 颜色附件（参数名照抄上游 'tex：视图借用维度独立于描述符收集切片）。
+/// view 必填；resolve_target 仅多重采样解析目标用。
 #[derive(Debug, Clone, Copy)]
-pub struct RenderPassColorAttachment<'a> {
-    pub view: &'a crate::entry::TextureView,
-    pub resolve_target: Option<&'a crate::entry::TextureView>,
+pub struct RenderPassColorAttachment<'tex> {
+    pub view: &'tex crate::entry::TextureView,
+    pub resolve_target: Option<&'tex crate::entry::TextureView>,
     pub ops: Operations<Color>,
 }
-/// 深度/模板附件：depth_ops/stencil_ops 按附件实际所含宽高面给出。
+/// 深度/模板附件（'tex 同颜色附件口径）：depth_ops/stencil_ops 按附件实际所含宽高面给出。
 #[derive(Debug, Clone, Copy)]
-pub struct RenderPassDepthStencilAttachment<'a> {
-    pub view: &'a crate::entry::TextureView,
+pub struct RenderPassDepthStencilAttachment<'tex> {
+    pub view: &'tex crate::entry::TextureView,
     pub depth_ops: Option<Operations<f32>>,
     pub stencil_ops: Option<Operations<u32>>,
 }

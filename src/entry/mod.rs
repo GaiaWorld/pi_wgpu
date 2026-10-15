@@ -392,12 +392,16 @@ impl CommandEncoder {
     pub fn finish(self) -> CommandBuffer {
         crate::entry_inner::encoder_finish(self)
     }
-    /// 开渲染通道。检查项（一次全量）：color_attachments 中 Some 恰好 1 个。违约=断言（短码），通道未开、编码器守卫不变。
-    /// 登记差异：深度/模板附件与 store 语义本批暂缓（通道态暂无描述符载体）；离屏 FBO 路径本批暂停（走默认帧缓冲）。 @public
-    pub fn begin_render_pass<'pass>(
-        &'pass mut self,
-        desc: &RenderPassDescriptor<'pass>,
-    ) -> RenderPass<'pass> {
+    /// 开渲染通道（形制=25.0.2 双生命周期：'encoder 通道锁、desc 独立短借读毕即弃——
+    /// 描述符临时对象可直接内联传入）。检查项（一次全量）：color_attachments 中 Some 恰好 1 个。
+    /// 违约=断言（短码），通道未开、编码器守卫不变。
+    /// 登记差异：深度/模板附件与 store 语义本批暂缓；离屏 FBO 本批暂停（走默认帧缓冲）；
+    /// 上游 forget_lifetime 不移植——上游通道对编码器为 PhantomDrop 抹除借、本层通道锁定借
+    /// 是真引用（借用+守卫双重合同），无法安全升 'static。 @public
+    pub fn begin_render_pass<'encoder>(
+        &'encoder mut self,
+        desc: &RenderPassDescriptor<'_>,
+    ) -> RenderPass<'encoder> {
         crate::draw_inner::begin_impl(self, desc)
     }
 }

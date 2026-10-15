@@ -296,14 +296,14 @@ impl ApplicationHandler for App {
                                 store: StoreOp::Store,
                             },
                         };
-                        let desc = RenderPassDescriptor {
+                        // 双借命验证：通道描述符临时对象内联传入（上游式，读毕即弃）。
+                        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                             label: Some("q"),
                             color_attachments: &[Some(ca)],
                             depth_stencil_attachment: None,
                             timestamp_writes: None,
                             occlusion_query_set: None,
-                        };
-                        let mut pass = encoder.begin_render_pass(&desc);
+                        });
                         pass.set_pipeline(&s.pipeline);
                         pass.set_bind_group(0, &s.bind_group, &[]);
                         pass.set_vertex_buffer(0, s.vbuf.slice(..));

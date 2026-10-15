@@ -113,7 +113,7 @@ fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirro
 // 4. 守卫置位，返回借用编码器的 RenderPass。
 pub(crate) fn begin_impl<'p>(
     e: &'p mut CommandEncoder,
-    d: &RenderPassDescriptor<'p>,
+    d: &RenderPassDescriptor<'_>,
 ) -> RenderPass<'p> {
     assert!(!e._opened_pass, "draw str-assert: 嵌套 render pass");
     assert!(
