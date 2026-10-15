@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use pi_glow::HasContext;
+use glow::HasContext;
 
 use crate::caps::Caps;
 use crate::context_inner::with_gl;
@@ -70,7 +70,11 @@ fn store_latest(c: &Caps) {
     CAPS_FAMILY.store(c._ext_family, Ordering::Release);
     let meta: u64 = (c._gl_version.0 as u64 & 0xFF)
         | ((c._gl_version.1 as u64 & 0xFF) << 8)
-        | (if (c._ext_family & CAP_EMBEDDED) != 0 { 1 << 16 } else { 0 })
+        | (if (c._ext_family & CAP_EMBEDDED) != 0 {
+            1 << 16
+        } else {
+            0
+        })
         | (if c._qualcomm { 1 << 17 } else { 0 })
         | (if c._ios18 { 1 << 18 } else { 0 });
     CAPS_META.store(meta, Ordering::Release);
@@ -98,7 +102,12 @@ pub(crate) fn inject_latest(family: u64, version: (u32, u32), es: bool) {
     if es {
         f |= CAP_EMBEDDED;
     }
-    let mut c = Caps { _gl_version: version, _qualcomm: false, _ios18: false, _ext_family: f };
+    let mut c = Caps {
+        _gl_version: version,
+        _qualcomm: false,
+        _ios18: false,
+        _ext_family: f,
+    };
     if es {
         c._ext_family |= CAP_EMBEDDED;
     } else {
@@ -205,11 +214,17 @@ pub(crate) fn probe_impl() -> Caps {
             log::error!("caps probe: GL 版本读数 0.0（附着无效或环境异常）");
             panic!("caps probe 断言: 版本读数无效，须附着建立后探测");
         }
-        let mut exts: Vec<String> = gl.supported_extensions().iter().map(|s| norm_ext(s)).collect();
+        let mut exts: Vec<String> = gl
+            .supported_extensions()
+            .iter()
+            .map(|s| norm_ext(s))
+            .collect();
         exts.sort();
         exts.dedup();
         let has = |names: &[&str]| -> bool {
-            names.iter().any(|n: &&str| exts.iter().any(|e: &String| e.as_str() == *n))
+            names
+                .iter()
+                .any(|n: &&str| exts.iter().any(|e: &String| e.as_str() == *n))
         };
         let es = ver.is_embedded;
         let mut family: u64 = 0;
@@ -232,7 +247,10 @@ pub(crate) fn probe_impl() -> Caps {
         ]) {
             family |= CAP_ASTC_LDR;
         }
-        if has(&["khr_texture_compression_astc_hdr", "webgl_compressed_texture_astc_hdr"]) {
+        if has(&[
+            "khr_texture_compression_astc_hdr",
+            "webgl_compressed_texture_astc_hdr",
+        ]) {
             family |= CAP_ASTC_HDR;
         }
         if (es && (ver.major, ver.minor) >= (3, 0))
@@ -262,7 +280,12 @@ pub(crate) fn probe_impl() -> Caps {
             exts.len()
         );
         let _ = vendor;
-        let caps = Caps { _gl_version: (ver.major, ver.minor), _qualcomm: qualcomm, _ios18: ios18, _ext_family: family };
+        let caps = Caps {
+            _gl_version: (ver.major, ver.minor),
+            _qualcomm: qualcomm,
+            _ios18: ios18,
+            _ext_family: family,
+        };
         store_latest(&caps);
         caps
     })
@@ -299,7 +322,12 @@ mod tests {
     /// 纯投影：能力位→官方位映射全路径校验。
     #[test]
     fn fill_projection_test() {
-        let c = Caps { _gl_version: (3, 3), _qualcomm: false, _ios18: false, _ext_family: CAP_S3TC | CAP_FLOAT_LINEAR };
+        let c = Caps {
+            _gl_version: (3, 3),
+            _qualcomm: false,
+            _ios18: false,
+            _ext_family: CAP_S3TC | CAP_FLOAT_LINEAR,
+        };
         let f = fill_impl(&c).0;
         assert_eq!(f & FEAT_DEPTH32FLOAT_STENCIL8, FEAT_DEPTH32FLOAT_STENCIL8);
         assert_eq!(f & FEAT_TEXTURE_COMPRESSION_BC, FEAT_TEXTURE_COMPRESSION_BC);
@@ -312,14 +340,30 @@ mod tests {
     #[test]
     fn fill_special_case_downgrade_test() {
         let base = CAP_S3TC | CAP_ASTC_LDR | CAP_FLOAT_LINEAR | CAP_ETC2;
-        let q = Caps { _gl_version: (3, 2), _qualcomm: true, _ios18: false, _ext_family: base };
+        let q = Caps {
+            _gl_version: (3, 2),
+            _qualcomm: true,
+            _ios18: false,
+            _ext_family: base,
+        };
         let fq = fill_impl(&q).0;
-        assert_eq!(fq, FEAT_DEPTH32FLOAT_STENCIL8 | FEAT_TEXTURE_COMPRESSION_ETC2 | FEAT_FLOAT32_FILTERABLE);
-        let i = Caps { _gl_version: (3, 2), _qualcomm: false, _ios18: true, _ext_family: base };
+        assert_eq!(
+            fq,
+            FEAT_DEPTH32FLOAT_STENCIL8 | FEAT_TEXTURE_COMPRESSION_ETC2 | FEAT_FLOAT32_FILTERABLE
+        );
+        let i = Caps {
+            _gl_version: (3, 2),
+            _qualcomm: false,
+            _ios18: true,
+            _ext_family: base,
+        };
         let fi = fill_impl(&i).0;
         assert_eq!(
             fi,
-            FEAT_DEPTH32FLOAT_STENCIL8 | FEAT_TEXTURE_COMPRESSION_BC | FEAT_TEXTURE_COMPRESSION_ETC2 | FEAT_FLOAT32_FILTERABLE
+            FEAT_DEPTH32FLOAT_STENCIL8
+                | FEAT_TEXTURE_COMPRESSION_BC
+                | FEAT_TEXTURE_COMPRESSION_ETC2
+                | FEAT_FLOAT32_FILTERABLE
         );
     }
 
@@ -328,14 +372,23 @@ mod tests {
     fn classify_test() {
         assert_eq!(classify("ati radeon x"), (false, false));
         assert_eq!(classify("qualcomm inc adreno (tm) 640"), (true, false));
-        assert_eq!(classify("apple a17 gpu mozilla/5.0 cpu os 18_2 like"), (false, true));
+        assert_eq!(
+            classify("apple a17 gpu mozilla/5.0 cpu os 18_2 like"),
+            (false, true)
+        );
     }
 
     /// 扩展名归一化：GL_ 前缀去除+小写；无前缀输入原样小写。
     #[test]
     fn norm_ext_test() {
-        assert_eq!(norm_ext("GL_EXT_texture_compression_astc_decoder"), "ext_texture_compression_astc_decoder");
-        assert_eq!(norm_ext("WEBGL_compressed_texture_astc"), "webgl_compressed_texture_astc");
+        assert_eq!(
+            norm_ext("GL_EXT_texture_compression_astc_decoder"),
+            "ext_texture_compression_astc_decoder"
+        );
+        assert_eq!(
+            norm_ext("WEBGL_compressed_texture_astc"),
+            "webgl_compressed_texture_astc"
+        );
     }
 
     // 实机探测冒烟由 B1+B2 合并用例承载（context_inner::gl_state_machine_test，单线程合验）。

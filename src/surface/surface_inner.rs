@@ -2,7 +2,9 @@
 //! surface 芯 · 附着→配置→取帧→换帧。契约权威文本住壳面注释。
 //! 错误处理（错误纪律）：configure 非 Result 面=log::error!(SurfaceErr)；get_current 走四态 Result。
 use crate::entry::Device;
-use crate::surface::{Surface, SurfaceCapabilities, SurfaceErr, SurfaceError, SurfaceTarget, SurfaceTexture};
+use crate::surface::{
+    Surface, SurfaceCapabilities, SurfaceErr, SurfaceError, SurfaceTarget, SurfaceTexture,
+};
 use crate::types::*;
 
 // 设计预期（伪码·示意·非唯一实现）：
@@ -12,11 +14,24 @@ use crate::types::*;
 // 3. 驱动步骤全部成功后才写 _cfg=Some；中途失败=log，_cfg 保持未配置（不留半配置）。
 pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfiguration) {
     if c.width == 0 || c.height == 0 {
-        log::error!("surface {:?} w={} h={}", SurfaceErr::BadSize, c.width, c.height);
+        log::error!(
+            "surface {:?} w={} h={}",
+            SurfaceErr::BadSize,
+            c.width,
+            c.height
+        );
         return;
     }
-    if !matches!((c.present_mode, c.alpha_mode), (PresentMode::Fifo, CompositeAlphaMode::Opaque)) {
-        log::error!("surface {:?} present={:?} alpha={:?}", SurfaceErr::BadCombo, c.present_mode, c.alpha_mode);
+    if !matches!(
+        (c.present_mode, c.alpha_mode),
+        (PresentMode::Fifo, CompositeAlphaMode::Opaque)
+    ) {
+        log::error!(
+            "surface {:?} present={:?} alpha={:?}",
+            SurfaceErr::BadCombo,
+            c.present_mode,
+            c.alpha_mode
+        );
         return;
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -38,19 +53,33 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
 // 1. _cfg=None 前置：未配置=Err(Outdated)+log 码（须先 configure）。
 // 2. 帧视图=默认帧缓冲标记（TextureView{_tex:None}）；suboptimal 恒 true（官方旧语义，登迁移清单）。
 // 3. Lost 代号推进由上下文侧 gen_bump 承担（本面不做失效动作，重建=上层 re-request_device）。
-pub(crate) fn get_current_impl(s: &Surface<'_>) -> std::result::Result<SurfaceTexture, SurfaceError> {
+pub(crate) fn get_current_impl(
+    s: &Surface<'_>,
+) -> std::result::Result<SurfaceTexture, SurfaceError> {
     if s._cfg.borrow().is_none() {
         log::error!("surface {:?}", SurfaceErr::NotConfigured);
         return Err(SurfaceError::Outdated);
     }
-        Ok(SurfaceTexture { _view: crate::entry::TextureView { _tex: None, _target: 0, _dim: crate::types::TextureViewDimension::D2 }, _suboptimal: true })
+    Ok(SurfaceTexture {
+        _view: crate::entry::TextureView {
+            _tex: None,
+            _target: 0,
+            _dim: crate::types::TextureViewDimension::D2,
+        },
+        _suboptimal: true,
+    })
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. 按附着能力位→formats 候选表×present/alpha 组合回报（纯查询，不建状态）。
 pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabilities {
     SurfaceCapabilities {
-        formats: vec![TextureFormat::Bgra8Unorm, TextureFormat::Bgra8UnormSrgb, TextureFormat::Rgba8Unorm, TextureFormat::Rgba8UnormSrgb],
+        formats: vec![
+            TextureFormat::Bgra8Unorm,
+            TextureFormat::Bgra8UnormSrgb,
+            TextureFormat::Rgba8Unorm,
+            TextureFormat::Rgba8UnormSrgb,
+        ],
         present_modes: vec![PresentMode::Fifo],
         alpha_modes: vec![CompositeAlphaMode::Opaque],
     }
@@ -76,5 +105,8 @@ pub(crate) fn debug_impl(s: &Surface<'_>, f: &mut core::fmt::Formatter<'_>) -> c
         #[cfg(target_arch = "wasm32")]
         SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
     };
-    f.debug_struct("Surface").field("target", &target).field("configured", &s._cfg.borrow().is_some()).finish()
+    f.debug_struct("Surface")
+        .field("target", &target)
+        .field("configured", &s._cfg.borrow().is_some())
+        .finish()
 }

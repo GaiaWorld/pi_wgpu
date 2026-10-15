@@ -6,18 +6,21 @@
 //!    比对、差异才发——水位空（首轮/整面重置）或死名表非空=整组强发一轮。
 //! 死名驻留：objects 删除路径已删名登记；表非空=整发档强发，整发档末尾整面销记。
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use pi_hash::XHashSet;
 
-use pi_glow::HasContext;
+use glow::HasContext;
 
 use crate::context_inner::with_gl;
 use crate::objects::GlHandle;
 use crate::state::{StateMirror, BIND_SLOTS};
-use crate::types::{BlendFactor, BlendOperation, BlendState, Color, ColorWrites, CompareFunction, CullMode, DepthBiasState, Face, FrontFace, PolygonMode, StencilFaceState, StencilOperation};
+use crate::types::{
+    BlendFactor, BlendOperation, BlendState, Color, ColorWrites, CompareFunction, CullMode,
+    DepthBiasState, Face, FrontFace, PolygonMode, StencilFaceState, StencilOperation,
+};
 
 /// GL_CURRENT_PROGRAM 回读参数号。
 const GL_CURRENT_PROGRAM: u32 = 0x8B8D;
@@ -80,31 +83,47 @@ pub(crate) fn probe_count(slot: usize) -> u32 {
 
 /// —— 死名刷失驻留：「镜像不假设驱动仍持有已删对象」的机制层（objects 删除路径登记）——
 /// 已删对象名登记表（域编号×名字防跨域串扰；域编号约定见 objects 芯 kind_num_* 函数注释）。
-static REMOVED_NAMES: Lazy<Mutex<XHashSet<(u8, u32)>>> = Lazy::new(|| Mutex::new(XHashSet::default()));
+static REMOVED_NAMES: Lazy<Mutex<XHashSet<(u8, u32)>>> =
+    Lazy::new(|| Mutex::new(XHashSet::default()));
 
 /// 登记一个被物理删除的对象名（objects 芯 mark_dead/release 删除后调用）。
 pub(crate) fn note_removed(domain: u8, name: u32) {
-    REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).insert((domain, name));
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert((domain, name));
 }
 
 /// 查询某域对象名是否已被删除（回读比对命中=该组按驱动未知处理，强制重发）。
 pub(crate) fn is_removed(domain: u8, name: u32) -> bool {
-    REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).contains(&(domain, name))
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&(domain, name))
 }
 
 /// 重下发成功后销记（GL 名可被驱动回收再用，滞留登记会误判新对象为死）。
 pub(crate) fn forget_removed(domain: u8, name: u32) {
-    REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).remove(&(domain, name));
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&(domain, name));
 }
 
 /// 整面清空（invalidate_generations 路径：旧世代名集在新附着下无意义）。
 pub(crate) fn clear_removed() {
-    REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 /// 死名登记表是否非空（整发档强发判据：镜像可能仍指名已被删对象，须整组重刷一轮）。
 fn has_removed() -> bool {
-    !REMOVED_NAMES.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+    !REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
 }
 
 /// 旁路纹理绑定后失效全部纹理槽水位（create_texture 建后直绑当前单元等非镜像路径）。
@@ -179,51 +198,77 @@ fn nz(n: u32) -> std::num::NonZeroU32 {
 /// 比较函数映射（NEVER=0x0200..ALWAYS=0x0207 标准序）。
 fn cmp_to_gl(c: CompareFunction) -> u32 {
     match c {
-        CompareFunction::Never => 0x0200, CompareFunction::Less => 0x0201, CompareFunction::Equal => 0x0202,
-        CompareFunction::LessEqual => 0x0203, CompareFunction::Greater => 0x0204, CompareFunction::NotEqual => 0x0205,
-        CompareFunction::GreaterEqual => 0x0206, CompareFunction::Always => 0x0207,
+        CompareFunction::Never => 0x0200,
+        CompareFunction::Less => 0x0201,
+        CompareFunction::Equal => 0x0202,
+        CompareFunction::LessEqual => 0x0203,
+        CompareFunction::Greater => 0x0204,
+        CompareFunction::NotEqual => 0x0205,
+        CompareFunction::GreaterEqual => 0x0206,
+        CompareFunction::Always => 0x0207,
     }
 }
 
 /// 混合等式映射（ADD=0x8006/SUB=0x800A/REV=0x800B/MIN=0x8007/MAX=0x8008）。
 fn blend_op_to_gl(op: BlendOperation) -> u32 {
     match op {
-        BlendOperation::Add => 0x8006, BlendOperation::Subtract => 0x800A, BlendOperation::ReverseSubtract => 0x800B,
-        BlendOperation::Min => 0x8007, BlendOperation::Max => 0x8008,
+        BlendOperation::Add => 0x8006,
+        BlendOperation::Subtract => 0x800A,
+        BlendOperation::ReverseSubtract => 0x800B,
+        BlendOperation::Min => 0x8007,
+        BlendOperation::Max => 0x8008,
     }
 }
 
 /// 混合因子映射（子集六值官方号）。
 fn blend_factor_to_gl(f: BlendFactor) -> u32 {
     match f {
-        BlendFactor::Zero => 0, BlendFactor::One => 1, BlendFactor::SrcAlpha => 0x0302,
-        BlendFactor::OneMinusSrcAlpha => 0x0303, BlendFactor::DstAlpha => 0x0304, BlendFactor::OneMinusDstAlpha => 0x0305,
+        BlendFactor::Zero => 0,
+        BlendFactor::One => 1,
+        BlendFactor::SrcAlpha => 0x0302,
+        BlendFactor::OneMinusSrcAlpha => 0x0303,
+        BlendFactor::DstAlpha => 0x0304,
+        BlendFactor::OneMinusDstAlpha => 0x0305,
     }
 }
 
 /// 正面绕序映射（GL_CW=0x0900/GL_CCW=0x0901）。
 fn front_face_to_gl(f: FrontFace) -> u32 {
-    match f { FrontFace::Ccw => 0x0901, FrontFace::Cw => 0x0900 }
+    match f {
+        FrontFace::Ccw => 0x0901,
+        FrontFace::Cw => 0x0900,
+    }
 }
 
 /// 剔除模式映射（FRONT=0x0404/BACK=0x0405；None/Undef=无剔除号=开关关）。
 fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
     match m {
-        Some(Face::Front) => Some(0x0404), Some(Face::Back) => Some(0x0405), Some(Face::Undef) | None => None,
+        Some(Face::Front) => Some(0x0404),
+        Some(Face::Back) => Some(0x0405),
+        Some(Face::Undef) | None => None,
     }
 }
 
 /// 填充模式映射（FILL=0x1B01/LINE=0x1B02/POINT=0x1B03；非 Fill 能力断言在 draw 侧）。
 fn polygon_to_gl(m: PolygonMode) -> u32 {
-    match m { PolygonMode::Fill => 0x1B01, PolygonMode::Line => 0x1B02, PolygonMode::Point => 0x1B03 }
+    match m {
+        PolygonMode::Fill => 0x1B01,
+        PolygonMode::Line => 0x1B02,
+        PolygonMode::Point => 0x1B03,
+    }
 }
 
 /// 模板操作映射（KEEP=0x1E00/ZERO=0x1E01/REPLACE=0x1E02/INCR=0x1E03/DECR=0x1E04/INVERT=0x1E05/WRAP=0x8507/0x8508）。
 fn stencil_op_to_gl(op: StencilOperation) -> u32 {
     match op {
-        StencilOperation::Keep => 0x1E00, StencilOperation::Zero => 0x1E01, StencilOperation::Replace => 0x1E02,
-        StencilOperation::IncrementClamp => 0x1E03, StencilOperation::DecrementClamp => 0x1E04, StencilOperation::Invert => 0x1E05,
-        StencilOperation::IncrementWrap => 0x8507, StencilOperation::DecrementWrap => 0x8508,
+        StencilOperation::Keep => 0x1E00,
+        StencilOperation::Zero => 0x1E01,
+        StencilOperation::Replace => 0x1E02,
+        StencilOperation::IncrementClamp => 0x1E03,
+        StencilOperation::DecrementClamp => 0x1E04,
+        StencilOperation::Invert => 0x1E05,
+        StencilOperation::IncrementWrap => 0x8507,
+        StencilOperation::DecrementWrap => 0x8508,
     }
 }
 
@@ -241,10 +286,14 @@ fn blend_same(cur: Option<Option<BlendState>>, next: Option<BlendState>) -> bool
         (Some(Some(a)), Some(b)) => {
             blend_op_to_gl(a.color.operation) == blend_op_to_gl(b.color.operation)
                 && blend_op_to_gl(a.alpha.operation) == blend_op_to_gl(b.alpha.operation)
-                && blend_factor_to_gl(a.color.color_factor) == blend_factor_to_gl(b.color.color_factor)
-                && blend_factor_to_gl(a.color.alpha_factor) == blend_factor_to_gl(b.color.alpha_factor)
-                && blend_factor_to_gl(a.alpha.color_factor) == blend_factor_to_gl(b.alpha.color_factor)
-                && blend_factor_to_gl(a.alpha.alpha_factor) == blend_factor_to_gl(b.alpha.alpha_factor)
+                && blend_factor_to_gl(a.color.color_factor)
+                    == blend_factor_to_gl(b.color.color_factor)
+                && blend_factor_to_gl(a.color.alpha_factor)
+                    == blend_factor_to_gl(b.color.alpha_factor)
+                && blend_factor_to_gl(a.alpha.color_factor)
+                    == blend_factor_to_gl(b.alpha.color_factor)
+                && blend_factor_to_gl(a.alpha.alpha_factor)
+                    == blend_factor_to_gl(b.alpha.alpha_factor)
         }
         _ => false,
     }
@@ -329,7 +378,7 @@ fn apply_program(m: &StateMirror) {
     with_gl(|gl| unsafe {
         probe(0);
         match m.program {
-            Some(g) => gl.use_program(Some(pi_glow::NativeProgram(nz(g.0)))),
+            Some(g) => gl.use_program(Some(glow::NativeProgram(nz(g.0)))),
             None => gl.use_program(None),
         }
     });
@@ -339,7 +388,7 @@ fn apply_program(m: &StateMirror) {
 fn apply_vao(m: &StateMirror) {
     with_gl(|gl| unsafe {
         match m.vao {
-            Some(g) => gl.bind_vertex_array(Some(pi_glow::NativeVertexArray(nz(g.0)))),
+            Some(g) => gl.bind_vertex_array(Some(glow::NativeVertexArray(nz(g.0)))),
             None => gl.bind_vertex_array(None),
         }
     });
@@ -349,7 +398,9 @@ fn apply_vao(m: &StateMirror) {
 fn apply_fbo(m: &StateMirror) {
     with_gl(|gl| unsafe {
         match m.fbo_draw {
-            Some(g) => gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, Some(pi_glow::NativeFramebuffer(nz(g.0)))),
+            Some(g) => {
+                gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(g.0))))
+            }
             None => gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None),
         }
     });
@@ -359,14 +410,14 @@ fn apply_fbo(m: &StateMirror) {
 fn apply_unpack(m: &StateMirror) {
     with_gl(|gl| unsafe {
         match m.pixel_unpack_buffer {
-            Some(g) => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, Some(pi_glow::NativeBuffer(nz(g.0)))),
+            Some(g) => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, Some(glow::NativeBuffer(nz(g.0)))),
             None => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, None),
         }
     });
 }
 
 /// 开/关统一下发体（调用者在 gl 门禁内）。
-unsafe fn set_enable(gl: &pi_glow::Context, group: u32, on: bool) {
+unsafe fn set_enable(gl: &glow::Context, group: u32, on: bool) {
     if on {
         gl.enable(group);
     } else {
@@ -413,7 +464,13 @@ pub(crate) fn set_pixel_unpack_buffer(m: &mut StateMirror, name: Option<GlHandle
 
 /// uniform 槽 set：差异才重绑（键=名+偏移+尺寸）；无偏移无尺寸走 bindBufferBase，带偏移/尺寸走 bindBufferRange；
 /// 解绑走 bindBufferRange(None) 低频路径。带偏移但未声明尺寸=断言（range 需合法 size）。
-pub(crate) fn bind_ubo(m: &mut StateMirror, index: u32, name: Option<GlHandle>, offset: u32, size: u32) {
+pub(crate) fn bind_ubo(
+    m: &mut StateMirror,
+    index: u32,
+    name: Option<GlHandle>,
+    offset: u32,
+    size: u32,
+) {
     let idx = index as usize;
     if idx >= BIND_SLOTS {
         panic!("state 断言: UBO 槽 {index} 超上限 {BIND_SLOTS}");
@@ -428,8 +485,16 @@ pub(crate) fn bind_ubo(m: &mut StateMirror, index: u32, name: Option<GlHandle>, 
     m.ubo_bindings[idx] = key;
     with_gl(|gl| unsafe {
         match (name, offset, size) {
-            (Some(g), 0, 0) => gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(pi_glow::NativeBuffer(nz(g.0)))),
-            (Some(g), off, sz) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32),
+            (Some(g), 0, 0) => {
+                gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(glow::NativeBuffer(nz(g.0))))
+            }
+            (Some(g), off, sz) => gl.bind_buffer_range(
+                GL_UNIFORM_BUFFER,
+                index,
+                Some(glow::NativeBuffer(nz(g.0))),
+                off as i32,
+                sz as i32,
+            ),
             (None, _, _) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
         };
     });
@@ -452,7 +517,7 @@ pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, target: u32, name: Op
             m.active_texture_unit = Some(unit);
         }
         match name {
-            Some(g) => gl.bind_texture(target, Some(pi_glow::NativeTexture(nz(g.0)))),
+            Some(g) => gl.bind_texture(target, Some(glow::NativeTexture(nz(g.0)))),
             None => gl.bind_texture(target, None),
         };
     });
@@ -470,7 +535,7 @@ pub(crate) fn bind_sampler(m: &mut StateMirror, unit: u32, name: Option<GlHandle
     m.sampler_bindings[idx] = name;
     with_gl(|gl| unsafe {
         match name {
-            Some(g) => gl.bind_sampler(unit, Some(pi_glow::NativeSampler(nz(g.0)))),
+            Some(g) => gl.bind_sampler(unit, Some(glow::NativeSampler(nz(g.0)))),
             None => gl.bind_sampler(unit, None),
         };
     });
@@ -503,7 +568,10 @@ pub(crate) fn set_scissor(m: &mut StateMirror, box4: [i32; 4], enabled: bool) {
 
 /// 深度三面 set（整体比对、一次刷齐；使能/写掩码/比较函数）。
 pub(crate) fn set_depth(m: &mut StateMirror, enabled: bool, write: bool, compare: CompareFunction) {
-    if m.depth_test_enabled == Some(enabled) && m.depth_write_enabled == Some(write) && cmp_same(m.depth_compare, compare) {
+    if m.depth_test_enabled == Some(enabled)
+        && m.depth_write_enabled == Some(write)
+        && cmp_same(m.depth_compare, compare)
+    {
         return;
     }
     m.depth_test_enabled = Some(enabled);
@@ -525,7 +593,10 @@ pub(crate) fn set_blend(m: &mut StateMirror, blend: Option<BlendState>) {
     with_gl(|gl| unsafe {
         set_enable(gl, GL_BLEND, blend.is_some());
         if let Some(bs) = blend {
-            gl.blend_equation_separate(blend_op_to_gl(bs.color.operation), blend_op_to_gl(bs.alpha.operation));
+            gl.blend_equation_separate(
+                blend_op_to_gl(bs.color.operation),
+                blend_op_to_gl(bs.alpha.operation),
+            );
             gl.blend_func_separate(
                 blend_factor_to_gl(bs.color.color_factor),
                 blend_factor_to_gl(bs.color.alpha_factor),
@@ -555,8 +626,16 @@ pub(crate) fn set_color_writes(m: &mut StateMirror, w: ColorWrites) {
 }
 
 /// 图元三面 set（剔除开关+模式/绕序/填充一次刷齐）。
-pub(crate) fn set_primitive(m: &mut StateMirror, cull: CullMode, front: FrontFace, polygon: PolygonMode) {
-    if cull_same(m.cull_mode, cull) && front_same(m.front_face, front) && polygon_same(m.polygon_mode, polygon) {
+pub(crate) fn set_primitive(
+    m: &mut StateMirror,
+    cull: CullMode,
+    front: FrontFace,
+    polygon: PolygonMode,
+) {
+    if cull_same(m.cull_mode, cull)
+        && front_same(m.front_face, front)
+        && polygon_same(m.polygon_mode, polygon)
+    {
         return;
     }
     m.cull_mode = Some(cull);
@@ -587,8 +666,16 @@ pub(crate) fn set_depth_bias(m: &mut StateMirror, bias: DepthBiasState) {
 }
 
 /// 模板两面+参考值 set（前后各刷 func/op；掩码恒全 1=交集面）。
-pub(crate) fn set_stencil(m: &mut StateMirror, front: StencilFaceState, back: StencilFaceState, reference: u32) {
-    if stencil_face_same(m.stencil_front, front) && stencil_face_same(m.stencil_back, back) && m.stencil_reference == Some(reference) {
+pub(crate) fn set_stencil(
+    m: &mut StateMirror,
+    front: StencilFaceState,
+    back: StencilFaceState,
+    reference: u32,
+) {
+    if stencil_face_same(m.stencil_front, front)
+        && stencil_face_same(m.stencil_back, back)
+        && m.stencil_reference == Some(reference)
+    {
         return;
     }
     m.stencil_front = Some(front);
@@ -597,7 +684,12 @@ pub(crate) fn set_stencil(m: &mut StateMirror, front: StencilFaceState, back: St
     with_gl(|gl| unsafe {
         for (face, st) in [(GL_FRONT, front), (GL_BACK, back)] {
             gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
-            gl.stencil_op_separate(face, stencil_op_to_gl(st.fail_op), stencil_op_to_gl(st.depth_fail_op), stencil_op_to_gl(st.pass_op));
+            gl.stencil_op_separate(
+                face,
+                stencil_op_to_gl(st.fail_op),
+                stencil_op_to_gl(st.depth_fail_op),
+                stencil_op_to_gl(st.pass_op),
+            );
         }
     });
 }
@@ -644,7 +736,8 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         if m.readback_frame != Some(rb_frame) {
             m.readback_frame = Some(rb_frame);
             probe(2);
-            let real_active = (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
+            let real_active =
+                (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
             if exp_active != real_active {
                 gl.active_texture(GL_TEXTURE0 + exp_active);
             }
@@ -740,9 +833,19 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 let t = (g.0, off, sz);
                 if m.water.ubo[i] != Some(t) {
                     if off == 0 && sz == 0 {
-                        gl.bind_buffer_base(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))));
+                        gl.bind_buffer_base(
+                            GL_UNIFORM_BUFFER,
+                            i as u32,
+                            Some(glow::NativeBuffer(nz(g.0))),
+                        );
                     } else {
-                        gl.bind_buffer_range(GL_UNIFORM_BUFFER, i as u32, Some(pi_glow::NativeBuffer(nz(g.0))), off as i32, sz as i32);
+                        gl.bind_buffer_range(
+                            GL_UNIFORM_BUFFER,
+                            i as u32,
+                            Some(glow::NativeBuffer(nz(g.0))),
+                            off as i32,
+                            sz as i32,
+                        );
                     }
                     m.water.ubo[i] = Some(t);
                     probe(1);
@@ -753,7 +856,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
                 switched = true;
                 match tex_t {
-                    Some((n, tg)) => gl.bind_texture(tg, Some(pi_glow::NativeTexture(nz(n)))),
+                    Some((n, tg)) => gl.bind_texture(tg, Some(glow::NativeTexture(nz(n)))),
                     None => gl.bind_texture(GL_TEXTURE_2D, None),
                 };
                 m.water.tex[i] = Some(tex_t);
@@ -762,7 +865,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             let smp_t = m.sampler_bindings[i].map(|g| g.0);
             if m.water.sampler[i] != Some(smp_t) {
                 match smp_t {
-                    Some(n) => gl.bind_sampler(i as u32, Some(pi_glow::NativeSampler(nz(n)))),
+                    Some(n) => gl.bind_sampler(i as u32, Some(glow::NativeSampler(nz(n)))),
                     None => gl.bind_sampler(i as u32, None),
                 };
                 m.water.sampler[i] = Some(smp_t);
@@ -832,10 +935,18 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             (Some(fs), Some(bs)) => {
                 let r = m.stencil_reference.unwrap_or(0) as i32;
                 Some([
-                    GL_FRONT as i32, cmp_to_gl(fs.compare) as i32, r,
-                    stencil_op_to_gl(fs.fail_op) as i32, stencil_op_to_gl(fs.depth_fail_op) as i32, stencil_op_to_gl(fs.pass_op) as i32,
-                    GL_BACK as i32, cmp_to_gl(bs.compare) as i32, r,
-                    stencil_op_to_gl(bs.fail_op) as i32, stencil_op_to_gl(bs.depth_fail_op) as i32, stencil_op_to_gl(bs.pass_op) as i32,
+                    GL_FRONT as i32,
+                    cmp_to_gl(fs.compare) as i32,
+                    r,
+                    stencil_op_to_gl(fs.fail_op) as i32,
+                    stencil_op_to_gl(fs.depth_fail_op) as i32,
+                    stencil_op_to_gl(fs.pass_op) as i32,
+                    GL_BACK as i32,
+                    cmp_to_gl(bs.compare) as i32,
+                    r,
+                    stencil_op_to_gl(bs.fail_op) as i32,
+                    stencil_op_to_gl(bs.depth_fail_op) as i32,
+                    stencil_op_to_gl(bs.pass_op) as i32,
                 ])
             }
             _ => None,
@@ -845,7 +956,12 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 for f in 0..2 {
                     let o = f * 6;
                     gl.stencil_func_separate(st[o] as u32, st[o + 1] as u32, st[o + 2], !0);
-                    gl.stencil_op_separate(st[o] as u32, st[o + 3] as u32, st[o + 4] as u32, st[o + 5] as u32);
+                    gl.stencil_op_separate(
+                        st[o] as u32,
+                        st[o + 3] as u32,
+                        st[o + 4] as u32,
+                        st[o + 5] as u32,
+                    );
                 }
             }
             m.water.stencil = stencil_t;
@@ -859,7 +975,6 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             probe(1);
         }
         clear_removed();
-
     });
 }
 

@@ -76,9 +76,13 @@ impl StateMirror {
     /// 按上次下发水位（water）比对、差异才发（水位空或死名登记命中=整组强发一次）。死名命中下发后销记。
     /// 可回读档另受帧门约束：每帧（surface.present 推进帧号）只做一次驱动回读比对，帧内复用镜像态。失败面：无同步错误通道（见不变量），
     /// 下发即入驱动队列，驱动侧恢复语义由消费面（探针/lost 重建）闭合。 @internal
-    pub(crate) fn flush_if_changed(&mut self) { crate::state_inner::flush_impl(self) }
+    pub(crate) fn flush_if_changed(&mut self) {
+        crate::state_inner::flush_impl(self)
+    }
     /// 对象死亡即时通知（逐名）：置空引用该句柄名的镜像字段——下次下发按「镜像未知」强制重设，
     /// 不假设驱动仍持有已删对象。常规死亡路径走芯死名登记（objects 删除时）+flush 强发；
     /// 本即时作废面留给 binds/draw 接线批的点名失效场景（在册：当前调用方待实现批接入）。 @internal
-    pub(crate) fn drop_invalidate(&mut self, dead: GlHandle) { crate::state_inner::invalidate_impl(self, dead) }
+    pub(crate) fn drop_invalidate(&mut self, dead: GlHandle) {
+        crate::state_inner::invalidate_impl(self, dead)
+    }
 }

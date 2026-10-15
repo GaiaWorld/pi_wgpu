@@ -21,6 +21,10 @@ pub struct Caps {
 
 /// 探测入口：附着建立后运行一次（唯一合法调用时机；早于附着=断言）。末尾副作用=写入芯内最近快照缓存
 /// （latest_caps；供 formats 等实现批门控读，锁外原子读数）。 @internal
-pub(crate) fn probe() -> Caps { crate::caps_inner::probe_impl() }
+pub(crate) fn probe() -> Caps {
+    crate::caps_inner::probe_impl()
+}
 /// 快照→对外 Features 位词汇表的投影（纯函数，不失败）。 @internal
-pub(crate) fn fill_features(c: &Caps) -> crate::types::Features { crate::caps_inner::fill_impl(c) }
+pub(crate) fn fill_features(c: &Caps) -> crate::types::Features {
+    crate::caps_inner::fill_impl(c)
+}

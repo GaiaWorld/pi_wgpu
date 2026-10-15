@@ -6,6 +6,9 @@ pub(crate) fn uw_request_impl<'p>(
     adapter: &'p wgpu::Adapter,
     desc: &'p wgpu::DeviceDescriptor<'p>,
     _trace_path: Option<&'p Path>,
-) -> impl std::future::Future<Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> + Send + 'p {
+) -> impl std::future::Future<
+    Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>,
+> + Send
+       + 'p {
     adapter.request_device(desc)
 }

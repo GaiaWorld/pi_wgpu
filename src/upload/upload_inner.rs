@@ -3,7 +3,7 @@
 //! 错误处理（错误纪律）：违约记 log::error!(UploadErr)；debug 档不下发、release 档留痕+下发（不谎报）。
 use std::num::NonZeroU32;
 
-use pi_glow::HasContext;
+use glow::HasContext;
 
 use crate::context_inner::with_gl;
 use crate::entry::{Buffer, Queue};
@@ -40,7 +40,12 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
         bad = true;
     }
     if o + d.len() as u64 > b.size {
-        log::error!("upload {:?} off={o} len={} size={}", UploadErr::OutOfRange, d.len(), b.size);
+        log::error!(
+            "upload {:?} off={o} len={} size={}",
+            UploadErr::OutOfRange,
+            d.len(),
+            b.size
+        );
         bad = true;
     }
     if bad && cfg!(debug_assertions) {
@@ -51,7 +56,7 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
         return;
     };
     with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(pi_glow::NativeBuffer(nn)));
+        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(glow::NativeBuffer(nn)));
         gl.buffer_sub_data_u8_slice(GL_COPY_WRITE_BUFFER, o as i32, d);
     });
 }
@@ -68,7 +73,13 @@ const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
 const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
 const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
 
-pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], l: &ImageDataLayout, e: Extent3d) {
+pub(crate) fn write_texture_impl(
+    q: &Queue,
+    t: &ImageCopyTexture<'_>,
+    d: &[u8],
+    l: &ImageDataLayout,
+    e: Extent3d,
+) {
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
@@ -87,7 +98,11 @@ pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], 
     }
     let off = l.offset as usize;
     if off > d.len() {
-        log::error!("upload {:?} off={off} len={}", UploadErr::OutOfRange, d.len());
+        log::error!(
+            "upload {:?} off={off} len={}",
+            UploadErr::OutOfRange,
+            d.len()
+        );
         bad = true;
     }
     if bad && cfg!(debug_assertions) {
@@ -104,7 +119,7 @@ pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], 
     let restore_unit = upload_restore_unit(q);
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
-        gl.bind_texture(target, Some(pi_glow::NativeTexture(nn)));
+        gl.bind_texture(target, Some(glow::NativeTexture(nn)));
         match lay.bytes_per_row {
             Some(bpr) => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, (bpr.get() as u64 / bpp) as i32),
             None => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0),
@@ -115,14 +130,46 @@ pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], 
         }
         match target {
             GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {
-                gl.tex_sub_image_3d(target, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, t.origin.z as i32, e.width as i32, e.height as i32, e.depth_or_array_layers as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+                gl.tex_sub_image_3d(
+                    target,
+                    t.mip_level as i32,
+                    t.origin.x as i32,
+                    t.origin.y as i32,
+                    t.origin.z as i32,
+                    e.width as i32,
+                    e.height as i32,
+                    e.depth_or_array_layers as i32,
+                    p.format,
+                    p.pixel_type,
+                    glow::PixelUnpackData::Slice(src),
+                );
             }
             GL_TEXTURE_CUBE_MAP => {
                 let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z;
-                gl.tex_sub_image_2d(face, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, e.width as i32, e.height as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+                gl.tex_sub_image_2d(
+                    face,
+                    t.mip_level as i32,
+                    t.origin.x as i32,
+                    t.origin.y as i32,
+                    e.width as i32,
+                    e.height as i32,
+                    p.format,
+                    p.pixel_type,
+                    glow::PixelUnpackData::Slice(src),
+                );
             }
             _ => {
-                gl.tex_sub_image_2d(target, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, e.width as i32, e.height as i32, p.format, p.pixel_type, pi_glow::PixelUnpackData::Slice(src));
+                gl.tex_sub_image_2d(
+                    target,
+                    t.mip_level as i32,
+                    t.origin.x as i32,
+                    t.origin.y as i32,
+                    e.width as i32,
+                    e.height as i32,
+                    p.format,
+                    p.pixel_type,
+                    glow::PixelUnpackData::Slice(src),
+                );
             }
         }
         gl.active_texture(GL_TEXTURE0 + restore_unit);
@@ -132,7 +179,13 @@ pub(crate) fn write_texture_impl(q: &Queue, t: &ImageCopyTexture<'_>, d: &[u8], 
 /// 上传专用单元的「恢复单元」=镜像记录的当前 active 单元（上传只在专用单元操作，事后恢复到镜像期望）。\n/// 恢复镜像值而非盲还原 0，以维持「驱动 active == 镜像 active」不变量（帧门跳过回读时不至于错位）。
 fn upload_restore_unit(q: &Queue) -> u32 {
     match q._dev.as_ref() {
-        Some(d) => d._inner.state.lock().unwrap_or_else(|e| e.into_inner()).active_texture_unit.unwrap_or(0),
+        Some(d) => d
+            ._inner
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .active_texture_unit
+            .unwrap_or(0),
         None => 0,
     }
 }
@@ -160,8 +213,16 @@ pub(crate) fn write_js_impl(q: &Queue, t: &ImageCopyTexture<'_>, bitmap: wasm_bi
     };
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
-        gl.bind_texture(GL_TEXTURE_2D, Some(pi_glow::NativeTexture(nn)));
-        gl.tex_sub_image_2d_with_image_bitmap(GL_TEXTURE_2D, t.mip_level as i32, t.origin.x as i32, t.origin.y as i32, p.format, p.pixel_type, &bmp);
+        gl.bind_texture(GL_TEXTURE_2D, Some(glow::NativeTexture(nn)));
+        gl.tex_sub_image_2d_with_image_bitmap(
+            GL_TEXTURE_2D,
+            t.mip_level as i32,
+            t.origin.x as i32,
+            t.origin.y as i32,
+            p.format,
+            p.pixel_type,
+            &bmp,
+        );
         gl.active_texture(GL_TEXTURE0 + upload_restore_unit(q));
     });
 }
@@ -185,8 +246,16 @@ mod tests {
     /// convert：缺省层行按 extent.height 推定；bytes_per_row 缺省保持 None。
     #[test]
     fn convert_fills_rows_default_test() {
-        let l = ImageDataLayout { offset: 8, bytes_per_row: None, rows_per_image: None };
-        let e = Extent3d { width: 4, height: 8, depth_or_array_layers: 1 };
+        let l = ImageDataLayout {
+            offset: 8,
+            bytes_per_row: None,
+            rows_per_image: None,
+        };
+        let e = Extent3d {
+            width: 4,
+            height: 8,
+            depth_or_array_layers: 1,
+        };
         let c = convert_upload_layout(&l, &e);
         assert_eq!(c.offset, 8);
         assert_eq!(c.rows_per_image.map(|x| x.get()), Some(8));
@@ -197,7 +266,10 @@ mod tests {
     #[test]
     fn write_buffer_dead_handle_no_panic_test() {
         let q = Queue { _dev: None };
-        let b = Buffer { _h: DirectHandle::placeholder(DirectKind::Buffer, 1), size: 16 };
+        let b = Buffer {
+            _h: DirectHandle::placeholder(DirectKind::Buffer, 1),
+            size: 16,
+        };
         write_buffer_impl(&q, &b, 0, &[0u8; 4]);
     }
 }

@@ -20,8 +20,14 @@ pub type AttachmentSlot = Option<Attachment>;
 /// 搬运前提（Windows 形态）：首次建立附着体的线程须存活至附着存续期——隐窗 DC 等
 /// 资源随其线程生命周期，该线程终止后再跨线程重绑由地基断言拒绝（无半附着副作用）；
 /// 安卓 EGL 与 Web 形态天然满足此前提（无线程绑定句柄）。 @internal
-pub(crate) fn attach() -> AttachmentSlot { crate::context_inner::attach_impl() }
+pub(crate) fn attach() -> AttachmentSlot {
+    crate::context_inner::attach_impl()
+}
 /// 让出当前线程的上下文绑定（跨线程搬运底座；unmake_current 的实现端）。 @internal
-pub(crate) fn let_go() { crate::context_inner::let_go_impl() }
+pub(crate) fn let_go() {
+    crate::context_inner::let_go_impl()
+}
 /// 上下文丢失登记：附着代号+1、返回新代号。本步只记账号——旧句柄与镜像靠代号失配自然退出（活态判）；公开重建路径=对同一适配器重走 request_device 得新三件套。 @internal
-pub(crate) fn gen_bump() -> u32 { crate::context_inner::gen_bump_impl() }
+pub(crate) fn gen_bump() -> u32 {
+    crate::context_inner::gen_bump_impl()
+}

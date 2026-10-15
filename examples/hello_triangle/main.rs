@@ -6,7 +6,9 @@ use pi_wgpu::*;
 #[cfg(windows)]
 mod fault {
     use core::ffi::c_void;
-    use windows_sys::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, EXCEPTION_POINTERS};
+    use windows_sys::Win32::System::Diagnostics::Debug::{
+        AddVectoredExceptionHandler, EXCEPTION_POINTERS,
+    };
     /// EXCEPTION_ACCESS_VIOLATION 码（windows-sys 0.52 未导出常量）。
     const ACCESS_VIOLATION: i32 = 0xC000_0005u32 as i32;
     use windows_sys::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW};
@@ -17,12 +19,23 @@ mod fault {
         if !rec.is_null() && unsafe { (*rec).ExceptionCode } == ACCESS_VIOLATION {
             let addr: *mut c_void = unsafe { (*rec).ExceptionAddress };
             let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
-            let n = unsafe { VirtualQuery(addr, &mut mbi, core::mem::size_of::<MEMORY_BASIC_INFORMATION>()) };
-            let base = if n != 0 { mbi.AllocationBase } else { core::ptr::null_mut() };
+            let n = unsafe {
+                VirtualQuery(
+                    addr,
+                    &mut mbi,
+                    core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                )
+            };
+            let base = if n != 0 {
+                mbi.AllocationBase
+            } else {
+                core::ptr::null_mut()
+            };
             let mut buf = [0u16; 260];
             let mut name = String::from("<unknown>");
             if !base.is_null() {
-                let len = unsafe { GetModuleFileNameW(base as _, buf.as_mut_ptr(), buf.len() as u32) };
+                let len =
+                    unsafe { GetModuleFileNameW(base as _, buf.as_mut_ptr(), buf.len() as u32) };
                 if len > 0 {
                     name = String::from_utf16_lossy(&buf[..len as usize]);
                 }
@@ -30,21 +43,46 @@ mod fault {
             let off = (addr as usize).wrapping_sub(base as usize);
             let sub = unsafe { (*rec).ExceptionInformation[0] };
             let data = unsafe { (*rec).ExceptionInformation[1] };
-            let kind = match sub { 0 => "read", 1 => "write", 8 => "execute", _ => "?" };
+            let kind = match sub {
+                0 => "read",
+                1 => "write",
+                8 => "execute",
+                _ => "?",
+            };
             let mut dbuf = [0u16; 260];
             let mut dname = String::from("<unknown>");
             let mut dmbi: MEMORY_BASIC_INFORMATION = unsafe { core::mem::zeroed() };
-            if unsafe { VirtualQuery(data as *const c_void, &mut dmbi, core::mem::size_of::<MEMORY_BASIC_INFORMATION>()) } != 0 && !dmbi.AllocationBase.is_null() {
-                let l = unsafe { GetModuleFileNameW(dmbi.AllocationBase as _, dbuf.as_mut_ptr(), dbuf.len() as u32) };
-                if l > 0 { dname = String::from_utf16_lossy(&dbuf[..l as usize]); }
+            if unsafe {
+                VirtualQuery(
+                    data as *const c_void,
+                    &mut dmbi,
+                    core::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                )
+            } != 0
+                && !dmbi.AllocationBase.is_null()
+            {
+                let l = unsafe {
+                    GetModuleFileNameW(
+                        dmbi.AllocationBase as _,
+                        dbuf.as_mut_ptr(),
+                        dbuf.len() as u32,
+                    )
+                };
+                if l > 0 {
+                    dname = String::from_utf16_lossy(&dbuf[..l as usize]);
+                }
             }
             let mut base2: isize = 0;
             let mut m2 = [0u16; 260];
             let mut n2 = String::from("<unknown>");
             let mut off2 = 0usize;
-            if unsafe { GetModuleHandleExW(0x4 | 0x2, addr as *const u16, &mut base2) } != 0 && base2 != 0 {
+            if unsafe { GetModuleHandleExW(0x4 | 0x2, addr as *const u16, &mut base2) } != 0
+                && base2 != 0
+            {
                 let l = unsafe { GetModuleFileNameW(base2, m2.as_mut_ptr(), m2.len() as u32) };
-                if l > 0 { n2 = String::from_utf16_lossy(&m2[..l as usize]); }
+                if l > 0 {
+                    n2 = String::from_utf16_lossy(&m2[..l as usize]);
+                }
                 off2 = (addr as usize).wrapping_sub(base2 as usize);
             }
             eprintln!("!!! AV kind={kind} insn={addr:p}(vq:{name}+0x{off:x} / gh:{n2}+0x{off2:x}) data={data:#x}({dname})");
@@ -64,7 +102,9 @@ mod fault {
     }
 
     pub fn install() {
-        unsafe { AddVectoredExceptionHandler(1, Some(handler)); }
+        unsafe {
+            AddVectoredExceptionHandler(1, Some(handler));
+        }
     }
 }
 use winit::application::ApplicationHandler;
@@ -78,7 +118,12 @@ const VERT: &str = include_str!("triangle.vert");
 const FRAG: &str = include_str!("triangle.frag");
 
 /// 清屏色。
-const CLEAR: Color = Color { r: 0.05, g: 0.05, b: 0.08, a: 1.0 };
+const CLEAR: Color = Color {
+    r: 0.05,
+    g: 0.05,
+    b: 0.08,
+    a: 1.0,
+};
 /// 三角形三顶点（裁剪空间）：每顶点 = position(vec2) + color(vec4)。
 const VERTS: [[f32; 6]; 3] = [
     [-0.6, -0.5, 1.0, 0.0, 0.0, 1.0],
@@ -98,18 +143,21 @@ struct State {
 }
 
 /// 事件回调宿主。
-struct App { state: Option<State> }
+struct App {
+    state: Option<State>,
+}
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window: &'static Window = Box::leak(Box::new(
-            event_loop.create_window(Window::default_attributes()).expect("create_window"),
+            event_loop
+                .create_window(Window::default_attributes())
+                .expect("create_window"),
         ));
-        let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
+        let instance: &'static Instance =
+            Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
         let size = window.inner_size();
-        let surface = instance
-            .create_surface(window)
-            .expect("create_surface");
+        let surface = instance.create_surface(window).expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
@@ -117,7 +165,12 @@ impl ApplicationHandler for App {
         }))
         .expect("request_adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(
-            &DeviceDescriptor { label: Some("tri"), required_features: Features::default(), required_limits: Limits::default(), memory_hints: MemoryHints::default() },
+            &DeviceDescriptor {
+                label: Some("tri"),
+                required_features: Features::default(),
+                required_limits: Limits::default(),
+                memory_hints: MemoryHints::default(),
+            },
             None,
         ))
         .expect("request_device");
@@ -131,39 +184,87 @@ impl ApplicationHandler for App {
         };
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("tri"),
-            source: ShaderSource::Glsl(GlslSource { version: GlslVersion::Glsl450, vertex: Some(GlslVertex { code: VERT }), fragment: Some(GlslFragment { code: FRAG }) }),
+        let vshader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("tri-v"),
+            source: ShaderSource::Glsl {
+                shader: VERT.into(),
+                stage: ShaderStage::Vertex,
+                defines: &[],
+            },
         });
-        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor { label: Some("pl"), bind_group_layouts: &[] });
+        let fshader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("tri-f"),
+            source: ShaderSource::Glsl {
+                shader: FRAG.into(),
+                stage: ShaderStage::Fragment,
+                defines: &[],
+            },
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pl"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("tri"),
-            layout: &layout,
+            layout: Some(&layout),
             vertex: VertexState {
-                module: &shader,
+                module: &vshader,
                 entry_point: Some("main"),
-                layouts: &[VertexBufferLayout {
+                compilation_options: Default::default(),
+                buffers: &[VertexBufferLayout {
                     array_stride: 24,
                     step_mode: VertexStepMode::Vertex,
                     attributes: &[
-                        VertexAttribute { format: VertexFormat::Float32x2, offset: 0, shader_location: 0 },
-                        VertexAttribute { format: VertexFormat::Float32x4, offset: 8, shader_location: 1 },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x4,
+                            offset: 8,
+                            shader_location: 1,
+                        },
                     ],
                 }],
             },
             fragment: Some(FragmentState {
-                module: &shader,
+                module: &fshader,
                 entry_point: Some("main"),
-                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })],
+                compilation_options: Default::default(),
+                targets: &[Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
             }),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             primitive: PrimitiveState::default(),
+            multiview: None,
+            cache: None,
         });
         let mut bytes = Vec::with_capacity(VERTS.len() * 24);
-        for v in VERTS { for c in v { bytes.extend_from_slice(&c.to_ne_bytes()); } }
-        let vbuf = device.create_buffer_init(&BufferInitDescriptor { label: Some("verts"), contents: &bytes, usage: BufferUsages::VERTEX });
-        self.state = Some(State { window, surface, device, queue, config, pipeline, vbuf });
+        for v in VERTS {
+            for c in v {
+                bytes.extend_from_slice(&c.to_ne_bytes());
+            }
+        }
+        let vbuf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("verts"),
+            contents: &bytes,
+            usage: BufferUsages::VERTEX,
+        });
+        self.state = Some(State {
+            window,
+            surface,
+            device,
+            queue,
+            config,
+            pipeline,
+            vbuf,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -178,17 +279,36 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(s) = self.state.as_mut() {
-                    let frame = s.surface.get_current_texture().expect("get_current_texture");
-                    let mut encoder = s.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("tri") });
+                    let frame = s
+                        .surface
+                        .get_current_texture()
+                        .expect("get_current_texture");
+                    let mut encoder = s
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor { label: Some("tri") });
                     {
                         let ca = RenderPassColorAttachment {
                             view: frame.view(),
                             resolve_target: None,
-                            ops: Operations { load: LoadOp::Clear(CLEAR), store: StoreOp::Store },
+                            ops: Operations {
+                                load: LoadOp::Clear(CLEAR),
+                                store: StoreOp::Store,
+                            },
                         };
-                        let desc = RenderPassDescriptor { label: Some("tri"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
+                        let desc = RenderPassDescriptor {
+                            label: Some("tri"),
+                            color_attachments: &[Some(ca)],
+                            depth_stencil_attachment: None,
+                        };
                         let mut pass = encoder.begin_render_pass(&desc);
-                        pass.set_viewport(0., 0., s.config.width as f32, s.config.height as f32, 0., 1.);
+                        pass.set_viewport(
+                            0.,
+                            0.,
+                            s.config.width as f32,
+                            s.config.height as f32,
+                            0.,
+                            1.,
+                        );
                         pass.set_pipeline(&s.pipeline);
                         pass.set_vertex_buffer(0, &s.vbuf, 0, 24);
                         pass.draw(0, 3);
@@ -206,7 +326,15 @@ impl ApplicationHandler for App {
     /// 显式按序销毁（不依赖 Drop 顺序）：GL 资源 → device/queue → surface → 窗口。
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(s) = self.state.take() {
-            let State { window, surface, device, queue, config, pipeline, vbuf } = s;
+            let State {
+                window,
+                surface,
+                device,
+                queue,
+                config,
+                pipeline,
+                vbuf,
+            } = s;
             drop(pipeline);
             drop(vbuf);
             drop(queue);

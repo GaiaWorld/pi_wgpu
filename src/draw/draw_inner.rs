@@ -3,7 +3,7 @@
 //! 错误处理（错误纪律）：合同违反（嵌套通道/死句柄/参数级）保留断言（短码）；断言前无副作用。
 use std::num::NonZeroU32;
 
-use pi_glow::HasContext;
+use glow::HasContext;
 
 use crate::context_inner::with_gl;
 use crate::draw::{RenderPass, VertexLayout};
@@ -12,7 +12,7 @@ use crate::state::StateMirror;
 use crate::state_inner;
 use crate::types::{Color, DynamicOffset, IndexFormat, RenderPassDescriptor};
 
-// GL 常量（pi_glow 根面不导出 GL_*；规范值内联）。
+// GL 常量（glow 根面不导出 GL_*；规范值内联）。
 const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_ARRAY_BUFFER: u32 = 0x8892;
@@ -60,10 +60,22 @@ fn topo(m: crate::types::PrimitiveTopology) -> u32 {
 /// 顶点格式判别码（哈希用）。
 fn fmt_code(f: crate::types::VertexFormat) -> u8 {
     use crate::types::VertexFormat::*;
-    match f { Float32 => 0, Float32x2 => 1, Float32x3 => 2, Float32x4 => 3, Uint8x4 => 4, Sint16x2 => 5 }
+    match f {
+        Float32 => 0,
+        Float32x2 => 1,
+        Float32x3 => 2,
+        Float32x4 => 3,
+        Uint8x4 => 4,
+        Sint16x2 => 5,
+    }
 }
 /// 索引宽（字节）。
-fn index_width(f: IndexFormat) -> u64 { match f { IndexFormat::Uint16 => 2, IndexFormat::Uint32 => 4 } }
+fn index_width(f: IndexFormat) -> u64 {
+    match f {
+        IndexFormat::Uint16 => 2,
+        IndexFormat::Uint32 => 4,
+    }
+}
 /// 布局哈希（VAO 复用键）。
 pub(crate) fn layout_hash(v: &[VertexLayout]) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -81,11 +93,17 @@ pub(crate) fn layout_hash(v: &[VertexLayout]) -> u64 {
 }
 
 /// 非零包装（活句柄≥1；零=合同违反）。
-fn nz(n: u32) -> NonZeroU32 { NonZeroU32::new(n).expect("draw str-assert: 零句柄名") }
+fn nz(n: u32) -> NonZeroU32 {
+    NonZeroU32::new(n).expect("draw str-assert: 零句柄名")
+}
 
 /// 借设备状态镜像（锁序：state 先、with_gl 后）。
 fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirror> {
-    p._enc._inner.state.lock().unwrap_or_else(|e| e.into_inner())
+    p._enc
+        ._inner
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 // 设计预期（伪码·示意·非唯一实现）：begin=开通道。
@@ -93,11 +111,21 @@ fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirro
 // 2. 颜色附件恰一 Some；视图活态。违约=断言。
 // 3. 目标：帧视图=默认帧缓冲 0；离屏视图=登记差异（本批暂停，落错误日志后走 0）。load=Clear 即时清。
 // 4. 守卫置位，返回借用编码器的 RenderPass。
-pub(crate) fn begin_impl<'p>(e: &'p mut CommandEncoder, d: &RenderPassDescriptor<'p>) -> RenderPass<'p> {
+pub(crate) fn begin_impl<'p>(
+    e: &'p mut CommandEncoder,
+    d: &RenderPassDescriptor<'p>,
+) -> RenderPass<'p> {
     assert!(!e._opened_pass, "draw str-assert: 嵌套 render pass");
     let some = d.color_attachments.iter().filter(|x| x.is_some()).count();
-    assert!(some == 1, "draw str-assert: 颜色附件须恰一 Some（得 {some}）");
-    let ca = d.color_attachments.iter().find_map(|x| x.as_ref()).expect("恰一 Some（前置断言保证）");
+    assert!(
+        some == 1,
+        "draw str-assert: 颜色附件须恰一 Some（得 {some}）"
+    );
+    let ca = d
+        .color_attachments
+        .iter()
+        .find_map(|x| x.as_ref())
+        .expect("恰一 Some（前置断言保证）");
     let is_frame = ca.view._tex.is_none();
     if !is_frame {
         log::error!("draw: 离屏附件 FBO 路径待后续批（登记差异；本批暂停，走默认帧缓冲）");
@@ -110,7 +138,17 @@ pub(crate) fn begin_impl<'p>(e: &'p mut CommandEncoder, d: &RenderPassDescriptor
         });
     }
     e._opened_pass = true;
-    RenderPass { _enc: e, _vertex: Vec::new(), _pipe_set: false, _vertex_ready: false, _index_ready: false, _topology: crate::types::PrimitiveTopology::TriangleList, _index_format: None, _index_offset: 0, _vao: None }
+    RenderPass {
+        _enc: e,
+        _vertex: Vec::new(),
+        _pipe_set: false,
+        _vertex_ready: false,
+        _index_ready: false,
+        _topology: crate::types::PrimitiveTopology::TriangleList,
+        _index_format: None,
+        _index_offset: 0,
+        _vao: None,
+    }
 }
 
 // 设计预期：死程序句柄=断言；管线字段改记，程序切换差异下发。
@@ -127,29 +165,53 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
 }
 
 // 设计预期：set∈0-3 且偏移计数与声明一致；委托 binds.apply_layout。
-pub(crate) fn set_bind_group_impl(p: &mut RenderPass<'_>, s: u32, g: &BindGroup, o: &[DynamicOffset]) {
+pub(crate) fn set_bind_group_impl(
+    p: &mut RenderPass<'_>,
+    s: u32,
+    g: &BindGroup,
+    o: &[DynamicOffset],
+) {
     assert!(s <= 3, "draw str-assert: set={s} 超 0-3");
     let mut m = lock_state(p);
     let mut offs = o;
     crate::binds::consume_dynamic_offsets(g, &mut offs);
-    let slots = p._enc._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+    let slots = p
+        ._enc
+        ._inner
+        .slots
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     crate::binds::apply_layout(s, g, o, &slots, &mut m);
 }
 
 // 设计预期：句柄活态+范围校验；槽 i 记录缓冲/偏移/步长 → 属性批配属性。
 pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64, s: u64) {
     let name = b._h.name().expect("draw str-assert: 死顶点缓冲句柄");
-    let layout: VertexLayout = p._vertex.get(i as usize).expect("draw str-assert: 顶点槽越界").clone();
-    assert!(s == layout.array_stride, "draw str-assert: 顶点步长与布局不符");
+    let layout: VertexLayout = p
+        ._vertex
+        .get(i as usize)
+        .expect("draw str-assert: 顶点槽越界")
+        .clone();
+    assert!(
+        s == layout.array_stride,
+        "draw str-assert: 顶点步长与布局不符"
+    );
     // VAO=管线级复用对象（由 set_pipeline 提供；本处只绑 + 重设属性，不建删）。
     let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
     let mut m = lock_state(p);
     with_gl(|gl| unsafe {
-        gl.bind_vertex_array(Some(pi_glow::NativeVertexArray(nz(vao_name.0))));
-        gl.bind_buffer(GL_ARRAY_BUFFER, Some(pi_glow::NativeBuffer(nz(name.0))));
+        gl.bind_vertex_array(Some(glow::NativeVertexArray(nz(vao_name.0))));
+        gl.bind_buffer(GL_ARRAY_BUFFER, Some(glow::NativeBuffer(nz(name.0))));
         for a in layout.attributes.iter() {
             let (n, ty, norm) = vtx_fmt(a.format);
-            gl.vertex_attrib_pointer_f32(a.shader_location, n, ty, norm, layout.array_stride as i32, o as i32 + a.offset as i32);
+            gl.vertex_attrib_pointer_f32(
+                a.shader_location,
+                n,
+                ty,
+                norm,
+                layout.array_stride as i32,
+                o as i32 + a.offset as i32,
+            );
             gl.enable_vertex_attrib_array(a.shader_location);
         }
         if matches!(layout.step_mode, crate::types::VertexStepMode::Instance) {
@@ -166,9 +228,15 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
 // 设计预期：句柄活态+偏移范围；镜像记索引绑定（格式仅记录）。
 pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: IndexFormat, c: u64) {
     let name = b._h.name().expect("draw str-assert: 死索引缓冲句柄");
-    assert!(o + c * index_width(f) <= b.size || c == 0, "draw str-assert: 索引范围越界");
+    assert!(
+        o + c * index_width(f) <= b.size || c == 0,
+        "draw str-assert: 索引范围越界"
+    );
     with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_ELEMENT_ARRAY_BUFFER, Some(pi_glow::NativeBuffer(nz(name.0))));
+        gl.bind_buffer(
+            GL_ELEMENT_ARRAY_BUFFER,
+            Some(glow::NativeBuffer(nz(name.0))),
+        );
     });
     p._index_format = Some(f);
     p._index_offset = o;
@@ -176,7 +244,15 @@ pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: Inde
 }
 
 // 设计预期：Y 翻换（缺目标高度→收窄存原始值，登记差异）；深度区间原样透传；差异才下发。
-pub(crate) fn set_viewport_impl(p: &mut RenderPass<'_>, x: f32, y: f32, w: f32, h: f32, dn: f32, up: f32) {
+pub(crate) fn set_viewport_impl(
+    p: &mut RenderPass<'_>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    dn: f32,
+    up: f32,
+) {
     assert!(w >= 0.0 && h >= 0.0, "draw str-assert: 视口负尺寸");
     let mut m = lock_state(p);
     state_inner::set_viewport(&mut m, [x, y, w, h, dn, up]);
@@ -232,4 +308,14 @@ pub(crate) fn draw_idx_impl(p: &mut RenderPass<'_>, s: u32, c: u32, b: i32) {
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
     with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
     p._enc._opened_pass = false;
+}
+
+// desc-align-wgpu25：合法域恒拒止——GL 路无 push constants（能力位恒 0/上限恒 0），一切调用=违约断言（前置拒止；正式错误码通道归实现批）。
+pub(crate) fn set_push_impl(_p: &mut RenderPass<'_>, _offset: u32, _data: &[u8]) {
+    assert!(
+        false,
+        "draw 断言 ErrPush: GL 路恒拒止，本调用必违约（offset={} len={}，通道无标签源）",
+        _offset,
+        _data.len()
+    );
 }

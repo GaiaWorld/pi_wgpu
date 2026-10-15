@@ -11,16 +11,19 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use pi_hash::XHashMap;
 
-use pi_glow::HasContext;
+use glow::HasContext;
 
 use crate::context_inner::{generation_now, with_gl};
-use crate::objects::{DirectHandle, DirectHandleState, DirectKind, GlHandle, HandleCache, Reusable, ReuseKey};
-use pi_share::Share;
+use crate::objects::{
+    DirectHandle, DirectHandleState, DirectKind, GlHandle, HandleCache, Reusable, ReuseKey,
+};
 use crate::state::StateMirror;
 use crate::state_inner::note_removed;
+use pi_share::Share;
 
 /// 复用在途计数真相表（键→持有者数）。仅经 bump/drop_count 访问，禁止旁路手改（成对合同）。
-static REFCOUNTS: Lazy<Mutex<XHashMap<ReuseKey, u32>>> = Lazy::new(|| Mutex::new(XHashMap::default()));
+static REFCOUNTS: Lazy<Mutex<XHashMap<ReuseKey, u32>>> =
+    Lazy::new(|| Mutex::new(XHashMap::default()));
 
 /// 增计数并返回新值（键首次出现=1）。不触驱动。
 fn bump(key: ReuseKey) -> u32 {
@@ -78,10 +81,26 @@ fn gen_by_key(key: ReuseKey) -> GlHandle {
     with_gl(|gl| {
         let name: u32 = unsafe {
             match key {
-                ReuseKey::Program(h) => gl.create_program().unwrap_or_else(|e| panic!("objects 断言: Program 域创建失败 err={e} hash={h}")).0.get(),
-                ReuseKey::Vao(h) => gl.create_vertex_array().unwrap_or_else(|e| panic!("objects 断言: Vao 域创建失败 err={e} hash={h}")).0.get(),
-                ReuseKey::Fbo(h) => gl.create_framebuffer().unwrap_or_else(|e| panic!("objects 断言: Fbo 域创建失败 err={e} hash={h}")).0.get(),
-                ReuseKey::Rbo(h) => gl.create_renderbuffer().unwrap_or_else(|e| panic!("objects 断言: Rbo 域创建失败 err={e} hash={h}")).0.get(),
+                ReuseKey::Program(h) => gl
+                    .create_program()
+                    .unwrap_or_else(|e| panic!("objects 断言: Program 域创建失败 err={e} hash={h}"))
+                    .0
+                    .get(),
+                ReuseKey::Vao(h) => gl
+                    .create_vertex_array()
+                    .unwrap_or_else(|e| panic!("objects 断言: Vao 域创建失败 err={e} hash={h}"))
+                    .0
+                    .get(),
+                ReuseKey::Fbo(h) => gl
+                    .create_framebuffer()
+                    .unwrap_or_else(|e| panic!("objects 断言: Fbo 域创建失败 err={e} hash={h}"))
+                    .0
+                    .get(),
+                ReuseKey::Rbo(h) => gl
+                    .create_renderbuffer()
+                    .unwrap_or_else(|e| panic!("objects 断言: Rbo 域创建失败 err={e} hash={h}"))
+                    .0
+                    .get(),
             }
         };
         GlHandle(name)
@@ -95,10 +114,10 @@ fn delete_by_key(key: ReuseKey, name: GlHandle) {
         let nn = nz_name(name.0, "reused");
         unsafe {
             match key {
-                ReuseKey::Program(_) => gl.delete_program(pi_glow::NativeProgram(nn)),
-                ReuseKey::Vao(_) => gl.delete_vertex_array(pi_glow::NativeVertexArray(nn)),
-                ReuseKey::Fbo(_) => gl.delete_framebuffer(pi_glow::NativeFramebuffer(nn)),
-                ReuseKey::Rbo(_) => gl.delete_renderbuffer(pi_glow::NativeRenderbuffer(nn)),
+                ReuseKey::Program(_) => gl.delete_program(glow::NativeProgram(nn)),
+                ReuseKey::Vao(_) => gl.delete_vertex_array(glow::NativeVertexArray(nn)),
+                ReuseKey::Fbo(_) => gl.delete_framebuffer(glow::NativeFramebuffer(nn)),
+                ReuseKey::Rbo(_) => gl.delete_renderbuffer(glow::NativeRenderbuffer(nn)),
             }
         };
     });
@@ -114,19 +133,38 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
             if count_active(key) {
                 let c = bump(key);
                 item.refcount.set(c);
-                return Reusable { key, handle: item.handle, refcount: Cell::new(c) };
+                return Reusable {
+                    key,
+                    handle: item.handle,
+                    refcount: Cell::new(c),
+                };
             }
             let fresh = gen_by_key(key);
             item.handle = Some(fresh);
             let c = bump(key);
             item.refcount.set(c);
-            return Reusable { key, handle: Some(fresh), refcount: Cell::new(c) };
+            return Reusable {
+                key,
+                handle: Some(fresh),
+                refcount: Cell::new(c),
+            };
         }
     }
     let fresh = gen_by_key(key);
     let c = bump(key);
-    cache.map.insert(key, vec![Reusable { key, handle: Some(fresh), refcount: Cell::new(c) }]);
-    Reusable { key, handle: Some(fresh), refcount: Cell::new(c) }
+    cache.map.insert(
+        key,
+        vec![Reusable {
+            key,
+            handle: Some(fresh),
+            refcount: Cell::new(c),
+        }],
+    );
+    Reusable {
+        key,
+        handle: Some(fresh),
+        refcount: Cell::new(c),
+    }
 }
 
 // 1. 全局计数-1（本地 Cell 快照不参与真相）；已为零 → 断言（成对合同被破）。
@@ -162,9 +200,9 @@ fn delete_direct(kind: DirectKind, name: GlHandle) {
         let nn = nz_name(name.0, "direct");
         unsafe {
             match kind {
-                DirectKind::Buffer => gl.delete_buffer(pi_glow::NativeBuffer(nn)),
-                DirectKind::Texture => gl.delete_texture(pi_glow::NativeTexture(nn)),
-                DirectKind::Sampler => gl.delete_sampler(pi_glow::NativeSampler(nn)),
+                DirectKind::Buffer => gl.delete_buffer(glow::NativeBuffer(nn)),
+                DirectKind::Texture => gl.delete_texture(glow::NativeTexture(nn)),
+                DirectKind::Sampler => gl.delete_sampler(glow::NativeSampler(nn)),
             }
         };
     });
@@ -194,11 +232,29 @@ pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
     let name = with_gl(|gl| -> u32 {
         unsafe {
             match kind {
-                DirectKind::Buffer => gl.create_buffer().unwrap_or_else(|e| panic!("objects 断言: Buffer 直建失败 err={e}")).0.get(),
-                DirectKind::Texture => gl.create_texture().unwrap_or_else(|e| panic!("objects 断言: Texture 直建失败 err={e}")).0.get(),
-                DirectKind::Sampler => gl.create_sampler().unwrap_or_else(|e| panic!("objects 断言: Sampler 直建失败 err={e}")).0.get(),
+                DirectKind::Buffer => gl
+                    .create_buffer()
+                    .unwrap_or_else(|e| panic!("objects 断言: Buffer 直建失败 err={e}"))
+                    .0
+                    .get(),
+                DirectKind::Texture => gl
+                    .create_texture()
+                    .unwrap_or_else(|e| panic!("objects 断言: Texture 直建失败 err={e}"))
+                    .0
+                    .get(),
+                DirectKind::Sampler => gl
+                    .create_sampler()
+                    .unwrap_or_else(|e| panic!("objects 断言: Sampler 直建失败 err={e}"))
+                    .0
+                    .get(),
             }
         }
     });
-    DirectHandle { inner: Share::new(DirectHandleState { kind, handle: Cell::new(Some(GlHandle(name))), generation: generation_now() }) }
+    DirectHandle {
+        inner: Share::new(DirectHandleState {
+            kind,
+            handle: Cell::new(Some(GlHandle(name))),
+            generation: generation_now(),
+        }),
+    }
 }

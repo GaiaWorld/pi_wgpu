@@ -13,7 +13,12 @@ const VERT: &str = include_str!("quad.vert");
 const FRAG: &str = include_str!("quad.frag");
 
 /// 清屏色。
-const CLEAR: Color = Color { r: 0.05, g: 0.05, b: 0.08, a: 1.0 };
+const CLEAR: Color = Color {
+    r: 0.05,
+    g: 0.05,
+    b: 0.08,
+    a: 1.0,
+};
 /// 纹理宽高（像素）。
 const TEX_W: u32 = 256;
 const TEX_H: u32 = 256;
@@ -36,8 +41,12 @@ fn gradient_bytes() -> Vec<u8> {
 
 /// 正方形 6 顶点（两三角）：每顶点 = position(vec2) + uv(vec2)。
 const QUAD: [[f32; 4]; 6] = [
-    [-0.6, -0.6, 0.0, 0.0], [0.6, -0.6, 1.0, 0.0], [0.6, 0.6, 1.0, 1.0],
-    [-0.6, -0.6, 0.0, 0.0], [0.6, 0.6, 1.0, 1.0], [-0.6, 0.6, 0.0, 1.0],
+    [-0.6, -0.6, 0.0, 0.0],
+    [0.6, -0.6, 1.0, 0.0],
+    [0.6, 0.6, 1.0, 1.0],
+    [-0.6, -0.6, 0.0, 0.0],
+    [0.6, 0.6, 1.0, 1.0],
+    [-0.6, 0.6, 0.0, 1.0],
 ];
 
 /// 应用态（instance/window 泄漏为 'static）。
@@ -55,25 +64,37 @@ struct State {
 }
 
 /// 事件回调宿主。
-struct App { state: Option<State> }
+struct App {
+    state: Option<State>,
+}
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window: &'static Window = Box::leak(Box::new(
-            event_loop.create_window(Window::default_attributes().with_title("textured_quad")).expect("create_window"),
+            event_loop
+                .create_window(Window::default_attributes().with_title("textured_quad"))
+                .expect("create_window"),
         ));
-        let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
+        let instance: &'static Instance =
+            Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
         let size = window.inner_size();
         let surface = instance.create_surface(window).expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
             power_preference: PowerPreference::default(),
-        })).expect("request_adapter");
+        }))
+        .expect("request_adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(
-            &DeviceDescriptor { label: Some("q"), required_features: Features::default(), required_limits: Limits::default(), memory_hints: MemoryHints::default() },
+            &DeviceDescriptor {
+                label: Some("q"),
+                required_features: Features::default(),
+                required_limits: Limits::default(),
+                memory_hints: MemoryHints::default(),
+            },
             None,
-        )).expect("request_device");
+        ))
+        .expect("request_device");
         let format = TextureFormat::Bgra8UnormSrgb;
         let config = SurfaceConfiguration {
             width: size.width.max(1),
@@ -89,17 +110,34 @@ impl ApplicationHandler for App {
             label: Some("grad"),
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             dim: TextureDimension::D2,
-            size: Extent3d { width: TEX_W, height: TEX_H, depth_or_array_layers: 1 },
+            size: Extent3d {
+                width: TEX_W,
+                height: TEX_H,
+                depth_or_array_layers: 1,
+            },
             format: TextureFormat::Rgba8Unorm,
             mip_level_count: 1,
             sample_count: 1,
             view_formats: &[],
         });
         queue.write_texture(
-            &ImageCopyTexture { texture: &texture, mip_level: 0, origin: Origin3d::default(), aspect: TextureAspect::All },
+            &ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::default(),
+                aspect: TextureAspect::All,
+            },
             &gradient_bytes(),
-            &ImageDataLayout { offset: 0, bytes_per_row: NonZeroU32::new(TEX_W * 4), rows_per_image: NonZeroU32::new(TEX_H) },
-            Extent3d { width: TEX_W, height: TEX_H, depth_or_array_layers: 1 },
+            &ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(TEX_W * 4),
+                rows_per_image: NonZeroU32::new(TEX_H),
+            },
+            Extent3d {
+                width: TEX_W,
+                height: TEX_H,
+                depth_or_array_layers: 1,
+            },
         );
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("lin"),
@@ -125,52 +163,123 @@ impl ApplicationHandler for App {
         let bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("qbgl"),
             entries: &[
-                BindGroupLayoutEntry { binding: 0, visibility: ShaderStages::FRAGMENT, count: None, ty: BindingType::Texture { sample_type: TextureSampleType::Float { filterable: true }, view_dimension: TextureViewDimension::D2, multisampled: false } },
-                BindGroupLayoutEntry { binding: 1, visibility: ShaderStages::FRAGMENT, count: None, ty: BindingType::Sampler(SamplerBindingType::Filtering) },
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    count: None,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    count: None,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                },
             ],
         });
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("qbg"),
             layout: &bgl,
             entries: &[
-                BindGroupEntry { binding: 0, resource: BindingResource::TextureView(&view) },
-                BindGroupEntry { binding: 1, resource: BindingResource::Sampler(&sampler) },
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&sampler),
+                },
             ],
         });
 
-        let shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("q"),
-            source: ShaderSource::Glsl(GlslSource { version: GlslVersion::Glsl450, vertex: Some(GlslVertex { code: VERT }), fragment: Some(GlslFragment { code: FRAG }) }),
+        let vshader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("q-v"),
+            source: ShaderSource::Glsl {
+                shader: VERT.into(),
+                stage: ShaderStage::Vertex,
+                defines: &[],
+            },
         });
-        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor { label: Some("ql"), bind_group_layouts: &[&bgl] });
+        let fshader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("q-f"),
+            source: ShaderSource::Glsl {
+                shader: FRAG.into(),
+                stage: ShaderStage::Fragment,
+                defines: &[],
+            },
+        });
+        let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("ql"),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("q"),
-            layout: &layout,
+            layout: Some(&layout),
             vertex: VertexState {
-                module: &shader,
+                module: &vshader,
                 entry_point: Some("main"),
-                layouts: &[VertexBufferLayout {
+                compilation_options: Default::default(),
+                buffers: &[VertexBufferLayout {
                     array_stride: 16,
                     step_mode: VertexStepMode::Vertex,
                     attributes: &[
-                        VertexAttribute { format: VertexFormat::Float32x2, offset: 0, shader_location: 0 },
-                        VertexAttribute { format: VertexFormat::Float32x2, offset: 8, shader_location: 1 },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Float32x2,
+                            offset: 8,
+                            shader_location: 1,
+                        },
                     ],
                 }],
             },
             fragment: Some(FragmentState {
-                module: &shader,
+                module: &fshader,
                 entry_point: Some("main"),
-                targets: &[Some(ColorTargetState { format, blend: None, write_mask: ColorWrites::ALL })],
+                compilation_options: Default::default(),
+                targets: &[Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
             }),
             depth_stencil: None,
             multisample: MultisampleState::default(),
             primitive: PrimitiveState::default(),
+            multiview: None,
+            cache: None,
         });
         let mut bytes = Vec::with_capacity(QUAD.len() * 16);
-        for v in QUAD { for c in v { bytes.extend_from_slice(&c.to_ne_bytes()); } }
-        let vbuf = device.create_buffer_init(&BufferInitDescriptor { label: Some("quad"), contents: &bytes, usage: BufferUsages::VERTEX });
-        self.state = Some(State { window, surface, device, queue, config, pipeline, vbuf, texture, sampler, bind_group });
+        for v in QUAD {
+            for c in v {
+                bytes.extend_from_slice(&c.to_ne_bytes());
+            }
+        }
+        let vbuf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("quad"),
+            contents: &bytes,
+            usage: BufferUsages::VERTEX,
+        });
+        self.state = Some(State {
+            window,
+            surface,
+            device,
+            queue,
+            config,
+            pipeline,
+            vbuf,
+            texture,
+            sampler,
+            bind_group,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -185,20 +294,39 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(s) = self.state.as_mut() {
-                    let frame = s.surface.get_current_texture().expect("get_current_texture");
-                    let mut encoder = s.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("q") });
+                    let frame = s
+                        .surface
+                        .get_current_texture()
+                        .expect("get_current_texture");
+                    let mut encoder = s
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor { label: Some("q") });
                     {
                         let ca = RenderPassColorAttachment {
                             view: frame.view(),
                             resolve_target: None,
-                            ops: Operations { load: LoadOp::Clear(CLEAR), store: StoreOp::Store },
+                            ops: Operations {
+                                load: LoadOp::Clear(CLEAR),
+                                store: StoreOp::Store,
+                            },
                         };
-                        let desc = RenderPassDescriptor { label: Some("q"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
+                        let desc = RenderPassDescriptor {
+                            label: Some("q"),
+                            color_attachments: &[Some(ca)],
+                            depth_stencil_attachment: None,
+                        };
                         let mut pass = encoder.begin_render_pass(&desc);
                         pass.set_pipeline(&s.pipeline);
                         pass.set_bind_group(0, &s.bind_group, &[]);
                         pass.set_vertex_buffer(0, &s.vbuf, 0, 16);
-                        pass.set_viewport(0., 0., s.config.width as f32, s.config.height as f32, 0., 1.);
+                        pass.set_viewport(
+                            0.,
+                            0.,
+                            s.config.width as f32,
+                            s.config.height as f32,
+                            0.,
+                            1.,
+                        );
                         pass.draw(0, 6);
                     }
                     let cmd = encoder.finish();
@@ -214,7 +342,18 @@ impl ApplicationHandler for App {
     /// 显式按序销毁（不依赖 Drop 顺序）：GL 资源 → device/queue → surface → 窗口。
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(s) = self.state.take() {
-            let State { window, surface, device, queue, config, pipeline, vbuf, texture, sampler, bind_group } = s;
+            let State {
+                window,
+                surface,
+                device,
+                queue,
+                config,
+                pipeline,
+                vbuf,
+                texture,
+                sampler,
+                bind_group,
+            } = s;
             drop(pipeline);
             drop(vbuf);
             drop(bind_group);
@@ -229,7 +368,9 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(s) = self.state.as_ref() { s.window.request_redraw(); }
+        if let Some(s) = self.state.as_ref() {
+            s.window.request_redraw();
+        }
     }
 }
 

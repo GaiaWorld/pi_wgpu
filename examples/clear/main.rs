@@ -21,18 +21,23 @@ struct State {
 }
 
 /// 事件回调宿主。
-struct App { state: Option<State>, start: Instant, frames: u64 }
+struct App {
+    state: Option<State>,
+    start: Instant,
+    frames: u64,
+}
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window: &'static Window = Box::leak(Box::new(
-            event_loop.create_window(Window::default_attributes()).expect("create_window"),
+            event_loop
+                .create_window(Window::default_attributes())
+                .expect("create_window"),
         ));
-        let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
+        let instance: &'static Instance =
+            Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
         let size = window.inner_size();
-        let surface = instance
-            .create_surface(window)
-            .expect("create_surface");
+        let surface = instance.create_surface(window).expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
@@ -40,7 +45,12 @@ impl ApplicationHandler for App {
         }))
         .expect("request_adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(
-            &DeviceDescriptor { label: Some("clear"), required_features: Features::default(), required_limits: Limits::default(), memory_hints: MemoryHints::default() },
+            &DeviceDescriptor {
+                label: Some("clear"),
+                required_features: Features::default(),
+                required_limits: Limits::default(),
+                memory_hints: MemoryHints::default(),
+            },
             None,
         ))
         .expect("request_device");
@@ -52,7 +62,13 @@ impl ApplicationHandler for App {
             alpha_mode: CompositeAlphaMode::Opaque,
         };
         surface.configure(&device, &config);
-        self.state = Some(State { window, surface, device, queue, config });
+        self.state = Some(State {
+            window,
+            surface,
+            device,
+            queue,
+            config,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -72,15 +88,32 @@ impl ApplicationHandler for App {
                     eprintln!("frame={} t={:.2}s", self.frames, t);
                 }
                 if let Some(s) = self.state.as_mut() {
-                    let frame = s.surface.get_current_texture().expect("get_current_texture");
-                    let mut encoder = s.device.create_command_encoder(&CommandEncoderDescriptor { label: Some("clear") });
+                    let frame = s
+                        .surface
+                        .get_current_texture()
+                        .expect("get_current_texture");
+                    let mut encoder = s.device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some("clear"),
+                    });
                     {
                         let ca = RenderPassColorAttachment {
                             view: frame.view(),
                             resolve_target: None,
-                            ops: Operations { load: LoadOp::Clear(Color { r: (t % 2.0) / 2.0, g: 0.2, b: 0.3, a: 1.0 }), store: StoreOp::Store },
+                            ops: Operations {
+                                load: LoadOp::Clear(Color {
+                                    r: (t % 2.0) / 2.0,
+                                    g: 0.2,
+                                    b: 0.3,
+                                    a: 1.0,
+                                }),
+                                store: StoreOp::Store,
+                            },
                         };
-                        let desc = RenderPassDescriptor { label: Some("clear"), color_attachments: &[Some(ca)], depth_stencil_attachment: None };
+                        let desc = RenderPassDescriptor {
+                            label: Some("clear"),
+                            color_attachments: &[Some(ca)],
+                            depth_stencil_attachment: None,
+                        };
                         let _pass = encoder.begin_render_pass(&desc);
                     }
                     let cmd = encoder.finish();
@@ -97,6 +130,10 @@ impl ApplicationHandler for App {
 fn main() {
     let event_loop = EventLoop::new().expect("event_loop");
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App { state: None, start: Instant::now(), frames: 0 };
+    let mut app = App {
+        state: None,
+        start: Instant::now(),
+        frames: 0,
+    };
     event_loop.run_app(&mut app).expect("run_app");
 }

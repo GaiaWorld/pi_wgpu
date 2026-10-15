@@ -103,17 +103,20 @@ pub mod utils;
 pub(crate) mod utils_inner;
 
 #[cfg(not(feature = "use_wgpu"))]
+pub use draw::RenderPass;
+#[cfg(not(feature = "use_wgpu"))]
+pub use entry::CreateSurfaceError;
+#[cfg(not(feature = "use_wgpu"))]
 pub use entry::*;
 #[cfg(not(feature = "use_wgpu"))]
 pub use surface::{Surface, SurfaceCapabilities, SurfaceError, SurfaceTarget, SurfaceTexture};
 #[cfg(not(feature = "use_wgpu"))]
-pub use entry::CreateSurfaceError;
-#[cfg(not(feature = "use_wgpu"))]
-pub use draw::RenderPass;
-#[cfg(not(feature = "use_wgpu"))]
-pub use utils::{BufferInitDescriptor, DeviceExt, backend_bits_from_env, parse_backends_from_comma_list, power_preference_from_env};
-#[cfg(not(feature = "use_wgpu"))]
 pub use types::{Backends, BufferUsages, Extent3d, TextureFormat};
+#[cfg(not(feature = "use_wgpu"))]
+pub use utils::{
+    backend_bits_from_env, parse_backends_from_comma_list, power_preference_from_env,
+    BufferInitDescriptor, DeviceExt,
+};
 
 use std::path::Path;
 
@@ -122,11 +125,25 @@ use std::path::Path;
 #[cfg(not(feature = "use_wgpu"))]
 pub trait PiWgpuAdapter {
     /// 请求设备：future 借用收体与各参（'p 显式统一），Send 合同保持（自产 futures 已证）。
-    fn request_device<'p>(&'p self, desc: &'p types::DeviceDescriptor<'p>, trace_path: Option<&'p Path>) -> impl std::future::Future<Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>> + Send + 'p;
+    fn request_device<'p>(
+        &'p self,
+        desc: &'p types::DeviceDescriptor<'p>,
+        trace_path: Option<&'p Path>,
+    ) -> impl std::future::Future<
+        Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>,
+    > + Send
+           + 'p;
 }
 #[cfg(not(feature = "use_wgpu"))]
 impl PiWgpuAdapter for entry::Adapter {
-    fn request_device<'p>(&'p self, desc: &'p types::DeviceDescriptor<'p>, trace_path: Option<&'p Path>) -> impl std::future::Future<Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>> + Send + 'p {
+    fn request_device<'p>(
+        &'p self,
+        desc: &'p types::DeviceDescriptor<'p>,
+        trace_path: Option<&'p Path>,
+    ) -> impl std::future::Future<
+        Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>,
+    > + Send
+           + 'p {
         entry::Adapter::request_device(self, desc, trace_path)
     }
 }
@@ -135,11 +152,25 @@ impl PiWgpuAdapter for entry::Adapter {
 #[cfg(feature = "use_wgpu")]
 pub trait PiWgpuAdapter {
     /// 请求设备：适配官方单参面；trace_path 官方无对应物，仅记录不下发（lib_inner 芯注释同）。 @public
-    fn request_device<'p>(&'p self, desc: &'p wgpu::DeviceDescriptor<'p>, trace_path: Option<&'p Path>) -> impl std::future::Future<Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> + Send + 'p;
+    fn request_device<'p>(
+        &'p self,
+        desc: &'p wgpu::DeviceDescriptor<'p>,
+        trace_path: Option<&'p Path>,
+    ) -> impl std::future::Future<
+        Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>,
+    > + Send
+           + 'p;
 }
 #[cfg(feature = "use_wgpu")]
 impl PiWgpuAdapter for wgpu::Adapter {
-    fn request_device<'p>(&'p self, desc: &'p wgpu::DeviceDescriptor<'p>, trace_path: Option<&'p Path>) -> impl std::future::Future<Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>> + Send + 'p {
+    fn request_device<'p>(
+        &'p self,
+        desc: &'p wgpu::DeviceDescriptor<'p>,
+        trace_path: Option<&'p Path>,
+    ) -> impl std::future::Future<
+        Output = std::result::Result<(wgpu::Device, wgpu::Queue), wgpu::RequestDeviceError>,
+    > + Send
+           + 'p {
         crate::lib_inner::uw_request_impl(self, desc, trace_path)
     }
 }

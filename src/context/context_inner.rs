@@ -14,12 +14,13 @@ use std::sync::{Condvar, Mutex};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
-use pi_glow as glow;
-
 use crate::context::{Attachment, AttachmentSlot};
 
 #[cfg(not(target_arch = "wasm32"))]
-use pi_egl::{Context as EglContext, Instance as EglInstance, PowerPreference as EglPower, Surface as EglSurface};
+use pi_egl::{
+    Context as EglContext, Instance as EglInstance, PowerPreference as EglPower,
+    Surface as EglSurface,
+};
 
 /// 桌面/安卓附着体：EGL/WGL 实例（内含隐窗与 glow 入口表，构造于首次 attach）+ 上下文句柄对。
 #[cfg(not(target_arch = "wasm32"))]
@@ -37,11 +38,19 @@ struct Attached {
 struct WindowFwd<'a>(&'a dyn crate::surface::WindowHandle);
 #[cfg(not(target_arch = "wasm32"))]
 impl raw_window_handle::HasWindowHandle for WindowFwd<'_> {
-    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> { self.0.window_handle() }
+    fn window_handle(
+        &self,
+    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        self.0.window_handle()
+    }
 }
 #[cfg(not(target_arch = "wasm32"))]
 impl raw_window_handle::HasDisplayHandle for WindowFwd<'_> {
-    fn display_handle(&self) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> { self.0.display_handle() }
+    fn display_handle(
+        &self,
+    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+        self.0.display_handle()
+    }
 }
 
 /// 表面操作错误码（错误纪律；诊断原文走 log::error!）。 @internal
@@ -75,7 +84,10 @@ struct SlotField {
 }
 
 /// 附着槽本体：读写只允许发生在当前持锁（claim 获胜或同线程重入）的持有期内。
-static SLOT: SyncCell<SlotField> = SyncCell(UnsafeCell::new(SlotField { attached: None, bound: None }));
+static SLOT: SyncCell<SlotField> = SyncCell(UnsafeCell::new(SlotField {
+    attached: None,
+    bound: None,
+}));
 
 /// 重入锁登记册：当前持有驱动锁的线程（None=无人持有）。
 struct Owner {
@@ -121,12 +133,21 @@ fn bind_current_thread() {
             .create_context()
             .unwrap_or_else(|e| panic!("context attach: 上下文创建失败 err={e:?}"));
         instance.make_current(None, Some(&context));
-        slot.attached = Some(Attached { instance, context, surface: None });
+        slot.attached = Some(Attached {
+            instance,
+            context,
+            surface: None,
+        });
         slot.bound = Some(me);
         ensure_generation();
     } else if slot.bound != Some(me) {
-        let attached = slot.attached.as_mut().expect("context attach: 附着体必先存在");
-        let Attached { instance, context, .. } = attached;
+        let attached = slot
+            .attached
+            .as_mut()
+            .expect("context attach: 附着体必先存在");
+        let Attached {
+            instance, context, ..
+        } = attached;
         instance.make_current(None, Some(context));
         slot.bound = Some(me);
     }
@@ -165,7 +186,11 @@ fn claim_and_attach() {
             Some(other) => {
                 if start.elapsed() >= LOCK_WAIT {
                     drop(guard);
-                    log::error!("context attach 锁超时：持锁线程={:?} 已等待={:?}", other, start.elapsed());
+                    log::error!(
+                        "context attach 锁超时：持锁线程={:?} 已等待={:?}",
+                        other,
+                        start.elapsed()
+                    );
                     panic!("context attach 断言：他线程占锁未让出，holder={other:?}");
                 }
                 let (next, _wait) = READY
@@ -252,7 +277,10 @@ pub(crate) fn web_bind_glow(gl: glow::Context) {
 /// 3. 代号首建=1、此后只随 gen_bump 单调增；返回的附着体=代号读数。
 pub(crate) fn attach_impl() -> AttachmentSlot {
     claim_and_attach();
-    Some(Attachment { _raw: (), generation: generation_now() })
+    Some(Attachment {
+        _raw: (),
+        generation: generation_now(),
+    })
 }
 
 /// let_go 芯实现。让出=解绑当前线程与上下文的绑定，不销毁上下文本体。
@@ -289,13 +317,20 @@ pub(crate) fn gen_bump_impl() -> u32 {
 /// 建/重绑呈现表面并 make_current（configure 调用点；须附着已建立）。
 /// 桌面/安卓：窗口目标→平台表面→make_current(面, 上下文)→存槽；失败=Err(码)，槽保持原状。
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn surface_attach(window: &dyn crate::surface::WindowHandle) -> Result<(), SurfaceOpErr> {
+pub(crate) fn surface_attach(
+    window: &dyn crate::surface::WindowHandle,
+) -> Result<(), SurfaceOpErr> {
     claim_and_attach();
     let out = (|| {
         let slot = unsafe { &mut *SLOT.0.get() };
         let attached = slot.attached.as_mut().ok_or(SurfaceOpErr::NotAttached)?;
-        let surface = attached.instance.create_surface(&WindowFwd(window)).map_err(|_| SurfaceOpErr::CreateSurface)?;
-        attached.instance.make_current(Some(&surface), Some(&attached.context));
+        let surface = attached
+            .instance
+            .create_surface(&WindowFwd(window))
+            .map_err(|_| SurfaceOpErr::CreateSurface)?;
+        attached
+            .instance
+            .make_current(Some(&surface), Some(&attached.context));
         attached.surface = Some(surface);
         Ok(())
     })();
@@ -305,7 +340,9 @@ pub(crate) fn surface_attach(window: &dyn crate::surface::WindowHandle) -> Resul
 
 /// Web：无 EGL 表面步（画布即表面）；仅校验附着已登记。
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn surface_attach(_window: &dyn crate::surface::WindowHandle) -> Result<(), SurfaceOpErr> {
+pub(crate) fn surface_attach(
+    _window: &dyn crate::surface::WindowHandle,
+) -> Result<(), SurfaceOpErr> {
     if unsafe { &*SLOT.0.get() }.attached.is_none() {
         return Err(SurfaceOpErr::NotAttached);
     }
@@ -357,7 +394,11 @@ mod tests {
         let second = attach_impl().expect("代号推进后 attach 应成功");
         assert!(second.generation >= g, "代号只增不减");
         let caps = crate::caps_inner::probe_impl();
-        assert!(caps._gl_version >= (3, 0), "GL 版本读数异常: {:?}", caps._gl_version);
+        assert!(
+            caps._gl_version >= (3, 0),
+            "GL 版本读数异常: {:?}",
+            caps._gl_version
+        );
         let f = crate::caps_inner::fill_impl(&caps).0;
         assert_ne!(f & (1 << 1), 0, "DEPTH32FLOAT_STENCIL8 版本确证位应置");
         with_gl(|_gl| {});
@@ -372,7 +413,10 @@ mod tests {
         crate::objects::release_reuse(&a);
         crate::objects::release_reuse(&b);
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::objects::release_reuse(&a))).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::objects::release_reuse(&a)
+            }))
+            .is_err(),
             "零计数再释放=断言（成对合同）"
         );
         let c3 = crate::objects::ensure_reuse(key, &mut cache);
@@ -386,33 +430,66 @@ mod tests {
         drop(d1);
         drop(d2);
         // —— B5 镜像合验（同值零下发 / flush 回读一致不再发）——
-        let mirror_prog = crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xC0FF_EE01), &mut cache);
+        let mirror_prog = crate::objects::ensure_reuse(
+            crate::objects::ReuseKey::Program(0xC0FF_EE01),
+            &mut cache,
+        );
         let mut mirror = crate::state::StateMirror::default();
         let prog_name = mirror_prog.handle.expect("Program 对象名");
         let base_probe = crate::state_inner::probe_count(0);
         crate::state_inner::set_program(&mut mirror, prog_name);
-        assert_eq!(crate::state_inner::probe_count(0), base_probe + 1, "首次差异 set 下发一次");
+        assert_eq!(
+            crate::state_inner::probe_count(0),
+            base_probe + 1,
+            "首次差异 set 下发一次"
+        );
         crate::state_inner::set_program(&mut mirror, prog_name);
-        assert_eq!(crate::state_inner::probe_count(0), base_probe + 1, "同值重复 set 零下发（B5 验收）");
+        assert_eq!(
+            crate::state_inner::probe_count(0),
+            base_probe + 1,
+            "同值重复 set 零下发（B5 验收）"
+        );
         // flush 程序组=整发档（驱动实值不可回读）：恒刷期望，幂等=重发无害；死名随整发销记。
         crate::state_inner::note_removed(0, prog_name.0);
         mirror.flush_if_changed();
         let after_flush = crate::state_inner::probe_count(0);
-        assert!(after_flush >= base_probe + 1, "flush 期望值已刷至驱动（水位空=首轮全发）");
-        assert!(crate::state_inner::dbg_removed_program(prog_name.0) == false, "flush 后死名销记");
+        assert!(
+            after_flush >= base_probe + 1,
+            "flush 期望值已刷至驱动（水位空=首轮全发）"
+        );
+        assert!(
+            crate::state_inner::dbg_removed_program(prog_name.0) == false,
+            "flush 后死名销记"
+        );
         let flush_groups = crate::state_inner::probe_count(1);
         assert!(flush_groups > 0, "首轮整发档确有下发组");
         mirror.flush_if_changed();
-        assert_eq!(crate::state_inner::probe_count(0), after_flush, "水位命中：二次 flush 程序组零下发");
-        assert_eq!(crate::state_inner::probe_count(1), flush_groups, "水位命中：二次 flush 整发档零下发组");
+        assert_eq!(
+            crate::state_inner::probe_count(0),
+            after_flush,
+            "水位命中：二次 flush 程序组零下发"
+        );
+        assert_eq!(
+            crate::state_inner::probe_count(1),
+            flush_groups,
+            "水位命中：二次 flush 整发档零下发组"
+        );
         // 帧门：回读段每帧只做一次；换帧后重做。
         let rb = crate::state_inner::probe_count(2);
         assert!(rb > 0, "首帧回读段执行过");
         mirror.flush_if_changed();
-        assert_eq!(crate::state_inner::probe_count(2), rb, "同帧不再回读（帧门）");
+        assert_eq!(
+            crate::state_inner::probe_count(2),
+            rb,
+            "同帧不再回读（帧门）"
+        );
         crate::state_inner::bump_frame();
         mirror.flush_if_changed();
-        assert_eq!(crate::state_inner::probe_count(2), rb + 1, "换帧后重做回读（帧门推进）");
+        assert_eq!(
+            crate::state_inner::probe_count(2),
+            rb + 1,
+            "换帧后重做回读（帧门推进）"
+        );
         let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
@@ -424,56 +501,142 @@ mod tests {
         table.ubo[0] = Some((0u32 << 16) | 0);
         table.sampler[0] = Some((0u32 << 16) | 1);
         table.sampler[1] = Some((0u32 << 16) | 2);
-        let rp = crate::entry::RenderPipeline { _program: crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0xB6_0000_01), &mut cache), _vao: crate::objects::ensure_reuse(crate::objects::ReuseKey::Vao(0xB6_0000_02), &mut cache), _vertex: Vec::new(), _topology: crate::types::PrimitiveTopology::TriangleList };
+        let rp = crate::entry::RenderPipeline {
+            _program: crate::objects::ensure_reuse(
+                crate::objects::ReuseKey::Program(0xB6_0000_01),
+                &mut cache,
+            ),
+            _vao: crate::objects::ensure_reuse(
+                crate::objects::ReuseKey::Vao(0xB6_0000_02),
+                &mut cache,
+            ),
+            _vertex: Vec::new(),
+            _topology: crate::types::PrimitiveTopology::TriangleList,
+        };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
         let smph = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);
         let buf_name = buf.name().expect("Buffer 名").0;
         let tex_name = texh.name().expect("Texture 名").0;
         let smp_name = smph.name().expect("Sampler 名").0;
-        let group = crate::entry::BindGroup { _bound: vec![
-            crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: buf, offset: 0, size: None, dynamic: false, target: 0 },
-            crate::binds::BoundEntry { binding: 1, domain: crate::binds::BindDomain::Texture, handle: texh, offset: 0, size: None, dynamic: false, target: 0x0DE1 },
-            crate::binds::BoundEntry { binding: 2, domain: crate::binds::BindDomain::Sampler, handle: smph, offset: 0, size: None, dynamic: false, target: 0 },
-        ] };
+        let group = crate::entry::BindGroup {
+            _bound: vec![
+                crate::binds::BoundEntry {
+                    binding: 0,
+                    domain: crate::binds::BindDomain::Uniform,
+                    handle: buf,
+                    offset: 0,
+                    size: None,
+                    dynamic: false,
+                    target: 0,
+                },
+                crate::binds::BoundEntry {
+                    binding: 1,
+                    domain: crate::binds::BindDomain::Texture,
+                    handle: texh,
+                    offset: 0,
+                    size: None,
+                    dynamic: false,
+                    target: 0x0DE1,
+                },
+                crate::binds::BoundEntry {
+                    binding: 2,
+                    domain: crate::binds::BindDomain::Sampler,
+                    handle: smph,
+                    offset: 0,
+                    size: None,
+                    dynamic: false,
+                    target: 0,
+                },
+            ],
+        };
         let mut m2 = crate::state::StateMirror::default();
         let _ = &rp;
         crate::binds::apply_layout(0, &group, &[], &table, &mut m2);
-        assert_eq!(m2.ubo_bindings[0], Some((crate::objects::GlHandle(buf_name), 0, 0)), "UBO 槽落镜像=名");
-        assert_eq!(m2.texture_bindings[0], Some((crate::objects::GlHandle(tex_name), 0x0DE1)), "纹理落单元 0（槽表定位，目标=GL_TEXTURE_2D）");
-        assert_eq!(m2.sampler_bindings[1], Some(crate::objects::GlHandle(smp_name)), "采样器落单元 1（槽表定位）");
+        assert_eq!(
+            m2.ubo_bindings[0],
+            Some((crate::objects::GlHandle(buf_name), 0, 0)),
+            "UBO 槽落镜像=名"
+        );
+        assert_eq!(
+            m2.texture_bindings[0],
+            Some((crate::objects::GlHandle(tex_name), 0x0DE1)),
+            "纹理落单元 0（槽表定位，目标=GL_TEXTURE_2D）"
+        );
+        assert_eq!(
+            m2.sampler_bindings[1],
+            Some(crate::objects::GlHandle(smp_name)),
+            "采样器落单元 1（槽表定位）"
+        );
         m2.flush_if_changed();
         let dead_h = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         dead_h.mark_dead();
-        let gbad = crate::entry::BindGroup { _bound: vec![crate::binds::BoundEntry { binding: 0, domain: crate::binds::BindDomain::Uniform, handle: dead_h, offset: 0, size: None, dynamic: false, target: 0 }] };
-        let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::binds::apply_layout(0, &gbad, &[], &table, &mut m2)));
+        let gbad = crate::entry::BindGroup {
+            _bound: vec![crate::binds::BoundEntry {
+                binding: 0,
+                domain: crate::binds::BindDomain::Uniform,
+                handle: dead_h,
+                offset: 0,
+                size: None,
+                dynamic: false,
+                target: 0,
+            }],
+        };
+        let rbad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::binds::apply_layout(0, &gbad, &[], &table, &mut m2)
+        }));
         assert!(rbad.is_err(), "死句柄=断言（动作前）");
         drop(gbad);
         drop(group);
         // —— B9 surface 合验（能力候选查询；全帧循环待 B11 实例化窗口）——
-        let ad = crate::entry::Adapter { _caps: crate::caps_inner::probe_impl() };
+        let ad = crate::entry::Adapter {
+            _caps: crate::caps_inner::probe_impl(),
+        };
         let sc = crate::surface_inner::capabilities_impl(&ad);
-        assert!(!sc.formats.is_empty() && !sc.present_modes.is_empty(), "能力候选非空");
+        assert!(
+            !sc.formats.is_empty() && !sc.present_modes.is_empty(),
+            "能力候选非空"
+        );
         // —— B10 draw 合验（默认帧缓冲 begin/clear/set_viewport/Drop=end）——
         let di = crate::entry::DeviceInner {
             state: std::sync::Mutex::new(crate::state::StateMirror::default()),
             cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
             slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
         };
-        let dev = crate::entry::Device { _inner: pi_share::Share::new(di) };
-        let mut enc = crate::entry::CommandEncoder { _opened_pass: false, _inner: dev._inner.clone() };
-        let view = crate::entry::TextureView { _tex: None, _target: 0, _dim: crate::types::TextureViewDimension::D2 };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let mut enc = crate::entry::CommandEncoder {
+            _opened_pass: false,
+            _inner: dev._inner.clone(),
+        };
+        let view = crate::entry::TextureView {
+            _tex: None,
+            _target: 0,
+            _dim: crate::types::TextureViewDimension::D2,
+        };
         let ca = crate::types::RenderPassColorAttachment {
             view: &view,
             resolve_target: None,
-            ops: crate::types::Operations { load: crate::types::LoadOp::Clear(crate::types::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }), store: crate::types::StoreOp::Store },
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Clear(crate::types::Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 1.0,
+                }),
+                store: crate::types::StoreOp::Store,
+            },
         };
-        let desc = crate::types::RenderPassDescriptor { label: None, color_attachments: &[Some(ca)], depth_stencil_attachment: None };
+        let desc = crate::types::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(ca)],
+            depth_stencil_attachment: None,
+        };
         let mut pass = enc.begin_render_pass(&desc);
         pass.set_viewport(0.0, 0.0, 4.0, 4.0, 0.0, 1.0);
         drop(pass);
         assert!(!enc._opened_pass, "Drop=end 释放守卫");
         let_go_impl();
     }
-
 }
