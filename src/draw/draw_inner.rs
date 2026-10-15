@@ -108,7 +108,7 @@ fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirro
 
 // 设计预期（伪码·示意·非唯一实现）：begin=开通道。
 // 1. 编码器守卫检查：已有开启中通道=断言，通道不建。
-// 2. 颜色附件恰一 Some；视图活态。违约=断言。
+// 2. 颜色附件恰一 Some；视图活态；timestamp_writes/occlusion_query_set=Some 恒拒（查询面无对应物）。违约=断言。
 // 3. 目标：帧视图=默认帧缓冲 0；离屏视图=登记差异（本批暂停，落错误日志后走 0）。load=Clear 即时清。
 // 4. 守卫置位，返回借用编码器的 RenderPass。
 pub(crate) fn begin_impl<'p>(
@@ -116,6 +116,11 @@ pub(crate) fn begin_impl<'p>(
     d: &RenderPassDescriptor<'p>,
 ) -> RenderPass<'p> {
     assert!(!e._opened_pass, "draw str-assert: 嵌套 render pass");
+    assert!(
+        d.timestamp_writes.is_none() && d.occlusion_query_set.is_none(),
+        "draw str-assert: ErrQuery 时间戳/遮挡查询面无对应物（label={:?}）",
+        d.label
+    );
     let some = d.color_attachments.iter().filter(|x| x.is_some()).count();
     assert!(
         some == 1,
@@ -146,7 +151,7 @@ pub(crate) fn begin_impl<'p>(
         _index_ready: false,
         _topology: crate::types::PrimitiveTopology::TriangleList,
         _index_format: None,
-        _index_offset: 0,
+        _index_range: (0, 0),
         _vao: None,
     }
 }
@@ -184,18 +189,20 @@ pub(crate) fn set_bind_group_impl(
     crate::binds::apply_layout(s, g, o, &slots, &mut m);
 }
 
-// 设计预期：句柄活态+范围校验；槽 i 记录缓冲/偏移/步长 → 属性批配属性。
-pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64, s: u64) {
-    let name = b._h.name().expect("draw str-assert: 死顶点缓冲句柄");
+// 设计预期：句柄活态（形照 25.0.2：入参=BufferSlice，步长由管线布局权威、不再收调用方值——
+// 原「步长与布局不符」比对随形退役；片段边界在 buffer.slice() 构造期已验（entry_inner slice_bounds））。
+pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry::BufferSlice<'_>) {
+    let name = sl
+        .buffer
+        ._h
+        .name()
+        .expect("draw str-assert: 死顶点缓冲句柄");
+    let o = sl.offset;
     let layout: VertexLayout = p
         ._vertex
         .get(i as usize)
         .expect("draw str-assert: 顶点槽越界")
         .clone();
-    assert!(
-        s == layout.array_stride,
-        "draw str-assert: 顶点步长与布局不符"
-    );
     // VAO=管线级复用对象（由 set_pipeline 提供；本处只绑 + 重设属性，不建删）。
     let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
     let mut m = lock_state(p);
@@ -225,13 +232,18 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, b: &Buffer, o: u64
     p._vertex_ready = true;
 }
 
-// 设计预期：句柄活态+偏移范围；镜像记索引绑定（格式仅记录）。
-pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: IndexFormat, c: u64) {
-    let name = b._h.name().expect("draw str-assert: 死索引缓冲句柄");
-    assert!(
-        o + c * index_width(f) <= b.size || c == 0,
-        "draw str-assert: 索引范围越界"
-    );
+// 设计预期：句柄活态（形照 25.0.2：BufferSlice+格式）；记有效字节区间，draw_indexed 消费校验。
+pub(crate) fn set_index_impl(
+    p: &mut RenderPass<'_>,
+    sl: &crate::entry::BufferSlice<'_>,
+    f: IndexFormat,
+) {
+    let name = sl
+        .buffer
+        ._h
+        .name()
+        .expect("draw str-assert: 死索引缓冲句柄");
+    let (st, en) = (sl.get_range().start, sl.get_range().end);
     with_gl(|gl| unsafe {
         gl.bind_buffer(
             GL_ELEMENT_ARRAY_BUFFER,
@@ -239,7 +251,7 @@ pub(crate) fn set_index_impl(p: &mut RenderPass<'_>, b: &Buffer, o: u64, f: Inde
         );
     });
     p._index_format = Some(f);
-    p._index_offset = o;
+    p._index_range = (st, en);
     p._index_ready = true;
 }
 
@@ -276,8 +288,17 @@ pub(crate) fn set_blend_impl(p: &mut RenderPass<'_>, c: Color) {
     state_inner::set_blend_constant(&mut m, c);
 }
 
-// 设计预期：绑定完备检查（管线已设、属性就绪）缺一=断言零副作用；完备→立即发出数组绘制。
-pub(crate) fn draw_impl(p: &mut RenderPass<'_>, s: u32, c: u32) {
+// 设计预期（形照 25.0.2 Range 双参）：绑定完备缺一=断言零副作用；instances 恒 0..1（实例化未接）；
+// 完备→立即发出数组绘制（first=start，count=end-start）。
+pub(crate) fn draw_impl(
+    p: &mut RenderPass<'_>,
+    v: std::ops::Range<u32>,
+    ins: std::ops::Range<u32>,
+) {
+    assert!(
+        ins == (0..1) && v.end >= v.start,
+        "draw str-assert: ErrInstances/区间倒置（instances={ins:?} vertices={v:?}）"
+    );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
     {
@@ -285,23 +306,44 @@ pub(crate) fn draw_impl(p: &mut RenderPass<'_>, s: u32, c: u32) {
         state_inner::flush_impl(&mut m);
     }
     let mode = topo(p._topology);
-    with_gl(|gl| unsafe { gl.draw_arrays(mode, s as i32, c as i32) });
+    with_gl(|gl| unsafe { gl.draw_arrays(mode, v.start as i32, (v.end - v.start) as i32) });
 }
 
-// 设计预期：base≠0=断言；索引未绑/格式失配=断言；通过→立即发出元素绘制。
-pub(crate) fn draw_idx_impl(p: &mut RenderPass<'_>, s: u32, c: u32, b: i32) {
-    assert!(b == 0, "draw str-assert: base_vertex≠0");
+// 设计预期（形照 25.0.2 三参 Range 形）：base≠0=断言；instances 恒 0..1；绘制区间须落在
+// 绑定片段 [start,end) 内（越界=断言，取代旧绑定期 c-count 校验——口径随形改为 draw 期）；
+// 通过→立即发元素绘制。
+pub(crate) fn draw_idx_impl(
+    p: &mut RenderPass<'_>,
+    ix: std::ops::Range<u32>,
+    base: i32,
+    ins: std::ops::Range<u32>,
+) {
+    assert!(base == 0, "draw str-assert: base_vertex≠0");
+    assert!(
+        ins == (0..1) && ix.end >= ix.start,
+        "draw str-assert: ErrInstances/区间倒置（instances={ins:?} indices={ix:?}）"
+    );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
     assert!(p._index_ready, "draw str-assert: 索引未绑");
+    let (st, en) = p._index_range;
+    let w = index_width(p._index_format.expect("draw str-assert: 索引格式缺失"));
+    assert!(
+        st + (ix.end as u64) * w <= en,
+        "draw str-assert: 索引区间越出绑定片段（indices={ix:?} slice={}..{}）",
+        st,
+        en
+    );
     {
         let mut m = lock_state(p);
         state_inner::flush_impl(&mut m);
     }
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let mode = topo(p._topology);
-    let off = p._index_offset + (s as u64) * index_width(f);
-    with_gl(|gl| unsafe { gl.draw_elements(mode, c as i32, idx_type(f), off as i32) });
+    let off = st + (ix.start as u64) * w;
+    with_gl(|gl| unsafe {
+        gl.draw_elements(mode, (ix.end - ix.start) as i32, idx_type(f), off as i32)
+    });
 }
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。

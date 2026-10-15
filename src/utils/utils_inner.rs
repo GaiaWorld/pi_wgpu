@@ -43,7 +43,7 @@ pub(crate) fn tex_init_impl(
         bytes_per_row: None,
         rows_per_image: None,
     };
-    q.write_texture(&dst, data, &layout, d.size);
+    q.write_texture(&dst, data, layout, d.size);
     t
 }
 

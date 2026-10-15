@@ -446,7 +446,7 @@ pub struct BufferDescriptor<'a> {
 pub struct TextureDescriptor<'a> {
     pub label: Label<'a>,
     pub usage: TextureUsages,
-    pub dim: TextureDimension,
+    pub dimension: TextureDimension,
     pub size: Extent3d,
     pub format: TextureFormat,
     pub mip_level_count: u32,
@@ -526,10 +526,10 @@ pub struct Color {
     pub b: f32,
     pub a: f32,
 }
-/// 渲染通道开始的加载动作：沿用既有内容，或先用给定颜色清除。
+/// 渲染通道开始的加载动作：沿用既有内容，或先用给定值清除（清除值随附件通道类型参数化，形照上游）。
 #[derive(Debug, Clone, Copy)]
-pub enum LoadOp {
-    Clear(Color),
+pub enum LoadOp<T> {
+    Clear(T),
     Load,
 }
 /// 渲染通道结束的存储动作。
@@ -538,10 +538,10 @@ pub enum StoreOp {
     Store,
     Discard,
 }
-/// 单附件的 load+store 组合。
+/// 单附件的 load+store 组合（形照上游通用参：颜色 Operations<Color>、深度 Operations<f32>、模板 Operations<u32>）。
 #[derive(Debug, Clone, Copy)]
-pub struct Operations {
-    pub load: LoadOp,
+pub struct Operations<T> {
+    pub load: LoadOp<T>,
     pub store: StoreOp,
 }
 /// 颜色附件：view 必填；resolve_target 仅多重采样解析目标用。
@@ -549,21 +549,32 @@ pub struct Operations {
 pub struct RenderPassColorAttachment<'a> {
     pub view: &'a crate::entry::TextureView,
     pub resolve_target: Option<&'a crate::entry::TextureView>,
-    pub ops: Operations,
+    pub ops: Operations<Color>,
 }
 /// 深度/模板附件：depth_ops/stencil_ops 按附件实际所含宽高面给出。
 #[derive(Debug, Clone, Copy)]
 pub struct RenderPassDepthStencilAttachment<'a> {
     pub view: &'a crate::entry::TextureView,
-    pub depth_ops: Option<Operations>,
-    pub stencil_ops: Option<Operations>,
+    pub depth_ops: Option<Operations<f32>>,
+    pub stencil_ops: Option<Operations<u32>>,
 }
-/// 渲染通道描述：单目标约束——color_attachments 里 Some 必须恰好 1 个，违约=断言含 label、通道未建。
+/// 通道时间戳写入安排（形制对齐上游词位）：本层 GL 无对应实现且查询集无构造面——
+/// timestamp_writes=Some 恒违约断言（短码含 label，形宽法窄）。
 #[derive(Debug, Clone)]
+pub struct RenderPassTimestampWrites<'a> {
+    pub query_set: &'a crate::entry::QuerySet,
+    pub beginning_of_pass_write_index: Option<u32>,
+    pub end_of_pass_write_index: Option<u32>,
+}
+/// 渲染通道描述（形照 25.0.2 五字段）：单目标约束——color_attachments 里 Some 必须恰好 1 个，
+/// 违约=断言含 label、通道未建；timestamp_writes/occlusion_query_set=Some 恒拒止（GL 路无对应物）。
+#[derive(Debug, Clone, Default)]
 pub struct RenderPassDescriptor<'a> {
     pub label: Label<'a>,
     pub color_attachments: &'a [Option<RenderPassColorAttachment<'a>>],
     pub depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<'a>>,
+    pub timestamp_writes: Option<RenderPassTimestampWrites<'a>>,
+    pub occlusion_query_set: Option<&'a crate::entry::QuerySet>,
 }
 /// 命令编码器创建输入：仅标签（创建本身不触驱动）。
 #[derive(Debug, Clone, Copy)]
@@ -864,14 +875,29 @@ pub struct ShaderModuleDescriptor<'a> {
     pub source: ShaderSource<'a>,
 }
 
+/// 追踪开关（形照官方历史 Trace 枚举：non_exhaustive 护未来开关项、Directory 持 PathBuf 所有权
+/// 免无 feature 期脱逸生命周期——两处原文事由本层一并保留）。本层无 trace 产出面：
+/// Off=合法无操作；Directory=词位在场但恒拒止（请求侧违约断言 ErrTrace，形宽法窄）。
+/// 官方 cfg(feature="trace") 门控不移植：本层不开产出 build option，条目恒可见恒拒。
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub enum Trace {
+    /// 追踪关闭（本层唯一合法形）。
+    #[default]
+    Off,
+    /// 追踪目录（官方词位；本层无产出面，给值=违约断言）。
+    Directory(std::path::PathBuf),
+}
 /// 设备创建输入。required_features/required_limits 与 Adapter 能力快照全量逐字段对照：
 /// 任一超出=Err(RequestDeviceError)——设备未建，Adapter 仍可反复重试。
+/// trace=追踪词位（形宽法窄）：Off=唯一合法形，Directory=违约断言 ErrTrace（本层无产出面）。
 #[derive(Debug, Clone, Default)]
 pub struct DeviceDescriptor<'a> {
     pub label: Label<'a>,
     pub required_features: Features,
     pub required_limits: Limits,
     pub memory_hints: MemoryHints,
+    pub trace: Trace,
 }
 /// 呈现模式；configure 合法组合面仅 Fifo（Mailbox/Immediate 为词汇保留，能否用由能力查询面回报）。
 #[derive(Debug, Clone, Copy)]

@@ -162,7 +162,7 @@ const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
 
 /// cube 兼容判定（镜像 wgpu is_cube_compatible）。
 pub(crate) fn cube_compat_impl(desc: &TextureDescriptor<'_>) -> bool {
-    matches!(desc.dim, crate::types::TextureDimension::D2)
+    matches!(desc.dimension, crate::types::TextureDimension::D2)
         && desc.size.depth_or_array_layers % 6 == 0
         && desc.sample_count == 1
         && desc.size.width == desc.size.height
@@ -171,7 +171,7 @@ pub(crate) fn cube_compat_impl(desc: &TextureDescriptor<'_>) -> bool {
 /// 纹理 GL 目标选择（镜像 wgpu get_info_from_desc）。
 pub(crate) fn target_impl(desc: &TextureDescriptor<'_>) -> u32 {
     use crate::types::TextureDimension;
-    match desc.dim {
+    match desc.dimension {
         TextureDimension::D1 => GL_TEXTURE_2D,
         TextureDimension::D3 => GL_TEXTURE_3D,
         TextureDimension::D2 => {
@@ -215,7 +215,7 @@ mod tests {
         TextureDescriptor {
             label: Some(label),
             usage: TextureUsages::TEXTURE_BINDING,
-            dim: TextureDimension::D2,
+            dimension: TextureDimension::D2,
             size: Extent3d {
                 width: 1,
                 height: 1,

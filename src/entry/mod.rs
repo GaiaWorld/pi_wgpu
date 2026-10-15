@@ -4,7 +4,6 @@
 //! get_current_texture）外，一切操作要么不失败、要么以断言失败——描述符违约在创建边界一次校验。
 use crate::draw::RenderPass;
 use pi_share::{Share, ShareMutex};
-use std::path::Path;
 
 /// request_device 的失败信号（封闭类型）：请求的能力/上限超出适配器快照。
 /// 失败后设备未建，同一 Adapter 不受影响、可反复重试。 @public
@@ -62,6 +61,68 @@ pub struct CommandEncoder {
 /// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
 #[derive(Debug)]
 pub struct CommandBuffer;
+/// 查询集句柄：RenderPassDescriptor.timestamp_writes / occlusion_query_set 词位的照齐占位类型。
+/// 本层 GL 路无对应实现、创建建面不提供（create_query_set 不立）——&QuerySet 按构造不可达，
+/// Some 值仅作防御拒止词汇位（短码 ErrQuery，begin 通道芯断言）。形宽法窄，与 PipelineCache 同式。 @public
+#[derive(Debug)]
+pub struct QuerySet {
+    /// 占位：不存在任何可达构造路径。
+    pub(crate) _never: core::convert::Infallible,
+}
+/// 缓冲字节片段（形照 25.0.2 公开面：句柄+偏移+可选长度、Copy/PartialEq）。
+/// 上游 map_async/get_mapped_range 族不移植——本层无映射面（录制即执行，写入走 Queue），登记有意差异。 @public
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct BufferSlice<'a> {
+    pub(crate) buffer: &'a Buffer,
+    pub(crate) offset: crate::types::BufferAddress,
+    pub(crate) size: Option<crate::types::BufferSize>,
+}
+impl<'a> BufferSlice<'a> {
+    /// 源缓冲引用。 @public
+    pub fn get_buffer(&self) -> &'a Buffer {
+        self.buffer
+    }
+    /// 片段起始字节。 @public
+    pub const fn get_offset(&self) -> crate::types::BufferAddress {
+        self.offset
+    }
+    /// 片段长度（None=到缓冲末尾）。 @public
+    pub fn get_size(&self) -> Option<crate::types::BufferSize> {
+        self.size
+    }
+    /// 片段的绝对字节范围 [start,end)。 @public
+    pub fn get_range(&self) -> std::ops::Range<crate::types::BufferAddress> {
+        self.offset..self.offset + self.size.map_or(self.buffer.size, |s| s.get())
+    }
+    /// 本片段之内的再切片（相对界；越界或空段=断言短码，同 Buffer::slice 合同）。 @public
+    pub fn slice<S: std::ops::RangeBounds<crate::types::BufferAddress>>(
+        &self,
+        bounds: S,
+    ) -> BufferSlice<'a> {
+        let rng = self.get_range();
+        let total = rng.end - rng.start;
+        let (off, size) = crate::entry_inner::slice_bounds_impl(total, bounds);
+        BufferSlice {
+            buffer: self.buffer,
+            offset: self.offset + off,
+            size,
+        }
+    }
+}
+impl Buffer {
+    /// 取字节片段（形照上游：任意半界/全界 RangeBounds；越界或空段=断言短码，无半建片段）。 @public
+    pub fn slice<S: std::ops::RangeBounds<crate::types::BufferAddress>>(
+        &self,
+        bounds: S,
+    ) -> BufferSlice<'_> {
+        let (off, size) = crate::entry_inner::slice_bounds_impl(self.size, bounds);
+        BufferSlice {
+            buffer: self,
+            offset: off,
+            size,
+        }
+    }
+}
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
 /// 末引用 Drop 才调驱动删除（共享计数：绑定组与用户双持时互不删）；死句柄使用=错误码。 @public
 #[derive(Debug)]
@@ -70,6 +131,16 @@ pub struct Buffer {
     pub(crate) _h: crate::objects::DirectHandle,
     /// 缓冲字节长度（创建期定格、4 字节倍数）；upload 范围校验消费。
     pub(crate) size: crate::types::BufferAddress,
+}
+/// 缓冲同一性 = 直建句柄名与定格长度全同（上游 wgpu 对 Dispatch 代理的 eq 之本层投影；
+/// 两名皆失活（None）判不为等——死句柄不参与相等推理）。
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        match (self._h.name(), other._h.name()) {
+            (Some(a), Some(b)) => a == b && self.size == other.size,
+            _ => false,
+        }
+    }
 }
 /// 一对一直建的 GL 纹理。句柄契约同 Buffer：末引用 Drop 才删驱动资源、死句柄使用=错误码。
 /// 目标/维度/层数创建期定格（决定 upload 写路径与视图相容性）。 @public
@@ -180,15 +251,19 @@ impl Instance {
 
 /// Adapter 的查询面与设备创建面。 @public
 impl Adapter {
-    /// 按描述符建设备。校验=对照本适配器能力快照逐项全量检查；任一超出=Err，
+    /// 按描述符建设备（-> impl Future 形照 25.0.2；WasmNotSend 不适用 GL 面、登记不抄）。
+    /// 校验=对照本适配器能力快照全量 36 字段逐字段检查；任一超出=Err，
     /// 设备未建且 Adapter 仍可用。失败面仅此一种；成功后三件套完整装配。
-    /// trace_path 维持官方双参形状、语义为仅记录不产出。 @public
-    pub async fn request_device<'p>(
-        &'p self,
-        desc: &'p DeviceDescriptor<'p>,
-        trace_path: Option<&'p Path>,
-    ) -> std::result::Result<(Device, Queue), RequestDeviceError> {
-        crate::entry_inner::request_device_impl(self, desc, trace_path)
+    /// trace=追踪词位现居 DeviceDescriptor.trace（Directory=违约断言 ErrTrace）；
+    /// trace_path 维持官方历史双参兼容形：仅记录不产出（Some=入 debug 日志后忽略，永不失败）。 @public
+    pub fn request_device(
+        &self,
+        desc: &DeviceDescriptor<'_>,
+        trace_path: Option<&std::path::Path>,
+    ) -> impl std::future::Future<Output = std::result::Result<(Device, Queue), RequestDeviceError>>
+    {
+        let r = crate::entry_inner::request_device_impl(self, desc, trace_path);
+        async move { r }
     }
     /// 能力查询：纯读快照，永不失败。 @public
     pub fn features(&self) -> Features {

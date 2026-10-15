@@ -120,11 +120,12 @@ pub use utils::{
 
 use std::path::Path;
 
-/// 伞面 trait（自产面）：把 request_device 统一成「描述符 + trace_path」双参形状。
+/// 伞面 trait（自产面）：把 request_device 统一成「描述符（含 trace 词位）+ trace_path 历史兼容位」双参形状。
 /// 返回面 = RPITIT（不透明 future + Send 契约）：零堆分配、静态分发；含 RPITIT 方法即非 dyn-safe（本 trait 无 dyn 用法）。
 #[cfg(not(feature = "use_wgpu"))]
 pub trait PiWgpuAdapter {
     /// 请求设备：future 借用收体与各参（'p 显式统一），Send 合同保持（自产 futures 已证）。
+    /// desc.trace=词汇位（Directory=断言 ErrTrace）；trace_path 历史兼容位=仅记录不产出（None 常态）。
     fn request_device<'p>(
         &'p self,
         desc: &'p types::DeviceDescriptor<'p>,
@@ -144,14 +145,29 @@ impl PiWgpuAdapter for entry::Adapter {
         Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>,
     > + Send
            + 'p {
-        entry::Adapter::request_device(self, desc, trace_path)
+        let r = crate::entry_inner::request_device_impl(self, desc, trace_path);
+        async move { r }
     }
+}
+
+/// 同形伞词汇（use_wgpu 专轨）：与自产面 types::Trace 同形（形照官方历史 Trace 枚举、non_exhaustive、
+/// Directory 恒拒止）；两面互斥故各立一名，对调用方呈现同名同形词汇。
+#[cfg(feature = "use_wgpu")]
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub enum Trace {
+    /// 追踪关闭（唯一合法形）。
+    #[default]
+    Off,
+    /// 追踪目录（官方词位；本面无产出，给值=违约断言）。
+    Directory(std::path::PathBuf),
 }
 
 /// 伞面 trait（use_wgpu 薄壳）：官方 wgpu::Adapter 的单参 request_device 适配为双参形状（与自产面同形 RPITIT）。
 #[cfg(feature = "use_wgpu")]
 pub trait PiWgpuAdapter {
-    /// 请求设备：适配官方单参面；trace_path 官方无对应物，仅记录不下发（lib_inner 芯注释同）。 @public
+    /// 请求设备：适配官方单参面；trace_path 历史兼容位官方无对应物=丢弃（双轨同形合同，
+    /// 自产面的追踪词位在 types::DeviceDescriptor.trace）。 @public
     fn request_device<'p>(
         &'p self,
         desc: &'p wgpu::DeviceDescriptor<'p>,

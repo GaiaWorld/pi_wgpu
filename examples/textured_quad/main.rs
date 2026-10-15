@@ -91,6 +91,7 @@ impl ApplicationHandler for App {
                 required_features: Features::default(),
                 required_limits: Limits::default(),
                 memory_hints: MemoryHints::default(),
+                trace: Trace::Off,
             },
             None,
         ))
@@ -109,7 +110,7 @@ impl ApplicationHandler for App {
         let texture = device.create_texture(&TextureDescriptor {
             label: Some("grad"),
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            dim: TextureDimension::D2,
+            dimension: TextureDimension::D2,
             size: Extent3d {
                 width: TEX_W,
                 height: TEX_H,
@@ -128,7 +129,7 @@ impl ApplicationHandler for App {
                 aspect: TextureAspect::All,
             },
             &gradient_bytes(),
-            &ImageDataLayout {
+            ImageDataLayout {
                 offset: 0,
                 bytes_per_row: NonZeroU32::new(TEX_W * 4),
                 rows_per_image: NonZeroU32::new(TEX_H),
@@ -308,11 +309,13 @@ impl ApplicationHandler for App {
                             label: Some("q"),
                             color_attachments: &[Some(ca)],
                             depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
                         };
                         let mut pass = encoder.begin_render_pass(&desc);
                         pass.set_pipeline(&s.pipeline);
                         pass.set_bind_group(0, &s.bind_group, &[]);
-                        pass.set_vertex_buffer(0, &s.vbuf, 0, 16);
+                        pass.set_vertex_buffer(0, s.vbuf.slice(..));
                         pass.set_viewport(
                             0.,
                             0.,
@@ -321,7 +324,7 @@ impl ApplicationHandler for App {
                             0.,
                             1.,
                         );
-                        pass.draw(0, 6);
+                        pass.draw(0..6, 0..1);
                     }
                     let cmd = encoder.finish();
                     s.queue.submit(cmd);

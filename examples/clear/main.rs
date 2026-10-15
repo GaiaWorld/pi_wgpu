@@ -50,6 +50,7 @@ impl ApplicationHandler for App {
                 required_features: Features::default(),
                 required_limits: Limits::default(),
                 memory_hints: MemoryHints::default(),
+                trace: Trace::Off,
             },
             None,
         ))
@@ -113,6 +114,8 @@ impl ApplicationHandler for App {
                             label: Some("clear"),
                             color_attachments: &[Some(ca)],
                             depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
                         };
                         let _pass = encoder.begin_render_pass(&desc);
                     }

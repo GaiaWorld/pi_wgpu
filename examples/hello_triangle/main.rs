@@ -170,6 +170,7 @@ impl ApplicationHandler for App {
                 required_features: Features::default(),
                 required_limits: Limits::default(),
                 memory_hints: MemoryHints::default(),
+                trace: Trace::Off,
             },
             None,
         ))
@@ -299,6 +300,8 @@ impl ApplicationHandler for App {
                             label: Some("tri"),
                             color_attachments: &[Some(ca)],
                             depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
                         };
                         let mut pass = encoder.begin_render_pass(&desc);
                         pass.set_viewport(
@@ -310,8 +313,8 @@ impl ApplicationHandler for App {
                             1.,
                         );
                         pass.set_pipeline(&s.pipeline);
-                        pass.set_vertex_buffer(0, &s.vbuf, 0, 24);
-                        pass.draw(0, 3);
+                        pass.set_vertex_buffer(0, s.vbuf.slice(..));
+                        pass.draw(0..3, 0..1);
                     }
                     let cmd = encoder.finish();
                     s.queue.submit(cmd);

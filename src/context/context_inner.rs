@@ -632,6 +632,8 @@ mod tests {
             label: None,
             color_attachments: &[Some(ca)],
             depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
         };
         let mut pass = enc.begin_render_pass(&desc);
         pass.set_viewport(0.0, 0.0, 4.0, 4.0, 0.0, 1.0);

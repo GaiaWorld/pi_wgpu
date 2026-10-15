@@ -36,10 +36,10 @@ impl Queue {
         &self,
         dst: &ImageCopyTexture<'_>,
         data: &[u8],
-        layout: &ImageDataLayout,
+        layout: ImageDataLayout,
         extent: Extent3d,
     ) {
-        crate::upload_inner::write_texture_impl(self, dst, data, layout, extent)
+        crate::upload_inner::write_texture_impl(self, dst, data, &layout, extent)
     }
     /// 私有扩展（全库唯一公开分形态点，登迁移清单）：直接把浏览器位图句柄提交给上传通道（零字节路径，
     /// 不经 JS 侧解码缓冲）。合同：仅主线程（离线程=log::error!(OffMainThread)）；

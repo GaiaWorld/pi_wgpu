@@ -13,7 +13,6 @@ use crate::types::*;
 use glow::HasContext;
 use pi_share::{Share, ShareMutex};
 use std::num::NonZeroU32;
-use std::path::Path;
 
 /// GL 纹理目标常量（GL_* 名面未导出故内联规范值）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
@@ -146,8 +145,20 @@ fn over_limits(r: &Limits, cap: &Limits) -> bool {
 pub(crate) fn request_device_impl(
     a: &Adapter,
     d: &DeviceDescriptor<'_>,
-    _t: Option<&Path>,
+    trace_path: Option<&std::path::Path>,
 ) -> std::result::Result<(Device, Queue), RequestDeviceError> {
+    // desc-align traceability batch 修正形：追踪词位居 DeviceDescriptor.trace（形宽法窄，
+    // Directory=断言拒止不留静默；if/panic 不拷贝负载——assert!+matches! 求值拷贝 PathBuf
+    // 曾在 catch_unwind 下触发 allocator 死锁，事故在案）。trace_path=历史双参兼容位：仅记录不产出。
+    if let crate::types::Trace::Directory(dir) = &d.trace {
+        panic!(
+            "entry 断言 ErrTrace: 本层无 trace 产出面，Directory 恒拒止（dir={}）",
+            dir.display()
+        );
+    }
+    if let Some(p) = trace_path {
+        log::debug!("entry: trace_path 仅记录不产出（{}）", p.display());
+    }
     let avail = caps::fill_features(&a._caps);
     if d.required_features.0 & !avail.0 != 0 {
         return Err(RequestDeviceError);
@@ -341,7 +352,7 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         _h: h,
         params,
         _target: target,
-        _dim: t.dim,
+        _dim: t.dimension,
         _layers: layers,
     }
 }
@@ -814,4 +825,31 @@ pub(crate) fn device_reset_state(d: &Device) {
 
 pub(crate) fn encoder_finish(_e: CommandEncoder) -> CommandBuffer {
     CommandBuffer
+}
+
+/// RangeBounds→字节区间解算（上游 check_buffer_bounds 同口径）：开界=到末尾；
+/// 空段/越界/倒置界=断言短码 ErrSlice（长度≥1 即 BufferSize 构造必成）。
+pub(crate) fn slice_bounds_impl<S: std::ops::RangeBounds<crate::types::BufferAddress>>(
+    total: crate::types::BufferAddress,
+    bounds: S,
+) -> (
+    crate::types::BufferAddress,
+    Option<crate::types::BufferSize>,
+) {
+    use std::ops::Bound;
+    let start = match bounds.start_bound() {
+        Bound::Included(v) => *v,
+        Bound::Excluded(v) => v + 1,
+        Bound::Unbounded => 0,
+    };
+    let end = match bounds.end_bound() {
+        Bound::Included(v) => v + 1,
+        Bound::Excluded(v) => *v,
+        Bound::Unbounded => total,
+    };
+    assert!(
+        start < end && end <= total,
+        "entry 断言 ErrSlice: 片段空或越界（start={start} end={end} total={total}）"
+    );
+    (start, crate::types::BufferSize::new(end - start))
 }
