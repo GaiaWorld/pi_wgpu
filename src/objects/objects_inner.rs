@@ -4,8 +4,8 @@
 //! 零计数行=已删待重建位（ensure 命中换新名覆写；GL 名可回收，保守换代不复用死名）。
 //! Lost 世代失配后的 release 由 invalidate_generations 显式清场兜底（只改记账、不触驱动）。
 
-use std::cell::Cell;
 use std::num::NonZeroU32;
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -19,7 +19,7 @@ use crate::objects::{
 };
 use crate::state::StateMirror;
 use crate::state_inner::note_removed;
-use pi_share::Share;
+use pi_share::{Share, ShareU32};
 
 /// 复用在途计数真相表（键→持有者数）。仅经 bump/drop_count 访问，禁止旁路手改（成对合同）。
 static REFCOUNTS: Lazy<Mutex<XHashMap<ReuseKey, u32>>> =
@@ -124,7 +124,7 @@ fn delete_by_key(key: ReuseKey, name: GlHandle) {
     note_removed(kind_num_reuse(key), name.0);
 }
 
-// 1. 查表行且计数活跃 → 计数+1，行模板计数覆写快照，返回持有者副本（Cell=快照读数，真相在驻留表）。
+// 1. 查表行且计数活跃 → 计数+1，行模板计数覆写快照，返回持有者副本（原子快照读数，真相在驻留表）。
 // 2. 行存在但计数已零（release 已物理删）→ 重新 glGen 原地覆写行（不复用缓存旧名——驱动可回收该名，行只做覆写不假定新名≠旧名）。
 // 3. 未命中 → 建物理、以计数=1 登记行与驻留表后返回；创建失败=断言，全表保持调用前原状。
 pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusable {
@@ -132,21 +132,21 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
         if let Some(item) = row.first_mut() {
             if count_active(key) {
                 let c = bump(key);
-                item.refcount.set(c);
+                item.refcount.store(c, Ordering::SeqCst);
                 return Reusable {
                     key,
                     handle: item.handle,
-                    refcount: Cell::new(c),
+                    refcount: ShareU32::new(c),
                 };
             }
             let fresh = gen_by_key(key);
             item.handle = Some(fresh);
             let c = bump(key);
-            item.refcount.set(c);
+            item.refcount.store(c, Ordering::SeqCst);
             return Reusable {
                 key,
                 handle: Some(fresh),
-                refcount: Cell::new(c),
+                refcount: ShareU32::new(c),
             };
         }
     }
@@ -157,17 +157,17 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
         vec![Reusable {
             key,
             handle: Some(fresh),
-            refcount: Cell::new(c),
+            refcount: ShareU32::new(c),
         }],
     );
     Reusable {
         key,
         handle: Some(fresh),
-        refcount: Cell::new(c),
+        refcount: ShareU32::new(c),
     }
 }
 
-// 1. 全局计数-1（本地 Cell 快照不参与真相）；已为零 → 断言（成对合同被破）。
+// 1. 全局计数-1（本地原子快照不参与真相）；已为零 → 断言（成对合同被破）。
 // 2. 减到零 → 按域物理删除 + 登记死名；缓存行留死名原样待 ensure 换新覆写。
 pub(crate) fn release_reuse_impl(item: &Reusable) {
     let left = drop_count(item.key);
@@ -182,14 +182,18 @@ pub(crate) fn release_reuse_impl(item: &Reusable) {
 // 2. 即调该资源域 glDelete*（1:1 资源无延迟队列、无等待 GC）。
 // 3. 登记死名刷失（引用名集=state 芯驻留）；此后句柄为死态，消费方对死代号的使用=其自身断言拦截。
 pub(crate) fn mark_dead_impl(h: &DirectHandle) {
-    if let Some(name) = h.inner.handle.replace(None) {
+    let raw = h.inner.handle.swap(0, Ordering::SeqCst);
+    if raw != 0 {
+        let name = GlHandle(raw);
         delete_direct(h.inner.kind, name);
     }
 }
 
 // 末引用析构入口（Drop for DirectHandleState）：与显式 mark_dead 同语义（先置 None 防重入，再删+登记）。
 pub(crate) fn drop_impl(s: &mut DirectHandleState) {
-    if let Some(name) = s.handle.replace(None) {
+    let raw = s.handle.swap(0, Ordering::SeqCst);
+    if raw != 0 {
+        let name = GlHandle(raw);
         delete_direct(s.kind, name);
     }
 }
@@ -216,7 +220,7 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
     for (_k, row) in c.map.iter_mut() {
         for item in row.iter_mut() {
             item.handle = None;
-            item.refcount.set(0);
+            item.refcount.store(0, Ordering::SeqCst);
         }
     }
     let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -253,7 +257,7 @@ pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
     DirectHandle {
         inner: Share::new(DirectHandleState {
             kind,
-            handle: Cell::new(Some(GlHandle(name))),
+            handle: ShareU32::new(name),
             generation: generation_now(),
         }),
     }

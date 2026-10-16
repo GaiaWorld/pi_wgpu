@@ -5,11 +5,11 @@ use crate::Device;
 
 /// 官方窗口/显示句柄双 trait 的绑定别名（伞面书写用）；blanket impl 使任意实现双 trait 的类型自动满足。 @public
 pub trait WindowHandle:
-    raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle
+    raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle + Send + Sync
 {
 }
-impl<T: raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle> WindowHandle
-    for T
+impl<T: raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle + Send + Sync>
+    WindowHandle for T
 {
 }
 /// 附着目标按形态分支（桌面/安卓=窗口句柄，Web=画布或离屏画布，cfg 隔离——运行时不存在跨形态误入路径）。 @public
@@ -33,7 +33,7 @@ pub struct Surface<'surface> {
     /// 附着目标（窗口/画布；configure 时据此建平台表面）。
     pub(crate) _target: SurfaceTarget<'surface>,
     /// 当前配置（None=未配置/配置失败不写——无半配置）；configure 取 &self，故内部可变。
-    pub(crate) _cfg: core::cell::RefCell<Option<SurfaceConfiguration>>,
+    pub(crate) _cfg: pi_share::ShareCell<Option<SurfaceConfiguration>>,
     /// 附着槽（代号读数；Lost 判定基准）。
     pub(crate) _attach: crate::context::AttachmentSlot,
 }

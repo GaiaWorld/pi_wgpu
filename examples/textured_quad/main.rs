@@ -1,7 +1,6 @@
 //! textured_quad 冒烟样例：运行时生成「左红→右绿」渐变纹理，贴到正方形上渲染。
 //! 验收锚：窗口中出现带红→绿水平渐变的正方形（线性过滤），持续重绘不崩。
 use pi_wgpu::*;
-use std::num::NonZeroU32;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -98,11 +97,14 @@ impl ApplicationHandler for App {
         .expect("request_device");
         let format = TextureFormat::Bgra8UnormSrgb;
         let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format,
             width: size.width.max(1),
             height: size.height.max(1),
-            format,
             present_mode: PresentMode::Fifo,
-            alpha_mode: CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: CompositeAlphaMode::PreMultiplied,
+            view_formats: vec![],
         };
         surface.configure(&device, &config);
 
@@ -119,7 +121,7 @@ impl ApplicationHandler for App {
             format: TextureFormat::Rgba8Unorm,
             mip_level_count: 1,
             sample_count: 1,
-            view_formats: &[],
+            view_formats: vec![],
         });
         queue.write_texture(
             texture.as_image_copy(),

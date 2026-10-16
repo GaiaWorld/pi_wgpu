@@ -56,11 +56,14 @@ impl ApplicationHandler for App {
         ))
         .expect("request_device");
         let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format: TextureFormat::Bgra8UnormSrgb,
             width: size.width.max(1),
             height: size.height.max(1),
-            format: TextureFormat::Bgra8UnormSrgb,
             present_mode: PresentMode::Fifo,
-            alpha_mode: CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: CompositeAlphaMode::PreMultiplied,
+            view_formats: vec![],
         };
         surface.configure(&device, &config);
         self.state = Some(State {
@@ -102,7 +105,7 @@ impl ApplicationHandler for App {
                             resolve_target: None,
                             ops: Operations {
                                 load: LoadOp::Clear(Color {
-                                    r: (t % 2.0) / 2.0,
+                                    r: (t as f64 % 2.0) / 2.0,
                                     g: 0.2,
                                     b: 0.3,
                                     a: 1.0,

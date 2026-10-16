@@ -2,7 +2,7 @@
 //! objects · GL 对象句柄层：一对一资源与可复用缓存两种生命周期。隐藏决定=哪些对象允许复用（仅四类）。
 //! 契约权威文本住本面注释；本面全部 @internal。
 use crate::state::StateMirror;
-use pi_share::Share;
+use pi_share::{Share, ShareU32};
 
 /// GL 对象名（glGen* 原始产物）。只做类型区分，数值本身不含生命周期信息。
 /// 元组字段=驱动原始名号 u32（native 实形；glow native 的 NonZeroU32 包装由芯边界转换；Web 形态句柄
@@ -32,15 +32,17 @@ pub(crate) struct DirectHandle {
 pub(crate) struct DirectHandleState {
     /// 资源域：删除入口按此分派（buffer/texture/sampler 三路 glDelete*）。
     pub(crate) kind: DirectKind,
-    /// 句柄名（None=死态或已释放）。
-    pub(crate) handle: std::cell::Cell<Option<GlHandle>>,
+    /// 句柄名（原子形：0=死态或已释放——非零即活名，与驱动 GL_NAMES 约定同域；
+    /// pi_share 缺省线程形 ShareU32，使全句柄链满足上游公开面 Send+Sync 合同）。
+    pub(crate) handle: ShareU32,
     /// 构造时附着代号快照；使用死代号句柄由消费方按失配断言拦截。
     pub(crate) generation: u32,
 }
 impl DirectHandle {
-    /// 读当前驱动名（None=死态）。 @internal
+    /// 读当前驱动名（None=死态；原子装载，跨线程观察合法——驱动调用仍受附着门控）。 @internal
     pub(crate) fn name(&self) -> Option<GlHandle> {
-        self.inner.handle.get()
+        std::num::NonZeroU32::new(self.inner.handle.load(std::sync::atomic::Ordering::SeqCst))
+            .map(|v| GlHandle(v.get()))
     }
     /// 读附着代号快照。 @internal
     pub(crate) fn generation(&self) -> u32 {
@@ -51,7 +53,7 @@ impl DirectHandle {
         Self {
             inner: Share::new(DirectHandleState {
                 kind,
-                handle: std::cell::Cell::new(None),
+                handle: ShareU32::new(0),
                 generation,
             }),
         }
@@ -89,8 +91,8 @@ pub(crate) struct Reusable {
     pub(crate) key: ReuseKey,
     /// 物理名快照（None=行已死待重建；活态真相判定=objects 芯计数表，非本字段）。
     pub(crate) handle: Option<GlHandle>,
-    /// 在途计数快照（真相=objects 芯全局计数表；本 Cell 仅观测/调试承载，不参与 release 运算）。
-    pub(crate) refcount: std::cell::Cell<u32>,
+    /// 在途计数快照（真相=objects 芯全局计数表；本原子位仅观测/调试承载，不参与 release 运算）。
+    pub(crate) refcount: ShareU32,
 }
 /// 复用对象缓存表（L7 解冻重落定：约定哈希=pi_hash::XHashMap/FxHash64；计数真相与死名刷失驻留 objects/state 芯，行仅持物理名模板）。 @internal
 #[derive(Debug, Default)]

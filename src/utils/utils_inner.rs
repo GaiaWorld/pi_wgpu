@@ -2,7 +2,7 @@
 //! utils 芯：便捷构造与环境读取。组合面零新契约——失败/断言=被组合双方原样成立。
 use crate::entry::{Buffer, Device, Queue, Texture};
 use crate::types::{
-    Backends, BufferDescriptor, MemoryHints, Origin3d, PowerPreference, TexelCopyBufferLayout,
+    Backends, BufferDescriptor, Origin3d, PowerPreference, TexelCopyBufferLayout,
     TexelCopyTextureInfo, TextureAspect, TextureDataOrder, TextureDescriptor,
 };
 use crate::utils::BufferInitDescriptor;
@@ -13,7 +13,6 @@ pub(crate) fn buffer_init_impl(dev: &Device, d: &BufferInitDescriptor<'_>) -> Bu
         usage: d.usage,
         size: d.contents.len() as u64,
         mapped_at_creation: false,
-        memory_hints: MemoryHints::default(),
     });
     let q = Queue {
         _dev: Some(Device {
@@ -65,5 +64,5 @@ pub(crate) fn parse_impl(list: &str) -> Backends {
             return Backends::GL;
         }
     }
-    Backends::EMPTY
+    Backends::empty()
 }

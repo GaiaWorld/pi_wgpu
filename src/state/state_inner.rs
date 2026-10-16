@@ -168,7 +168,7 @@ pub(crate) struct Water {
     /// 混合组（等式×2+因子×4 映射值；外层 None=未设、内层 None=关混合哨兵）。
     pub(crate) blend: Option<Option<[u32; 6]>>,
     /// 混合常量色（RGBA）。
-    pub(crate) blend_constant: Option<[f32; 4]>,
+    pub(crate) blend_constant: Option<[f64; 4]>,
     /// 颜色写掩码位集。
     pub(crate) color_writes: Option<u32>,
     /// 填充模式（映射值）。
@@ -220,15 +220,28 @@ fn blend_op_to_gl(op: BlendOperation) -> u32 {
     }
 }
 
-/// 混合因子映射（子集六值官方号）。
+/// 混合因子映射（上游全 17 值官方 enum 号；Src1 系为 ES3.2 号值——WebGL2 无此能力，
+/// 创建校验面已拒（second-source 域名外），此处仅为完备性收录，不会被下发）。
 fn blend_factor_to_gl(f: BlendFactor) -> u32 {
     match f {
         BlendFactor::Zero => 0,
         BlendFactor::One => 1,
+        BlendFactor::Src => 0x0300,
+        BlendFactor::OneMinusSrc => 0x0301,
         BlendFactor::SrcAlpha => 0x0302,
         BlendFactor::OneMinusSrcAlpha => 0x0303,
         BlendFactor::DstAlpha => 0x0304,
         BlendFactor::OneMinusDstAlpha => 0x0305,
+        BlendFactor::Dst => 0x0306,
+        BlendFactor::OneMinusDst => 0x0307,
+        BlendFactor::SrcAlphaSaturated => 0x0308,
+        // 上游单参考色语义 → CONSTANT_COLOR 对。
+        BlendFactor::Constant => 0x8001,
+        BlendFactor::OneMinusConstant => 0x8002,
+        BlendFactor::Src1 => 0x937D,
+        BlendFactor::OneMinusSrc1 => 0x937E,
+        BlendFactor::Src1Alpha => 0x8589,
+        BlendFactor::OneMinusSrc1Alpha => 0x883A,
     }
 }
 
@@ -245,7 +258,7 @@ fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
     match m {
         Some(Face::Front) => Some(0x0404),
         Some(Face::Back) => Some(0x0405),
-        Some(Face::Undef) | None => None,
+        None => None,
     }
 }
 
@@ -274,7 +287,7 @@ fn stencil_op_to_gl(op: StencilOperation) -> u32 {
 
 /// 深度偏置常量与斜率下发值对（驱动侧 POLYGON_OFFSET_FACTOR=斜率/UNITS=常数）。
 fn bias_pair(b: DepthBiasState) -> (f32, f32) {
-    (b.slope, b.constant)
+    (b.slope_scale, b.constant as f32)
 }
 
 // —— 相等比较器（全经映射/分量拆解；None=从未设 恒不等任何实值，首轮必下发）——
@@ -283,18 +296,7 @@ fn blend_same(cur: Option<Option<BlendState>>, next: Option<BlendState>) -> bool
     match (cur, next) {
         (None, _) => false,
         (Some(None), None) => true,
-        (Some(Some(a)), Some(b)) => {
-            blend_op_to_gl(a.color.operation) == blend_op_to_gl(b.color.operation)
-                && blend_op_to_gl(a.alpha.operation) == blend_op_to_gl(b.alpha.operation)
-                && blend_factor_to_gl(a.color.color_factor)
-                    == blend_factor_to_gl(b.color.color_factor)
-                && blend_factor_to_gl(a.color.alpha_factor)
-                    == blend_factor_to_gl(b.color.alpha_factor)
-                && blend_factor_to_gl(a.alpha.color_factor)
-                    == blend_factor_to_gl(b.alpha.color_factor)
-                && blend_factor_to_gl(a.alpha.alpha_factor)
-                    == blend_factor_to_gl(b.alpha.alpha_factor)
-        }
+        (Some(Some(a)), Some(b)) => a.color == b.color && a.alpha == b.alpha,
         _ => false,
     }
 }
@@ -359,7 +361,11 @@ fn polygon_same(cur: Option<PolygonMode>, next: PolygonMode) -> bool {
 /// 深度偏置相等（三分量）。
 fn bias_same(cur: Option<DepthBiasState>, next: DepthBiasState) -> bool {
     match cur {
-        Some(b) => b.constant == next.constant && b.slope == next.slope && b.clamp == next.clamp,
+        Some(b) => {
+            b.constant == next.constant
+                && b.slope_scale == next.slope_scale
+                && b.clamp == next.clamp
+        }
         None => false,
     }
 }
@@ -367,7 +373,7 @@ fn bias_same(cur: Option<DepthBiasState>, next: DepthBiasState) -> bool {
 /// 写掩码相等（字节直较）。
 fn writes_same(cur: Option<ColorWrites>, next: ColorWrites) -> bool {
     match cur {
-        Some(w) => w.0 == next.0,
+        Some(w) => w.bits() == next.bits(),
         None => false,
     }
 }
@@ -598,10 +604,10 @@ pub(crate) fn set_blend(m: &mut StateMirror, blend: Option<BlendState>) {
                 blend_op_to_gl(bs.alpha.operation),
             );
             gl.blend_func_separate(
-                blend_factor_to_gl(bs.color.color_factor),
-                blend_factor_to_gl(bs.color.alpha_factor),
-                blend_factor_to_gl(bs.alpha.color_factor),
-                blend_factor_to_gl(bs.alpha.alpha_factor),
+                blend_factor_to_gl(bs.color.src_factor),
+                blend_factor_to_gl(bs.color.dst_factor),
+                blend_factor_to_gl(bs.alpha.src_factor),
+                blend_factor_to_gl(bs.alpha.dst_factor),
             );
         }
     });
@@ -613,7 +619,7 @@ pub(crate) fn set_blend_constant(m: &mut StateMirror, c: Color) {
         return;
     }
     m.blend_constant = Some(c);
-    with_gl(|gl| unsafe { gl.blend_color(c.r, c.g, c.b, c.a) });
+    with_gl(|gl| unsafe { gl.blend_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32) });
 }
 
 /// 写掩码 set（位拆四 bool）。
@@ -622,7 +628,14 @@ pub(crate) fn set_color_writes(m: &mut StateMirror, w: ColorWrites) {
         return;
     }
     m.color_writes = Some(w);
-    with_gl(|gl| unsafe { gl.color_mask(w.0 & 1 != 0, w.0 & 2 != 0, w.0 & 4 != 0, w.0 & 8 != 0) });
+    with_gl(|gl| unsafe {
+        gl.color_mask(
+            w.contains(crate::types::ColorWrites::RED),
+            w.contains(crate::types::ColorWrites::GREEN),
+            w.contains(crate::types::ColorWrites::BLUE),
+            w.contains(crate::types::ColorWrites::ALPHA),
+        )
+    });
 }
 
 /// 图元三面 set（剔除开关+模式/绕序/填充一次刷齐）。
@@ -657,7 +670,7 @@ pub(crate) fn set_depth_bias(m: &mut StateMirror, bias: DepthBiasState) {
         return;
     }
     m.depth_bias = Some(bias);
-    let on = bias.constant != 0.0 || bias.slope != 0.0;
+    let on = bias.constant != 0 || bias.slope_scale != 0.0;
     let (slope, constant) = bias_pair(bias);
     with_gl(|gl| unsafe {
         set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
@@ -880,10 +893,10 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 [
                     blend_op_to_gl(bs.color.operation),
                     blend_op_to_gl(bs.alpha.operation),
-                    blend_factor_to_gl(bs.color.color_factor),
-                    blend_factor_to_gl(bs.color.alpha_factor),
-                    blend_factor_to_gl(bs.alpha.color_factor),
-                    blend_factor_to_gl(bs.alpha.alpha_factor),
+                    blend_factor_to_gl(bs.color.src_factor),
+                    blend_factor_to_gl(bs.color.dst_factor),
+                    blend_factor_to_gl(bs.alpha.src_factor),
+                    blend_factor_to_gl(bs.alpha.dst_factor),
                 ]
             })
         });
@@ -898,12 +911,12 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         let bconst = m.blend_constant.map(|c| [c.r, c.g, c.b, c.a]);
         if m.water.blend_constant != bconst {
             if let Some(c) = bconst {
-                gl.blend_color(c[0], c[1], c[2], c[3]);
+                gl.blend_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
             }
             m.water.blend_constant = bconst;
             probe(1);
         }
-        let writes = m.color_writes.map(|w| w.0 as u32);
+        let writes = m.color_writes.map(|w| w.bits());
         if m.water.color_writes != writes {
             if let Some(w) = writes {
                 gl.color_mask(w & 1 != 0, w & 2 != 0, w & 4 != 0, w & 8 != 0);

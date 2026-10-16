@@ -22,9 +22,13 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
         );
         return;
     }
+    if c.usage.is_empty() {
+        log::error!("surface {:?} usage empty", SurfaceErr::BadSize);
+        return;
+    }
     if !matches!(
         (c.present_mode, c.alpha_mode),
-        (PresentMode::Fifo, CompositeAlphaMode::Opaque)
+        (PresentMode::Fifo, CompositeAlphaMode::PreMultiplied)
     ) {
         log::error!(
             "surface {:?} present={:?} alpha={:?}",
@@ -81,7 +85,7 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
             TextureFormat::Rgba8UnormSrgb,
         ],
         present_modes: vec![PresentMode::Fifo],
-        alpha_modes: vec![CompositeAlphaMode::Opaque],
+        alpha_modes: vec![CompositeAlphaMode::PreMultiplied],
     }
 }
 

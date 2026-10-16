@@ -156,6 +156,16 @@ pub struct Texture {
     pub(crate) _dim: crate::types::TextureDimension,
     /// 数组层/深度（cube 面数=6）。
     pub(crate) _layers: u32,
+    /// 创建期尺寸快照（属性方法面消费，上游同式）。
+    pub(crate) _size: crate::types::Extent3d,
+    /// 创建期 mip 层数快照。
+    pub(crate) _mip: u32,
+    /// 创建期采样数快照。
+    pub(crate) _samples: u32,
+    /// 创建期像素格式快照。
+    pub(crate) _format: crate::types::TextureFormat,
+    /// 创建期用途快照。
+    pub(crate) _usage: crate::types::TextureUsages,
 }
 impl Texture {
     /// 整张缺省拷贝目标（上游同式：mip 0/原点/All）——write_texture/copy_texture 消费。 @public
@@ -173,6 +183,46 @@ impl Texture {
     /// 本层「取整张」：base/count 切片暂不生效（越界接表归实现批）。 @public
     pub fn create_view(&self, desc: &TextureViewDescriptor<'_>) -> TextureView {
         crate::entry_inner::create_view_impl(self, desc)
+    }
+    /// 尽早释放驱动侧资源（上游同义：即刻物理删除+死名登记；余借用方使用=句柄错误码，不崩）。 @public
+    pub fn destroy(&self) {
+        crate::entry_inner::texture_destroy_impl(self)
+    }
+    /// 整张尺寸快照（恒等于创建期 size，上游同式）。 @public
+    pub fn size(&self) -> crate::types::Extent3d {
+        self._size
+    }
+    /// 宽（=size.width）。 @public
+    pub fn width(&self) -> u32 {
+        self._size.width
+    }
+    /// 高（=size.height）。 @public
+    pub fn height(&self) -> u32 {
+        self._size.height
+    }
+    /// 深度或数组层数（=size.depth_or_array_layers）。 @public
+    pub fn depth_or_array_layers(&self) -> u32 {
+        self._size.depth_or_array_layers
+    }
+    /// mip 层数。 @public
+    pub fn mip_level_count(&self) -> u32 {
+        self._mip
+    }
+    /// 采样数（本层仅 1/4）。 @public
+    pub fn sample_count(&self) -> u32 {
+        self._samples
+    }
+    /// 维度。 @public
+    pub fn dimension(&self) -> crate::types::TextureDimension {
+        self._dim
+    }
+    /// 像素格式。 @public
+    pub fn format(&self) -> crate::types::TextureFormat {
+        self._format
+    }
+    /// 用途位集。 @public
+    pub fn usage(&self) -> crate::types::TextureUsages {
+        self._usage
     }
 }
 /// 纯值视图：随宿主 Texture 复制与消亡。视图本身无驱动对应物，不独立触发任何删除。
@@ -242,7 +292,7 @@ impl Instance {
     }
     /// 附着呈现目标。失败（Err=目标类型不符/无附着）后不留半附着、可直接重试——用户输入面走错误值不走断言。 @public
     pub fn create_surface<'s>(
-        &'s self,
+        &self,
         target: impl Into<crate::surface::SurfaceTarget<'s>>,
     ) -> Result<crate::surface::Surface<'s>, CreateSurfaceError> {
         crate::entry_inner::create_surface_impl(target.into())
@@ -252,7 +302,7 @@ impl Instance {
     /// options 的选择字段记录不路由。Lost 后的重建回路以此为重入点：代号推进完成后对同一 Instance 再次调用（内部自动重建附着并重探测），无需重建 Instance。 @public
     pub async fn request_adapter<'s>(
         &self,
-        options: &RequestAdapterOptions<'s>,
+        options: &RequestAdapterOptions<&'s crate::surface::Surface<'s>>,
     ) -> Option<Adapter> {
         crate::entry_inner::request_adapter_impl(options)
     }

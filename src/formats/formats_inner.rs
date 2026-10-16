@@ -224,7 +224,7 @@ mod tests {
             format: TextureFormat::Rgba8Unorm,
             mip_level_count: 1,
             sample_count: 1,
-            view_formats: &[],
+            view_formats: vec![],
         }
     }
 

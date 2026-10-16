@@ -295,24 +295,24 @@ pub(crate) fn probe_impl() -> Caps {
 // 2. 特判降级按标志位经表派生清除集后过滤——纯函数，快照即全部真相。
 pub(crate) fn fill_impl(c: &Caps) -> crate::types::Features {
     let family = c._ext_family & !clears_of(c._qualcomm, c._ios18);
-    let mut flags: u64 = 0;
+    let mut flags = crate::types::Features::empty();
     if c._gl_version >= (3, 0) {
         // D32F_S8：桌面 GL3.0 与 ES3.0 均已入核心，版本确证即可报。
-        flags |= FEAT_DEPTH32FLOAT_STENCIL8;
+        flags |= crate::types::Features::DEPTH32FLOAT_STENCIL8;
     }
     if (family & (CAP_S3TC | CAP_BPTC)) != 0 {
-        flags |= FEAT_TEXTURE_COMPRESSION_BC;
+        flags |= crate::types::Features::TEXTURE_COMPRESSION_BC;
     }
     if (family & CAP_ETC2) != 0 {
-        flags |= FEAT_TEXTURE_COMPRESSION_ETC2;
+        flags |= crate::types::Features::TEXTURE_COMPRESSION_ETC2;
     }
     if (family & CAP_ASTC_LDR) != 0 {
-        flags |= FEAT_TEXTURE_COMPRESSION_ASTC;
+        flags |= crate::types::Features::TEXTURE_COMPRESSION_ASTC;
     }
     if (family & CAP_FLOAT_LINEAR) != 0 {
-        flags |= FEAT_FLOAT32_FILTERABLE;
+        flags |= crate::types::Features::FLOAT32_FILTERABLE;
     }
-    crate::types::Features(flags)
+    flags
 }
 
 #[cfg(test)]
@@ -328,12 +328,13 @@ mod tests {
             _ios18: false,
             _ext_family: CAP_S3TC | CAP_FLOAT_LINEAR,
         };
-        let f = fill_impl(&c).0;
-        assert_eq!(f & FEAT_DEPTH32FLOAT_STENCIL8, FEAT_DEPTH32FLOAT_STENCIL8);
-        assert_eq!(f & FEAT_TEXTURE_COMPRESSION_BC, FEAT_TEXTURE_COMPRESSION_BC);
-        assert_eq!(f & FEAT_FLOAT32_FILTERABLE, FEAT_FLOAT32_FILTERABLE);
-        assert_eq!(f & FEAT_TEXTURE_COMPRESSION_ASTC, 0);
-        assert_eq!(f & FEAT_TEXTURE_COMPRESSION_ETC2, 0);
+        let f = fill_impl(&c);
+        use crate::types::Features;
+        assert!(f.contains(Features::DEPTH32FLOAT_STENCIL8));
+        assert!(f.contains(Features::TEXTURE_COMPRESSION_BC));
+        assert!(f.contains(Features::FLOAT32_FILTERABLE));
+        assert!(!f.contains(Features::TEXTURE_COMPRESSION_ASTC));
+        assert!(!f.contains(Features::TEXTURE_COMPRESSION_ETC2));
     }
 
     /// 特判降级：Qualcomm 清 BC 族+ASTC、iOS18 只清 ASTC；保留能力位不受他标志误伤。
@@ -346,10 +347,13 @@ mod tests {
             _ios18: false,
             _ext_family: base,
         };
-        let fq = fill_impl(&q).0;
+        let fq = fill_impl(&q);
+        use crate::types::Features;
         assert_eq!(
             fq,
-            FEAT_DEPTH32FLOAT_STENCIL8 | FEAT_TEXTURE_COMPRESSION_ETC2 | FEAT_FLOAT32_FILTERABLE
+            Features::DEPTH32FLOAT_STENCIL8
+                | Features::TEXTURE_COMPRESSION_ETC2
+                | Features::FLOAT32_FILTERABLE
         );
         let i = Caps {
             _gl_version: (3, 2),
@@ -357,13 +361,13 @@ mod tests {
             _ios18: true,
             _ext_family: base,
         };
-        let fi = fill_impl(&i).0;
+        let fi = fill_impl(&i);
         assert_eq!(
             fi,
-            FEAT_DEPTH32FLOAT_STENCIL8
-                | FEAT_TEXTURE_COMPRESSION_BC
-                | FEAT_TEXTURE_COMPRESSION_ETC2
-                | FEAT_FLOAT32_FILTERABLE
+            Features::DEPTH32FLOAT_STENCIL8
+                | Features::TEXTURE_COMPRESSION_BC
+                | Features::TEXTURE_COMPRESSION_ETC2
+                | Features::FLOAT32_FILTERABLE
         );
     }
 

@@ -399,8 +399,11 @@ mod tests {
             "GL 版本读数异常: {:?}",
             caps._gl_version
         );
-        let f = crate::caps_inner::fill_impl(&caps).0;
-        assert_ne!(f & (1 << 1), 0, "DEPTH32FLOAT_STENCIL8 版本确证位应置");
+        let f = crate::caps_inner::fill_impl(&caps);
+        assert!(
+            f.contains(crate::types::Features::DEPTH32FLOAT_STENCIL8),
+            "DEPTH32FLOAT_STENCIL8 版本确证位应置"
+        );
         with_gl(|_gl| {});
 
         // —— B4 objects 合验（同线程；成对合同与归零即删/重建）——
@@ -409,7 +412,11 @@ mod tests {
         let a = crate::objects::ensure_reuse(key, &mut cache);
         let b = crate::objects::ensure_reuse(key, &mut cache);
         assert_eq!(a.handle, b.handle, "同键复用同一物理名（计数活跃行）");
-        assert_eq!(b.refcount.get(), 2, "快照计数=在途持有数");
+        assert_eq!(
+            b.refcount.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "快照计数=在途持有数"
+        );
         crate::objects::release_reuse(&a);
         crate::objects::release_reuse(&b);
         assert!(
@@ -421,7 +428,11 @@ mod tests {
         );
         let c3 = crate::objects::ensure_reuse(key, &mut cache);
         // 名值由驱动回收决定（GL 允许即刻重用刚删名）；芯保证=行模板已覆写+计数=1 新持有,
-        assert_eq!(c3.refcount.get(), 1, "重建后持者计数快照=1");
+        assert_eq!(
+            c3.refcount.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "重建后持者计数快照=1"
+        );
         drop(c3);
         let d1 = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let d2 = crate::objects_inner::create_direct(crate::objects::DirectKind::Sampler);
@@ -493,7 +504,7 @@ mod tests {
         let re = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(1), &mut cache);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
         crate::objects::invalidate_generations(&mut cache, &mut mirror);
-        assert!(re.refcount.get() >= 1);
+        assert!(re.refcount.load(std::sync::atomic::Ordering::SeqCst) >= 1);
         assert!(mirror.program.is_none(), "invalidate 后镜像引用字段作废");
         let _ = re;
         // —— B6 binds 合验（alloc 产物表驱动 apply→镜像下发闭环）——

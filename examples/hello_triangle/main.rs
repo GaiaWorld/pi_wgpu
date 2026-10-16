@@ -177,11 +177,14 @@ impl ApplicationHandler for App {
         .expect("request_device");
         let format = TextureFormat::Bgra8UnormSrgb;
         let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format,
             width: size.width.max(1),
             height: size.height.max(1),
-            format,
             present_mode: PresentMode::Fifo,
-            alpha_mode: CompositeAlphaMode::Opaque,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: CompositeAlphaMode::PreMultiplied,
+            view_formats: vec![],
         };
         surface.configure(&device, &config);
 

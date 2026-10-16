@@ -25,18 +25,64 @@ const GL_UNSIGNED_INT: u32 = 0x1405;
 /// 实例步进除数（Instance 模式）。
 const INSTANCE_DIVISOR: u32 = 1;
 
-/// 顶点格式→(分量数, GL 类型, 归一化)。
+/// 顶点格式→(分量数, GL 类型, 归一化)——上游全 45 值 GL 核心号全表（WebGL2 ES3 合法子集；
+/// Float64 系/双源类为完备性收录——管线创建域外白名单先拒，本表实际只达六型，余路不可达）。
+const GL_BYTE: u32 = 0x1400;
+const GL_HALF_FLOAT: u32 = 0x140B;
+const GL_DOUBLE: u32 = 0x140E;
+const GL_UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
+const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
 fn vtx_fmt(f: crate::types::VertexFormat) -> (i32, u32, bool) {
     use crate::types::VertexFormat::*;
     match f {
+        Uint8 => (1, GL_UNSIGNED_BYTE, false),
+        Uint8x2 => (2, GL_UNSIGNED_BYTE, false),
+        Uint8x4 => (4, GL_UNSIGNED_BYTE, false),
+        Sint8 => (1, GL_BYTE, false),
+        Sint8x2 => (2, GL_BYTE, false),
+        Sint8x4 => (4, GL_BYTE, false),
+        Unorm8 => (1, GL_UNSIGNED_BYTE, true),
+        Unorm8x2 => (2, GL_UNSIGNED_BYTE, true),
+        Unorm8x4 => (4, GL_UNSIGNED_BYTE, true),
+        Snorm8 => (1, GL_BYTE, true),
+        Snorm8x2 => (2, GL_BYTE, true),
+        Snorm8x4 => (4, GL_BYTE, true),
+        Uint16 => (1, GL_UNSIGNED_SHORT, false),
+        Uint16x2 => (2, GL_UNSIGNED_SHORT, false),
+        Uint16x4 => (4, GL_UNSIGNED_SHORT, false),
+        Sint16 => (1, GL_SHORT, false),
+        Sint16x2 => (2, GL_SHORT, false),
+        Sint16x4 => (4, GL_SHORT, false),
+        Unorm16 => (1, GL_UNSIGNED_SHORT, true),
+        Unorm16x2 => (2, GL_UNSIGNED_SHORT, true),
+        Unorm16x4 => (4, GL_UNSIGNED_SHORT, true),
+        Snorm16 => (1, GL_SHORT, true),
+        Snorm16x2 => (2, GL_SHORT, true),
+        Snorm16x4 => (4, GL_SHORT, true),
+        Float16 => (1, GL_HALF_FLOAT, false),
+        Float16x2 => (2, GL_HALF_FLOAT, false),
+        Float16x4 => (4, GL_HALF_FLOAT, false),
         Float32 => (1, GL_FLOAT, false),
         Float32x2 => (2, GL_FLOAT, false),
         Float32x3 => (3, GL_FLOAT, false),
         Float32x4 => (4, GL_FLOAT, false),
-        Uint8x4 => (4, GL_UNSIGNED_BYTE, false),
-        Sint16x2 => (2, GL_SHORT, false),
+        Uint32 => (1, GL_UNSIGNED_INT, false),
+        Uint32x2 => (2, GL_UNSIGNED_INT, false),
+        Uint32x3 => (3, GL_UNSIGNED_INT, false),
+        Uint32x4 => (4, GL_UNSIGNED_INT, false),
+        Sint32 => (1, GL_INT, false),
+        Sint32x2 => (2, GL_INT, false),
+        Sint32x3 => (3, GL_INT, false),
+        Sint32x4 => (4, GL_INT, false),
+        Float64 => (1, GL_DOUBLE, false),
+        Float64x2 => (2, GL_DOUBLE, false),
+        Float64x3 => (3, GL_DOUBLE, false),
+        Float64x4 => (4, GL_DOUBLE, false),
+        Unorm10_10_10_2 => (4, GL_UNSIGNED_INT_2_10_10_10_REV, true),
+        Unorm8x4Bgra => (4, GL_UNSIGNED_INT_8_8_8_8_REV, true),
     }
 }
+const GL_INT: u32 = 0x1404;
 
 /// 索引格式→GL 类型。
 fn idx_type(f: IndexFormat) -> u32 {
@@ -57,17 +103,9 @@ fn topo(m: crate::types::PrimitiveTopology) -> u32 {
     }
 }
 
-/// 顶点格式判别码（哈希用）。
+/// 顶点格式判别码（哈希用；判别式即上游序，直接转 u8）。
 fn fmt_code(f: crate::types::VertexFormat) -> u8 {
-    use crate::types::VertexFormat::*;
-    match f {
-        Float32 => 0,
-        Float32x2 => 1,
-        Float32x3 => 2,
-        Float32x4 => 3,
-        Uint8x4 => 4,
-        Sint16x2 => 5,
-    }
+    f as u8
 }
 /// 索引宽（字节）。
 fn index_width(f: IndexFormat) -> u64 {
@@ -138,7 +176,7 @@ pub(crate) fn begin_impl<'p>(
     if let crate::types::LoadOp::Clear(c) = ca.ops.load {
         with_gl(|gl| unsafe {
             gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None);
-            gl.clear_color(c.r, c.g, c.b, c.a);
+            gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
             gl.clear(GL_COLOR_BUFFER_BIT);
         });
     }

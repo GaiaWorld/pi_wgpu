@@ -38,10 +38,18 @@ const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
 const GL_COPY_WRITE_BUFFER: u32 = 0x8F3F;
 /// GL_DYNAMIC_DRAW（存储用途提示）。
 const GL_DYNAMIC_DRAW: u32 = 0x88E8;
-/// 缓冲用途合一位掩码（VERTEX|INDEX|UNIFORM|COPY_DST）。
-const BUFFER_USAGE_MASK: u32 = 0x0F;
-/// 纹理用途合一位掩码（COPY_DST|RENDER_ATTACHMENT|TEXTURE_BINDING）。
-const TEXTURE_USAGE_MASK: u32 = 0x07;
+/// 缓冲支持域（INDEX|VERTEX|UNIFORM|COPY_DST 按上游位值合成；MAP/COPY_SRC/STORAGE 词位在场但域外拒止）。
+const BUFFER_USAGE_MASK: crate::types::BufferUsages = crate::types::BufferUsages::COPY_DST
+    .union(crate::types::BufferUsages::INDEX)
+    .union(crate::types::BufferUsages::VERTEX)
+    .union(crate::types::BufferUsages::UNIFORM);
+/// 纹理支持域（COPY_DST|TEXTURE_BINDING|RENDER_ATTACHMENT；COPY_SRC/STORAGE_BINDING 词位在场但域外拒止）。
+const TEXTURE_USAGE_MASK: crate::types::TextureUsages = crate::types::TextureUsages::COPY_DST
+    .union(crate::types::TextureUsages::TEXTURE_BINDING)
+    .union(crate::types::TextureUsages::RENDER_ATTACHMENT);
+/// 阶段支持域（VERTEX|FRAGMENT；COMPUTE/TASK/MESH 词位在场但本层无对应管线=域外拒止）。
+const STAGE_MASK: crate::types::ShaderStages =
+    crate::types::ShaderStages::VERTEX.union(crate::types::ShaderStages::FRAGMENT);
 
 /// 句柄名→非零包装（零名=非法断言）。
 fn nz(name: GlHandle) -> NonZeroU32 {
@@ -54,10 +62,10 @@ fn limits_of(_c: &caps::Caps) -> Limits {
 }
 
 pub(crate) fn new_impl(d: &InstanceDescriptor) -> Instance {
-    let bad = d.backends.0 & !Backends::GL.0;
-    assert_eq!(
-        bad, 0,
-        "entry 断言: descriptor.backends 含不支持位（field=backends, bits={bad:#x}）"
+    let bad = d.backends.difference(Backends::GL);
+    assert!(
+        bad.is_empty(),
+        "entry 断言: descriptor.backends 含不支持位（field=backends, bits={bad:?}）"
     );
     let slot = context::attach();
     assert!(
@@ -87,12 +95,14 @@ pub(crate) fn create_surface_impl<'s>(
     };
     Ok(crate::surface::Surface {
         _target: t,
-        _cfg: core::cell::RefCell::new(None),
+        _cfg: pi_share::ShareCell::new(None),
         _attach: Some(slot),
     })
 }
 
-pub(crate) fn request_adapter_impl(_o: &RequestAdapterOptions<'_>) -> Option<Adapter> {
+pub(crate) fn request_adapter_impl(
+    _o: &RequestAdapterOptions<&crate::surface::Surface<'_>>,
+) -> Option<Adapter> {
     context::attach()?;
     let c = caps::probe();
     Some(Adapter { _caps: c })
@@ -160,12 +170,11 @@ pub(crate) fn request_device_impl(
         log::debug!("entry: trace_path 仅记录不产出（{}）", p.display());
     }
     let avail = caps::fill_features(&a._caps);
-    if d.required_features.0 & !avail.0 != 0 {
+    if !avail.contains(d.required_features) {
         return Err(RequestDeviceError);
     }
     let cap = limits_of(&a._caps);
-    let r = d.required_limits;
-    if over_limits(&r, &cap) {
+    if over_limits(&d.required_limits, &cap) {
         return Err(RequestDeviceError);
     }
     let mut state = StateMirror::default();
@@ -192,7 +201,7 @@ pub(crate) fn adapter_limits(a: &Adapter) -> Limits {
     limits_of(&a._caps)
 }
 pub(crate) fn adapter_info(_a: &Adapter) -> AdapterInfo {
-    let (vendor, name, driver_info) = crate::context_inner::with_gl(|gl| unsafe {
+    let (driver, name, driver_info) = crate::context_inner::with_gl(|gl| unsafe {
         (
             gl.get_parameter_string(GL_VENDOR),
             gl.get_parameter_string(GL_RENDERER),
@@ -200,17 +209,20 @@ pub(crate) fn adapter_info(_a: &Adapter) -> AdapterInfo {
         )
     });
     AdapterInfo {
-        backend: Backend::Gl,
-        device_type: DeviceType::Other,
-        vendor,
         name,
+        vendor: 0,
+        device: 0,
+        device_type: DeviceType::Other,
+        driver,
         driver_info,
+        backend: Backend::Gl,
     }
 }
 pub(crate) fn adapter_downlevel(a: &Adapter) -> DownlevelCapabilities {
     DownlevelCapabilities {
-        flags: DownlevelFlags(0),
-        limits: limits_of(&a._caps),
+        flags: DownlevelFlags::empty(),
+        limits: crate::types::DownlevelLimits::default(),
+        shader_model: ShaderModel::Sm5,
     }
 }
 pub(crate) fn adapter_format_features(_a: &Adapter, f: TextureFormat) -> TextureFormatFeatures {
@@ -225,13 +237,13 @@ pub(crate) fn adapter_format_features(_a: &Adapter, f: TextureFormat) -> Texture
             | TextureFormat::Depth32Float
     );
     let allowed = if supported {
-        TextureUsages(TextureUsages::COPY_DST.0 | TextureUsages::RENDER_ATTACHMENT.0)
+        TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT
     } else {
-        TextureUsages(0)
+        TextureUsages::empty()
     };
     TextureFormatFeatures {
         allowed_usages: allowed,
-        flags: TextureFormatFeatureFlags(0),
+        flags: TextureFormatFeatureFlags::empty(),
     }
 }
 pub(crate) fn adapter_surface_supported(_a: &Adapter, s: &crate::surface::Surface<'_>) -> bool {
@@ -246,15 +258,15 @@ pub(crate) fn adapter_let_go(_a: &Adapter) {
 
 pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffer {
     assert!(
-        b.usage.0 != 0,
-        "entry 断言: buffer usage 为空（field=usage, label={:?}）",
+        !b.usage.is_empty(),
+        "entry 断言: buffer usage 为空（field=usage={:?}, label={:?}）",
+        b.usage,
         b.label
     );
-    assert_eq!(
-        b.usage.0 & !BUFFER_USAGE_MASK,
-        0,
-        "entry 断言: buffer usage 含非支持位（field=usage={:#x}, label={:?}）",
-        b.usage.0,
+    assert!(
+        BUFFER_USAGE_MASK.contains(b.usage),
+        "entry 断言: buffer usage 含非支持位（field=usage={:?}, label={:?}）",
+        b.usage,
         b.label
     );
     assert!(
@@ -300,14 +312,13 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         t.sample_count,
         t.label
     );
-    assert_eq!(
-        t.usage.0 & !TEXTURE_USAGE_MASK,
-        0,
-        "entry 断言: 纹理 usage 含非支持位（field=usage={:#x}, label={:?}）",
-        t.usage.0,
+    assert!(
+        TEXTURE_USAGE_MASK.contains(t.usage),
+        "entry 断言: 纹理 usage 含非支持位（field=usage={:?}, label={:?}）",
+        t.usage,
         t.label
     );
-    for vf in t.view_formats {
+    for vf in &t.view_formats {
         assert!(
             same_family(*vf, t.format),
             "entry 断言: view_format 与主格式非同族（field=view_formats, label={:?}）",
@@ -354,7 +365,17 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         _target: target,
         _dim: t.dimension,
         _layers: layers,
+        _size: t.size,
+        _mip: t.mip_level_count,
+        _samples: t.sample_count,
+        _format: t.format,
+        _usage: t.usage,
     }
+}
+
+/// 纹理显式销毁：句柄法死名（与末引用 Drop 同通道，先置 None 防重入；物理删除+死名登记）。
+pub(crate) fn texture_destroy_impl(tex: &Texture) {
+    tex._h.mark_dead();
 }
 
 /// 建纹理视图（唯一 @public 视图入口）：维度相容校验 + 视图目标覆盖（Cube/CubeArray）。
@@ -451,7 +472,9 @@ fn addr_gl(a: AddressMode) -> i32 {
     match a {
         AddressMode::ClampToEdge => 0x812F,
         AddressMode::Repeat => 0x2901,
-        AddressMode::MirroredRepeat => 0x8370,
+        AddressMode::MirrorRepeat => 0x8370,
+        // 边框色状态本层未维护——取驱动默认黑边透明语义（词汇收录位）。
+        AddressMode::ClampToBorder => 0x812D,
     }
 }
 fn compare_gl(c: CompareFunction) -> i32 {
@@ -487,8 +510,15 @@ pub(crate) fn create_shader_impl(_d: &Device, s: ShaderModuleDescriptor<'_>) -> 
 pub(crate) fn create_bgl_impl(_d: &Device, b: &BindGroupLayoutDescriptor<'_>) -> BindGroupLayout {
     for e in b.entries {
         assert!(
-            e.visibility.0 != 0,
+            !e.visibility.is_empty(),
             "entry 断言: 布局条目 visibility 为空（field=visibility, binding={}, label={:?}）",
+            e.binding,
+            b.label
+        );
+        assert!(
+            STAGE_MASK.contains(e.visibility),
+            "entry 断言: 布局条目 visibility 含非支持阶段（field=visibility={:?}, binding={}, label={:?}）",
+            e.visibility,
             e.binding,
             b.label
         );
@@ -690,6 +720,35 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
                 a.offset,
                 p.label
             );
+            // desc-align 法窄：VF 词汇全形在场，兼容域六型之外=拒止（短码）。
+            assert!(
+                matches!(
+                    a.format,
+                    crate::types::VertexFormat::Float32
+                        | crate::types::VertexFormat::Float32x2
+                        | crate::types::VertexFormat::Float32x3
+                        | crate::types::VertexFormat::Float32x4
+                        | crate::types::VertexFormat::Uint8x4
+                        | crate::types::VertexFormat::Sint16x2
+                ),
+                "entry 断言 ErrVtxFormat: 顶点格式在本层兼容域外（field=format, label={:?}）",
+                p.label
+            );
+        }
+    }
+    if let Some(frag) = p.fragment.as_ref() {
+        for t in frag.targets.iter().flatten() {
+            if let Some(bs) = t.blend {
+                // desc-align 法窄：双源混合因子 WebGL2 无法能力=创建拒止。
+                assert!(
+                    !bs.color.src_factor.ref_second_blend_source()
+                        && !bs.color.dst_factor.ref_second_blend_source()
+                        && !bs.alpha.src_factor.ref_second_blend_source()
+                        && !bs.alpha.dst_factor.ref_second_blend_source(),
+                    "entry 断言 ErrBlendDual: 双源混合因子不提供（label={:?}）",
+                    p.label
+                );
+            }
         }
     }
     {
@@ -729,7 +788,7 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
     let prog = {
         let mut cache = d._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
         let prog = objects::ensure_reuse(ReuseKey::Program(hash), &mut cache);
-        if prog.refcount.get() == 1 {
+        if prog.refcount.load(std::sync::atomic::Ordering::SeqCst) == 1 {
             link_program(
                 prog.handle.expect("entry 断言: 新程序无句柄"),
                 &vs,
@@ -861,4 +920,32 @@ pub(crate) fn slice_bounds_impl<S: std::ops::RangeBounds<crate::types::BufferAdd
         "entry 断言 ErrSlice: 片段空或越界（start={start} end={end} total={total}）"
     );
     (start, crate::types::BufferSize::new(end - start))
+}
+
+#[cfg(test)]
+mod send_sync_contract_tests {
+    //! 公开句柄全面的 Send+Sync 合同断言（上游 static_assert_impl_all! 的本层等价物——
+    //! 类型界即证据，消费方泛型可依赖；GL 调用线程安全仍由附着门控守护）。
+    fn assert_send_sync<T: Send + Sync>() {}
+    #[test]
+    fn public_handles_are_send_sync_test() {
+        use crate::entry::*;
+        assert_send_sync::<Instance>();
+        assert_send_sync::<Adapter>();
+        assert_send_sync::<Device>();
+        assert_send_sync::<Queue>();
+        assert_send_sync::<Buffer>();
+        assert_send_sync::<Texture>();
+        assert_send_sync::<TextureView>();
+        assert_send_sync::<Sampler>();
+        assert_send_sync::<BindGroupLayout>();
+        assert_send_sync::<BindGroup>();
+        assert_send_sync::<PipelineLayout>();
+        assert_send_sync::<ShaderModule>();
+        assert_send_sync::<RenderPipeline>();
+        assert_send_sync::<CommandEncoder>();
+        assert_send_sync::<CommandBuffer>();
+        assert_send_sync::<crate::surface::Surface<'static>>();
+        assert_send_sync::<crate::surface::SurfaceTexture>();
+    }
 }

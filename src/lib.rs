@@ -123,6 +123,8 @@ pub mod util {
     pub use crate::types::TextureDataOrder;
     pub use crate::utils::*;
 }
+pub use crate::AstcBlock;
+pub use crate::AstcChannel;
 
 use std::path::Path;
 
