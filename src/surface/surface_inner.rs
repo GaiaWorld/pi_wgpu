@@ -51,6 +51,7 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
         }
     }
     *s._cfg.borrow_mut() = Some(c.clone());
+    *s._creation.borrow_mut() += 1;
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
@@ -64,13 +65,54 @@ pub(crate) fn get_current_impl(
         log::error!("surface {:?}", SurfaceErr::NotConfigured);
         return Err(SurfaceError::Outdated);
     }
+    let guard = s._cfg.borrow();
+    let c = match guard.as_ref() {
+        Some(c) => c,
+        None => {
+            log::error!("surface {:?}", SurfaceErr::NotConfigured);
+            return Err(SurfaceError::Outdated);
+        }
+    };
+    let frame_desc = TextureDescriptor {
+        label: None,
+        size: Extent3d {
+            width: c.width,
+            height: c.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: c.format,
+        usage: c.usage,
+        view_formats: &[],
+    };
+    // 帧背板句柄=占位直建（名恒 0，Drop 永不触驱动）；属性面按 configure 快照真读，
+    // creation 位跨重配置失效旧帧（失配消费按死名合同上递，不 panic）。
+    let texture = crate::entry::Texture {
+        _h: crate::objects::DirectHandle::placeholder(
+            crate::objects::DirectKind::Texture,
+            *s._creation.borrow() as u32,
+        ),
+        params: crate::formats::to_gl_params(&frame_desc, c.format),
+        _target: crate::formats::target_of(&frame_desc),
+        _dim: TextureDimension::D2,
+        _layers: 1,
+        _size: frame_desc.size,
+        _mip: 1,
+        _samples: 1,
+        _format: c.format,
+        _usage: c.usage,
+    };
     Ok(SurfaceTexture {
+        texture,
+        suboptimal: true,
+        presented: false,
         _view: crate::entry::TextureView {
             _tex: None,
             _target: 0,
             _dim: crate::types::TextureViewDimension::D2,
         },
-        suboptimal: true,
     })
 }
 

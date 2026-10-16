@@ -123,7 +123,7 @@ impl ApplicationHandler for App {
                         let _pass = encoder.begin_render_pass(&desc);
                     }
                     let cmd = encoder.finish();
-                    s.queue.submit(cmd);
+                    s.queue.submit([cmd]);
                     frame.present();
                     s.window.request_redraw();
                 }

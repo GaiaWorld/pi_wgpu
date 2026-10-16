@@ -97,11 +97,12 @@ pub(crate) fn create_surface_impl<'s>(
         _target: t,
         _cfg: pi_share::ShareCell::new(None),
         _attach: Some(slot),
+        _creation: pi_share::ShareCell::new(0),
     })
 }
 
 pub(crate) fn request_adapter_impl(
-    _o: &RequestAdapterOptions<&crate::surface::Surface<'_>>,
+    _o: &crate::types::RequestAdapterOptions<&crate::surface::Surface<'_>>,
 ) -> Option<Adapter> {
     context::attach()?;
     let c = caps::probe();

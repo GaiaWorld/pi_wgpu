@@ -320,7 +320,7 @@ impl ApplicationHandler for App {
                         pass.draw(0..6, 0..1);
                     }
                     let cmd = encoder.finish();
-                    s.queue.submit(cmd);
+                    s.queue.submit([cmd]);
                     frame.present();
                     s.window.request_redraw();
                 }

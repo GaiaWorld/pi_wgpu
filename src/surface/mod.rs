@@ -36,6 +36,8 @@ pub struct Surface<'surface> {
     pub(crate) _cfg: pi_share::ShareCell<Option<SurfaceConfiguration>>,
     /// 附着槽（代号读数；Lost 判定基准）。
     pub(crate) _attach: crate::context::AttachmentSlot,
+    /// 配置代号（每次 configure +1）：跨重配置旧帧句柄的失效判据。
+    pub(crate) _creation: pi_share::ShareCell<u64>,
 }
 impl Surface<'_> {
     /// 配置呈现。先全量校验（宽高≥1、present×alpha 仅 (Fifo, Opaque)），全部通过才建平台表面并写入配置。
@@ -56,25 +58,40 @@ impl Surface<'_> {
     }
 }
 
-/// 帧租约（上游 SurfaceTexture 同名同形：suboptimal 公开可读、Clone=上游语义）。present 按值自消费：
-/// 同一帧对象的「呈现两次」在类型上不可表达（强于上游 presented+Drop 档）；同时至多持有一个活跃帧=
-/// 由此不变量+使用合同共同保证。差异登记（法窄）：上游 pub texture 字段不提供=GL 直替层帧视图=
-/// 默认帧缓冲无独立纹理对象，视图经 view() 取。 @public
+/// 帧租约（与上游 api SurfaceTexture 同形：pub texture + pub suboptimal + presented 哨兵 +
+/// present 按值自消费 + Drop 未呈现即丢弃；Clone=上游同备）。texture=帧背板句柄：
+/// 默认帧缓冲无独立可挂纹理对象，该句柄为占位直建（名恒 0、永不删驱动），属性方法面
+/// （width/height/format/usage 等）按 configure 快照真读；渲染附件用视图经 view() 取
+/// （texture.create_view 产物指空名=本层不产出面，死名合同按错误码上递不崩）。 @public
 #[derive(Debug, Clone)]
 pub struct SurfaceTexture {
-    pub(crate) _view: crate::entry::TextureView,
+    /// 帧背板纹理句柄（上游同名同位；属性快照可读，见壳注）。
+    pub texture: crate::entry::Texture,
     /// 帧仍可渲染但重建交换链更优（本层恒 true=旧语义迁移清单）。
     pub suboptimal: bool,
+    /// 已呈现哨兵（上游同名内部位；Drop 丢弃判定用）。
+    pub(crate) presented: bool,
+    pub(crate) _view: crate::entry::TextureView,
 }
 impl SurfaceTexture {
-    /// 换帧呈现。分形态：桌面/安卓=交换缓冲+节流，Web=无显式换帧调用（浏览器隐式合成）。
+    /// 换帧呈现（上游现形 mut self：置 presented 后消费）。
     /// 调用后本租约已消耗，再访问不可表达。 @public
-    pub fn present(self) {
+    pub fn present(mut self) {
+        self.presented = true;
         crate::surface_inner::present_impl(self)
     }
     /// 帧视图取值（建颜色附件用）。 @public
     pub fn view(&self) -> &crate::entry::TextureView {
         &self._view
+    }
+}
+
+// 与上游同合同：未经 present 即析构=丢弃帧（GL 背板复用，无资源回收；panicking 路径静默）。
+impl Drop for SurfaceTexture {
+    fn drop(&mut self) {
+        if !self.presented && !std::thread::panicking() {
+            log::debug!("surface 帧未呈现即丢弃（背板复用，无回收动作）");
+        }
     }
 }
 

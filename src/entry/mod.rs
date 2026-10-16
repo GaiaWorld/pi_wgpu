@@ -22,6 +22,10 @@ pub struct CreateSurfaceError;
 pub struct Instance {
     pub(crate) _attach: crate::context::AttachmentSlot,
 }
+
+pub type RequestAdapterOptions<'a, 'w> =
+    crate::types::RequestAdapterOptions<&'a crate::Surface<'w>>;
+
 /// 适配器=探测时刻的能力不可变快照。此后所有查询面读的都是这份快照；
 /// 可对同一 Adapter 反复 request_device，失败不产生任何副作用。 @public
 #[derive(Debug)]
@@ -300,9 +304,9 @@ impl Instance {
     /// 适配器选择：官方 Future 形状的同步包装，恒等返回即时有值。
     /// None=当前无可用附着/探测未过，实例不受影响可再试。单卡面（EGL 恒一块：被否多卡枚举）；
     /// options 的选择字段记录不路由。Lost 后的重建回路以此为重入点：代号推进完成后对同一 Instance 再次调用（内部自动重建附着并重探测），无需重建 Instance。 @public
-    pub async fn request_adapter<'s>(
+    pub async fn request_adapter(
         &self,
-        options: &RequestAdapterOptions<&'s crate::surface::Surface<'s>>,
+        options: &RequestAdapterOptions<'_, '_>,
     ) -> Option<Adapter> {
         crate::entry_inner::request_adapter_impl(options)
     }
@@ -432,7 +436,7 @@ impl Device {
 
 /// Queue：提交面空壳——上层不得依赖提交生效点（录制即执行的公开合同）。写路径见 upload 模块。 @public
 impl Queue {
-    pub fn submit(&self, _buffer: impl Into<Option<CommandBuffer>>) {} // 真·空壳：不委托芯——「无提交点语义」本身就是契约。
+    pub fn submit<I: IntoIterator<Item = super::CommandBuffer>>(&self, _buffer: I) {} // 真·空壳：不委托芯——「无提交点语义」本身就是契约。
 }
 
 /// CommandEncoder 的通道开关面。 @public

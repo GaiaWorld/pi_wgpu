@@ -146,9 +146,12 @@ fn bind_current_thread() {
             .as_mut()
             .expect("context attach: 附着体必先存在");
         let Attached {
-            instance, context, ..
+            instance,
+            context,
+            surface,
         } = attached;
-        instance.make_current(None, Some(context));
+        // 已配窗=绑真实表面 DC（默认帧缓冲指向窗口，隐窗仅无面期）；未配窗维持隐窗。
+        instance.make_current(surface.as_ref(), Some(context));
         slot.bound = Some(me);
     }
 }
@@ -213,6 +216,20 @@ fn release_one_layer() {
         v
     });
     if prev == 1 {
+        // 末层交锁前先解流：WGL 律=同一上下文他线程持 current 时新线程绑定必返 FALSE
+        // （pi_egl 侧 assert 原地炸）。锁与 current 必须同步进出——解绑（NULL,NULL）恒成功，
+        // 解后本线程不再持流，移交方 bind 必然合法。
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let slot = unsafe { &mut *SLOT.0.get() };
+            if slot.bound == Some(thread::current().id()) {
+                if let Some(attached) = slot.attached.as_mut() {
+                    let Attached { instance, .. } = attached;
+                    instance.make_current(None, None);
+                }
+                slot.bound = None;
+            }
+        }
         let mut guard = OWNER.lock().unwrap_or_else(|e| e.into_inner());
         guard.thread = None;
         drop(guard);
@@ -651,5 +668,37 @@ mod tests {
         drop(pass);
         assert!(!enc._opened_pass, "Drop=end 释放守卫");
         let_go_impl();
+    }
+
+    /// 跨线程移交复现验收（真实事故形状）：线程 A 完整持有-交还一轮后，
+    /// 线程 B 必须能重新 bind 成功（解流与锁同步）——旧现状 B 撞 pi_egl 库内 assert。
+    #[test]
+    #[ignore = "需真实 GL 环境：cargo test -- --ignored"]
+    fn gl_cross_thread_handoff_test() {
+        // A 线程保活（生产形状=bevy 主/worker 皆长驻；线程终止=隐窗随亡、DC 失效，非本合同场景）。
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dflag = done.clone();
+        let a = std::thread::Builder::new()
+            .name("handoff-a".to_string())
+            .spawn(move || {
+                crate::context::attach();
+                with_gl(|_gl| {});
+                crate::context::let_go();
+                while !dflag.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            })
+            .expect("spawn a");
+        let b = std::thread::Builder::new()
+            .name("handoff-b".to_string())
+            .spawn(|| {
+                assert!(crate::context::attach().is_some(), "B 线程 attach 应成功（A 已解流交锁）");
+                with_gl(|_gl| {});
+                crate::context::let_go();
+            })
+            .expect("spawn b");
+        b.join().expect("thread B 应无 panic 完成（移交成功=事故形状消解）");
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        a.join().expect("thread A 应无 panic 完成");
     }
 }
