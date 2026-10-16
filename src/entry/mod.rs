@@ -313,8 +313,7 @@ impl Adapter {
     /// 按描述符建设备（-> impl Future 形照 25.0.2；WasmNotSend 不适用 GL 面、登记不抄）。
     /// 校验=对照本适配器能力快照全量 36 字段逐字段检查；任一超出=Err，
     /// 设备未建且 Adapter 仍可用。失败面仅此一种；成功后三件套完整装配。
-    /// trace=追踪词位现居 DeviceDescriptor.trace（Directory=违约断言 ErrTrace）；
-    /// trace_path 维持官方历史双参兼容形：仅记录不产出（Some=入 debug 日志后忽略，永不失败）。 @public
+    /// trace 词位=纯占位（用户裁决）：DeviceDescriptor.trace 与 trace_path 双参形仅保持形制，赋值无效果、不产出也不拒止。 @public
     pub fn request_device(
         &self,
         desc: &DeviceDescriptor<'_>,

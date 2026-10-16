@@ -155,20 +155,10 @@ fn over_limits(r: &Limits, cap: &Limits) -> bool {
 pub(crate) fn request_device_impl(
     a: &Adapter,
     d: &DeviceDescriptor<'_>,
-    trace_path: Option<&std::path::Path>,
+    _trace_path: Option<&std::path::Path>,
 ) -> std::result::Result<(Device, Queue), RequestDeviceError> {
-    // desc-align traceability batch 修正形：追踪词位居 DeviceDescriptor.trace（形宽法窄，
-    // Directory=断言拒止不留静默；if/panic 不拷贝负载——assert!+matches! 求值拷贝 PathBuf
-    // 曾在 catch_unwind 下触发 allocator 死锁，事故在案）。trace_path=历史双参兼容位：仅记录不产出。
-    if let crate::types::Trace::Directory(dir) = &d.trace {
-        panic!(
-            "entry 断言 ErrTrace: 本层无 trace 产出面，Directory 恒拒止（dir={}）",
-            dir.display()
-        );
-    }
-    if let Some(p) = trace_path {
-        log::debug!("entry: trace_path 仅记录不产出（{}）", p.display());
-    }
+    // trace 词位=纯占位（用户裁决）：DeviceDescriptor.trace 与 trace_path 双参形仅保持形制，
+    // 本层无产出面也不拒止——赋值无效果，参数不消费。
     let avail = caps::fill_features(&a._caps);
     if !avail.contains(d.required_features) {
         return Err(RequestDeviceError);
@@ -318,7 +308,7 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         t.usage,
         t.label
     );
-    for vf in &t.view_formats {
+    for vf in t.view_formats {
         assert!(
             same_family(*vf, t.format),
             "entry 断言: view_format 与主格式非同族（field=view_formats, label={:?}）",

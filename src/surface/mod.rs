@@ -44,7 +44,7 @@ impl Surface<'_> {
     pub fn configure(&self, device: &Device, config: &SurfaceConfiguration) {
         crate::surface_inner::configure_impl(self, device, config)
     }
-    /// 取当前帧（封闭四态错误面；与 request_device/create_surface 同属全库三处显式 Result 面之一）。成功=帧租约 SurfaceTexture；
+    /// 取当前帧（封闭五态错误面；与 request_device/create_surface 同属全库三处显式 Result 面之一）。成功=帧租约 SurfaceTexture；
     /// 失败映射：Timeout=可重试、Outdated=须重新 configure、Lost=上下文代号已+1 并触发整面失效，
     /// 上层须走重建链（适配器→设备→表面重配置）、OutOfMemory=帧不可取。失败不改变既有配置。 @public
     pub fn get_current_texture(&self) -> std::result::Result<SurfaceTexture, SurfaceError> {
@@ -56,11 +56,15 @@ impl Surface<'_> {
     }
 }
 
-/// 帧租约。present 按值自消费：同一帧对象的「呈现两次」在类型上不可表达；
-/// 同时至多持有一个活跃帧=由此不变量+使用合同共同保证。 @public
+/// 帧租约（上游 SurfaceTexture 同名同形：suboptimal 公开可读、Clone=上游语义）。present 按值自消费：
+/// 同一帧对象的「呈现两次」在类型上不可表达（强于上游 presented+Drop 档）；同时至多持有一个活跃帧=
+/// 由此不变量+使用合同共同保证。差异登记（法窄）：上游 pub texture 字段不提供=GL 直替层帧视图=
+/// 默认帧缓冲无独立纹理对象，视图经 view() 取。 @public
+#[derive(Debug, Clone)]
 pub struct SurfaceTexture {
     pub(crate) _view: crate::entry::TextureView,
-    pub(crate) _suboptimal: bool,
+    /// 帧仍可渲染但重建交换链更优（本层恒 true=旧语义迁移清单）。
+    pub suboptimal: bool,
 }
 impl SurfaceTexture {
     /// 换帧呈现。分形态：桌面/安卓=交换缓冲+节流，Web=无显式换帧调用（浏览器隐式合成）。
@@ -81,17 +85,24 @@ impl core::fmt::Debug for Surface<'_> {
     }
 }
 
-/// get_current_texture 的封闭失败态（全库三处显式错误面之一）。 @public
-#[derive(Debug, thiserror::Error)]
+/// get_current_texture 的封闭失败态（全库三处显式错误面之一；五态与上游同集，Display=短码纪律）。 @public
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SurfaceError {
+    /// 取帧超时（可重试）。
     #[error("timeout")]
     Timeout,
+    /// 表面已变，须重新 configure。
     #[error("outdated")]
     Outdated,
+    /// 交换链已丢，须重建链（上层 re-request_device）。
     #[error("lost")]
     Lost,
+    /// 无余量分配新帧。
     #[error("out of memory")]
     OutOfMemory,
+    /// 通用失败（本层暂无触发臂——词汇占位对齐上游）。
+    #[error("other")]
+    Other,
 }
 /// 表面能力快照（查询面数据，不承载 configure 的合法组合合同）。 @public
 #[derive(Debug, Clone)]

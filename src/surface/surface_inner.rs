@@ -1,6 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! surface 芯 · 附着→配置→取帧→换帧。契约权威文本住壳面注释。
-//! 错误处理（错误纪律）：configure 非 Result 面=log::error!(SurfaceErr)；get_current 走四态 Result。
+//! 错误处理（错误纪律）：configure 非 Result 面=log::error!(SurfaceErr)；get_current 走五态 Result。
 use crate::entry::Device;
 use crate::surface::{
     Surface, SurfaceCapabilities, SurfaceErr, SurfaceError, SurfaceTarget, SurfaceTexture,
@@ -55,7 +55,7 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
 
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. _cfg=None 前置：未配置=Err(Outdated)+log 码（须先 configure）。
-// 2. 帧视图=默认帧缓冲标记（TextureView{_tex:None}）；suboptimal 恒 true（官方旧语义，登迁移清单）。
+// 2. 帧视图=默认帧缓冲标记（TextureView{_tex:None}）；suboptimal 恒 true（官方旧语义，登迁移清单）。texture 字段不提供（GL 无独立帧纹理对象，法窄，见壳注）。
 // 3. Lost 代号推进由上下文侧 gen_bump 承担（本面不做失效动作，重建=上层 re-request_device）。
 pub(crate) fn get_current_impl(
     s: &Surface<'_>,
@@ -70,7 +70,7 @@ pub(crate) fn get_current_impl(
             _target: 0,
             _dim: crate::types::TextureViewDimension::D2,
         },
-        _suboptimal: true,
+        suboptimal: true,
     })
 }
 

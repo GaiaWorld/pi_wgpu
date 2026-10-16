@@ -121,7 +121,7 @@ impl ApplicationHandler for App {
             format: TextureFormat::Rgba8Unorm,
             mip_level_count: 1,
             sample_count: 1,
-            view_formats: vec![],
+            view_formats: &[],
         });
         queue.write_texture(
             texture.as_image_copy(),

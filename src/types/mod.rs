@@ -15,7 +15,7 @@ pub use wgpu_types::*;
 
 // —— 官方 api 层同款别名收口（wgt 泛位 → 'a 单参面，上游 wgpu::api 同法） ——
 pub type BufferDescriptor<'a> = wgpu_types::BufferDescriptor<Label<'a>>;
-pub type TextureDescriptor<'a> = wgpu_types::TextureDescriptor<Label<'a>, Vec<TextureFormat>>;
+pub type TextureDescriptor<'a> = wgpu_types::TextureDescriptor<Label<'a>, &'a [TextureFormat]>;
 pub type SamplerDescriptor<'a> = wgpu_types::SamplerDescriptor<Label<'a>>;
 pub type DeviceDescriptor<'a> = wgpu_types::DeviceDescriptor<Label<'a>>;
 pub type CommandEncoderDescriptor<'a> = wgpu_types::CommandEncoderDescriptor<Label<'a>>;
@@ -23,6 +23,31 @@ pub type SurfaceConfiguration = wgpu_types::SurfaceConfiguration<Vec<TextureForm
 pub type TextureViewDescriptor<'a> = wgpu_types::TextureViewDescriptor<Label<'a>>;
 pub type TexelCopyTextureInfo<'a> = wgpu_types::TexelCopyTextureInfo<&'a crate::entry::Texture>;
 pub type ImageCopyTexture<'a> = wgpu_types::TexelCopyTextureInfo<&'a crate::entry::Texture>;
+
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "trace", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct RequestAdapterOptions<S> {
+    /// Power preference for the adapter.
+    pub power_preference: PowerPreference,
+    /// Indicates that only a fallback adapter can be returned. This is generally a "software"
+    /// implementation on the system.
+    pub force_fallback_adapter: bool,
+    /// Surface that is required to be presentable with the requested adapter. This does not
+    /// create the surface, only guarantees that the adapter can present to said surface.
+    pub compatible_surface: Option<S>,
+}
+
+impl<S> Default for RequestAdapterOptions<S> {
+    fn default() -> Self {
+        Self {
+            power_preference: PowerPreference::default(),
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        }
+    }
+}
 
 /// 位集合 `|` 算子生成宏：位并集（组合两个 flags 的位）——所有位集合壳共用；不校验（超集位由消费方校验断言）。`&`/contains 等其余算子后续批按需补。
 macro_rules! flag_bitor {
