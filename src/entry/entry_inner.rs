@@ -43,8 +43,10 @@ const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
 const GL_COPY_WRITE_BUFFER: u32 = 0x8F3F;
 /// GL_DYNAMIC_DRAW（存储用途提示）。
 const GL_DYNAMIC_DRAW: u32 = 0x88E8;
-/// 缓冲支持域（INDEX|VERTEX|UNIFORM|COPY_DST 按上游位值合成；MAP/COPY_SRC/STORAGE 词位在场但域外拒止）。
+/// 缓冲支持域（INDEX|VERTEX|UNIFORM|COPY_DST|COPY_SRC 按上游位值合成；MAP/STORAGE 词位在场但域外拒止——
+/// COPY_SRC 实消费=b2t 源读取/get_sub_data 读回路，无 map 家族）。
 const BUFFER_USAGE_MASK: crate::types::BufferUsages = crate::types::BufferUsages::COPY_DST
+    .union(crate::types::BufferUsages::COPY_SRC)
     .union(crate::types::BufferUsages::INDEX)
     .union(crate::types::BufferUsages::VERTEX)
     .union(crate::types::BufferUsages::UNIFORM);

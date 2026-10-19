@@ -682,7 +682,177 @@ mod tests {
         crate::upload_inner::tests::gl_copy_check();
         gl_handoff_probe();
         gl_sampler_probe();
+        gl_blit_copy_probe();
         let_go_impl();
+    }
+
+    /// Blit/拷贝族回环：pass clear A→(t2t)→B→(t2b)→buf 校验；写 buf→(b2t)→C→(t2b)→buf 校验
+    /// ——双向行翻对偶自洽（顶序进、底序存、顶序出）；真实 GL 单线程。
+    pub(crate) fn gl_blit_copy_probe() {
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let mk = |label: &str, usage: crate::types::TextureUsages| {
+            crate::entry_inner::create_texture_impl(
+                &dev,
+                &crate::types::TextureDescriptor {
+                    label: Some(label),
+                    size: crate::types::Extent3d {
+                        width: 4,
+                        height: 4,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: crate::types::TextureDimension::D2,
+                    format: crate::types::TextureFormat::Rgba8Unorm,
+                    usage,
+                    view_formats: &[],
+                },
+            )
+        };
+        let ua =
+            crate::types::TextureUsages::RENDER_ATTACHMENT | crate::types::TextureUsages::COPY_SRC;
+        let ub = crate::types::TextureUsages::COPY_DST | crate::types::TextureUsages::COPY_SRC;
+        let a = mk("blit-a", ua);
+        let b = mk("blit-b", ub);
+        let viewa = a.create_view(&crate::types::TextureViewDescriptor::default());
+        let ca = crate::types::RenderPassColorAttachment {
+            view: &viewa,
+            resolve_target: None,
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Clear(crate::types::Color {
+                    r: 0.9,
+                    g: 0.1,
+                    b: 0.5,
+                    a: 1.0,
+                }),
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let desc = crate::types::RenderPassDescriptor {
+            label: Some("blit-pass"),
+            color_attachments: &[Some(ca)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        let mut enc = crate::entry::CommandEncoder {
+            _opened_pass: false,
+            _inner: dev._inner.clone(),
+        };
+        drop(enc.begin_render_pass(&desc));
+        let src0 = crate::types::TexelCopyTextureInfo {
+            texture: &a,
+            mip_level: 0,
+            origin: crate::types::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: crate::types::TextureAspect::All,
+        };
+        let dstb = crate::types::TexelCopyTextureInfo {
+            texture: &b,
+            mip_level: 0,
+            origin: crate::types::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: crate::types::TextureAspect::All,
+        };
+        let ext = crate::types::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        };
+        enc.copy_texture_to_texture(src0, dstb, ext);
+        let buf = crate::entry_inner::create_buffer_impl(
+            &dev,
+            &crate::types::BufferDescriptor {
+                label: Some("blit-buf"),
+                size: 1024,
+                usage: crate::types::BufferUsages::COPY_DST | crate::types::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            },
+        );
+        let lay = crate::types::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: None,
+            rows_per_image: None,
+        };
+        enc.copy_texture_to_buffer(
+            dstb,
+            crate::types::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: lay,
+            },
+            ext,
+        );
+        let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
+        let near = |v: u8, x: f64| -> bool { ((v as f64) - x).abs() <= 2.0 };
+        let mut rows: u32 = 0;
+        for row in got.chunks(256) {
+            rows = rows + 1;
+            for px in row[..16].chunks(4) {
+                assert!(
+                    near(px[0], 230.0)
+                        && near(px[1], 26.0)
+                        && near(px[2], 128.0)
+                        && near(px[3], 255.0),
+                    "t2t t2b loop color lost: {:?}",
+                    got
+                );
+            }
+        }
+        assert_eq!(rows, 4);
+        let mut block: Vec<u8> = vec![0u8; 1024];
+        for k in 0..4 {
+            let base = k * 256;
+            for j in 0..4 {
+                block[base + j * 4] = 230;
+                block[base + j * 4 + 1] = 26;
+                block[base + j * 4 + 2] = 128;
+                block[base + j * 4 + 3] = 255;
+            }
+        }
+        let q = crate::entry::Queue { _dev: None };
+        crate::upload_inner::write_buffer_impl(&q, &buf, 0, &block);
+        let c2 = mk("blit-c", ub);
+        let dstc = crate::types::TexelCopyTextureInfo {
+            texture: &c2,
+            mip_level: 0,
+            origin: crate::types::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: crate::types::TextureAspect::All,
+        };
+        enc.copy_buffer_to_texture(
+            crate::types::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: lay,
+            },
+            dstc,
+            ext,
+        );
+        enc.copy_texture_to_buffer(
+            dstc,
+            crate::types::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: lay,
+            },
+            ext,
+        );
+        let got2 = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
+        for row in got2.chunks(256) {
+            for px in row[..16].chunks(4) {
+                assert!(
+                    near(px[0], 230.0)
+                        && near(px[1], 26.0)
+                        && near(px[2], 128.0)
+                        && near(px[3], 255.0),
+                    "b2t t2b loop color lost: {:?}",
+                    got2
+                );
+            }
+        }
+        assert!(got.len() == 1024 && got2.len() == 1024);
     }
 
     /// 采样器出码探针（并入全链）：下发零 error + glow 回读口断言（min 组合档/各向异性 EXT 顶）。

@@ -422,6 +422,267 @@ pub(crate) fn get_sub_data_impl(
     v
 }
 
+// 设计预期（伪码·示意·非唯一实现）：缓冲→纹理=上传的布局化对偶（bpr 步幅+行翻）；同步即时。
+pub(crate) fn copy_buffer_to_texture_impl(
+    src: crate::types::TexelCopyBufferInfo<'_>,
+    dst: TexelCopyTextureInfo<'_>,
+    copy_size: Extent3d,
+) {
+    let buf = src.buffer;
+    let tex = dst.texture;
+    assert!(buf._h.name().is_some(), "upload 断言: 拷贝源缓冲死句柄");
+    assert!(tex._h.name().is_some(), "upload 断言: 拷贝目标纹理死句柄");
+    assert!(
+        buf._usage.contains(crate::types::BufferUsages::COPY_SRC),
+        "upload 断言 ErrCopySrc: 源缓冲缺 COPY_SRC 位（usage={:?}）",
+        buf._usage
+    );
+    assert!(
+        tex._usage.contains(crate::types::TextureUsages::COPY_DST),
+        "upload 断言 ErrCopyDst: 目标纹理缺 COPY_DST 位（usage={:?}）",
+        tex._usage
+    );
+    assert!(
+        dst.aspect == crate::types::TextureAspect::All,
+        "upload 断言 ErrCopyAspect: 本层仅 aspect=All（aspect={:?}）",
+        dst.aspect
+    );
+    assert!(
+        tex._layers == 1 && dst.origin.z == 0 && copy_size.depth_or_array_layers == 1,
+        "upload 断言 ErrCopyArray: 数组层拷贝归二阶（layers={}, z={}, d={}）",
+        tex._layers,
+        dst.origin.z,
+        copy_size.depth_or_array_layers
+    );
+    assert!(
+        dst.mip_level < tex._mip,
+        "upload 断言 ErrCopyMip: 目标 mip 越界（mip={} count={}）",
+        dst.mip_level,
+        tex._mip
+    );
+    let w: u64 = copy_size.width as u64;
+    let h: u64 = copy_size.height as u64;
+    assert!(w >= 1 && h >= 1, "upload 断言: 拷贝范围宽高须≥1");
+    let ox: u64 = dst.origin.x as u64;
+    let oy: u64 = dst.origin.y as u64;
+    assert!(
+        ox + w <= tex._size.width as u64 && oy + h <= tex._size.height as u64,
+        "upload 断言 ErrCopyOver: 目标矩形越出纹理尺寸",
+    );
+    let texh: u64 = tex._size.height as u64;
+    assert!(texh >= h + oy || texh <= h, "upload 断言: 内部尺寸一致性",);
+    let bpp: u64 = tex.params.block_bytes as u64;
+    let align: u64 = crate::types::COPY_BYTES_PER_ROW_ALIGNMENT as u64;
+    let bpr_raw: u64 = src.layout.bytes_per_row.unwrap_or(0) as u64;
+    let bpr_eff: u64 = if bpr_raw == 0 {
+        (w * bpp + align - 1) / align * align
+    } else {
+        assert!(
+            bpr_raw % align == 0,
+            "upload 断言 ErrCopyAlign: bytes_per_row 须 256 倍数（={bpr_raw}）"
+        );
+        bpr_raw
+    };
+    let need: u64 = src.layout.offset + bpr_eff * h;
+    assert!(
+        need <= buf.size,
+        "upload 断言 ErrCopyOut: 源读取块越出缓冲（off={} + {} > size={}）",
+        src.layout.offset,
+        bpr_eff * h,
+        buf.size
+    );
+    let tname = tex._h.name().expect("前置活名");
+    let fname = buf._h.name().expect("前置活名");
+    let level: i32 = dst.mip_level as i32;
+    let row_bytes: usize = (w * bpp) as usize;
+    with_gl(|gl| unsafe {
+        gl.bind_buffer(
+            GL_COPY_READ_BUFFER,
+            Some(glow::NativeBuffer(
+                std::num::NonZeroU32::new(fname.0).expect("非零"),
+            )),
+        );
+        gl.active_texture(UPLOAD_TEX_UNIT);
+        gl.bind_texture(
+            tex._target,
+            Some(glow::NativeTexture(
+                std::num::NonZeroU32::new(tname.0).expect("非零"),
+            )),
+        );
+        for r in 0..(h as usize) {
+            // 源块行 0=纹理顶行；GL 存储行 0=底——逐行翻转直写对应 y。
+            let mut row: Vec<u8> = vec![0u8; row_bytes];
+            gl.get_buffer_sub_data(
+                GL_COPY_READ_BUFFER,
+                (src.layout.offset + (h - 1 - r as u64) * bpr_eff) as i32,
+                &mut row,
+            );
+            gl.tex_sub_image_2d(
+                tex._target,
+                level,
+                dst.origin.x as i32,
+                r as i32,
+                w as i32,
+                1,
+                tex.params.format,
+                tex.params.pixel_type,
+                glow::PixelUnpackData::Slice(&row),
+            );
+        }
+        gl.bind_buffer(GL_COPY_READ_BUFFER, None);
+    });
+}
+
+// 设计预期（伪码·示意·非唯一实现）：纹→纹=CPU 中转两程（本机 blit 需 READ/DRAW 分绑目标枚举=ES 系
+// 空转面，中转零扩展依赖=最稳；性能差异登记）。门=双方活性/位/aspect/单层/同像素宽/非深度。
+pub(crate) fn copy_texture_to_texture_impl(
+    e: &crate::entry::CommandEncoder,
+    src: TexelCopyTextureInfo<'_>,
+    dst: TexelCopyTextureInfo<'_>,
+    copy_size: Extent3d,
+) {
+    let stx = src.texture;
+    let dtx = dst.texture;
+    assert!(stx._h.name().is_some(), "upload 断言: 源纹理死句柄");
+    assert!(dtx._h.name().is_some(), "upload 断言: 目标纹理死句柄");
+    assert!(
+        stx._usage.contains(crate::types::TextureUsages::COPY_SRC),
+        "upload 断言 ErrCopySrc: 源缺 COPY_SRC（usage={:?}）",
+        stx._usage
+    );
+    assert!(
+        dtx._usage.contains(crate::types::TextureUsages::COPY_DST),
+        "upload 断言 ErrCopyDst: 目标缺 COPY_DST（usage={:?}）",
+        dtx._usage
+    );
+    assert!(
+        src.aspect == crate::types::TextureAspect::All
+            && dst.aspect == crate::types::TextureAspect::All,
+        "upload 断言 ErrCopyAspect: 本层仅 aspect=All"
+    );
+    assert!(
+        !crate::draw_inner::is_depth_format(stx._format)
+            && !crate::draw_inner::is_depth_format(dtx._format),
+        "upload 断言 ErrCopyDepth: 深度族纹→纹归二阶"
+    );
+    assert!(
+        stx._layers == 1
+            && dtx._layers == 1
+            && src.origin.z == 0
+            && dst.origin.z == 0
+            && copy_size.depth_or_array_layers == 1,
+        "upload 断言 ErrCopyArray: 数组层纹→纹归二阶"
+    );
+    assert!(
+        src.mip_level < stx._mip && dst.mip_level < dtx._mip,
+        "upload 断言 ErrCopyMip: mip 越出层数域"
+    );
+    let sbpp: u64 = stx.params.block_bytes as u64;
+    let dbpp: u64 = dtx.params.block_bytes as u64;
+    let w: u64 = copy_size.width as u64;
+    let h: u64 = copy_size.height as u64;
+    assert!(w >= 1 && h >= 1, "upload 断言: 拷贝范围宽高须≥1");
+    assert!(
+        sbpp == dbpp,
+        "upload 断言 ErrCopyFmt: 双方像素宽度须一致（src={} ≠ dst={}）",
+        sbpp,
+        dbpp
+    );
+    assert!(
+        src.origin.x as u64 + w <= stx._size.width as u64
+            && src.origin.y as u64 + h <= stx._size.height as u64,
+        "upload 断言 ErrCopyOver: 源矩形越出源纹理"
+    );
+    assert!(
+        dst.origin.x as u64 + w <= dtx._size.width as u64
+            && dst.origin.y as u64 + h <= dtx._size.height as u64,
+        "upload 断言 ErrCopyOver: 目标矩形越出目标纹理"
+    );
+    let item = {
+        let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
+        crate::objects::ensure_reuse(
+            crate::objects::ReuseKey::Fbo(crate::draw_inner::rtt_fbo_key(Some(stx), None)),
+            &mut cache,
+        )
+    };
+    let fb = item.handle.expect("upload 断言: Fbo 复用行无名");
+    let sname = stx._h.name().expect("前置活名");
+    let dname = dtx._h.name().expect("前置活名");
+    let row_bytes: usize = (w * sbpp) as usize;
+    let block: Vec<u8> = vec![0u8; row_bytes * h as usize];
+    let sh: u64 = stx._size.height as u64;
+    let slvl: i32 = src.mip_level as i32;
+    let dlvl: i32 = dst.mip_level as i32;
+    let (sx, sy, dx, dy, wi, dtarget) = (
+        src.origin.x as i32,
+        src.origin.y as i32,
+        dst.origin.x as i32,
+        dst.origin.y as i32,
+        w as i32,
+        dtx._target,
+    );
+    let (sfmt, styp, ddst) = (
+        stx.params.format,
+        stx.params.pixel_type,
+        (dname, row_bytes, h),
+    );
+    let mut blockw: Vec<u8> = block;
+    with_gl(|gl| unsafe {
+        gl.bind_framebuffer(
+            GL_FRAMEBUFFER,
+            Some(glow::NativeFramebuffer(
+                std::num::NonZeroU32::new(fb.0).expect("非零"),
+            )),
+        );
+        gl.framebuffer_texture_2d(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            stx._target,
+            Some(glow::NativeTexture(
+                std::num::NonZeroU32::new(sname.0).expect("非零"),
+            )),
+            slvl,
+        );
+        for r in 0..(h as usize) {
+            let gl_y: i32 = sh as i32 - 1 - (sy + r as i32);
+            let slice: &mut [u8] = &mut blockw[r * row_bytes..(r + 1) * row_bytes];
+            gl.read_pixels(
+                sx,
+                gl_y,
+                wi,
+                1,
+                sfmt,
+                styp,
+                glow::PixelPackData::Slice(slice),
+            );
+        }
+        gl.bind_framebuffer(GL_FRAMEBUFFER, None);
+        gl.active_texture(UPLOAD_TEX_UNIT);
+        gl.bind_texture(
+            dtarget,
+            Some(glow::NativeTexture(
+                std::num::NonZeroU32::new(ddst.0 .0).expect("非零"),
+            )),
+        );
+        for r2 in 0..(h as usize) {
+            let srcrow: &[u8] = &blockw[r2 * row_bytes..(r2 + 1) * row_bytes];
+            let grow: usize = h as usize - 1 - r2;
+            let payload: Vec<u8> = srcrow.to_vec();
+            gl.tex_sub_image_2d(
+                dtarget,
+                dlvl,
+                dx,
+                grow as i32,
+                wi,
+                1,
+                sfmt,
+                styp,
+                glow::PixelUnpackData::Slice(&payload),
+            );
+        }
+    });
+    crate::objects::release_reuse(&item);
+}
 /// GL_PIXEL_PACK 通路常量组。
 /// GL_FRAMEBUFFER 通用目标。
 const GL_FRAMEBUFFER: u32 = 0x8D40;

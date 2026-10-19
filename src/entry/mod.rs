@@ -478,6 +478,29 @@ impl CommandEncoder {
         crate::upload_inner::copy_texture_to_buffer_impl(self, source, destination, copy_size)
     }
 
+    /// 缓冲→纹理（形照 25.0.2：源=TexelCopyBufferInfo 布局步幅、目标=TexelCopyTextureInfo 位、
+    /// 尺寸 Extent3d）。同步即时。约束（断言短码）：双方活名、目标 COPY_DST、aspect=All、单层、
+    /// mip 域内、目标矩形界内、bytes_per_row 0=按 256 对齐紧凑否则须 256 倍数、读取块界内。 @public
+    pub fn copy_buffer_to_texture(
+        &mut self,
+        source: crate::types::TexelCopyBufferInfo<'_>,
+        destination: crate::types::TexelCopyTextureInfo<'_>,
+        copy_size: crate::types::Extent3d,
+    ) {
+        crate::upload_inner::copy_buffer_to_texture_impl(source, destination, copy_size)
+    }
+    /// 纹→纹（形照 25.0.2 双方 TexelCopyTextureInfo + Extent3d）。本层=CPU 中转两程（登记差异：
+    /// 上游走设备 blit；本机 blit 目标枚举属 ES 系空转面，中转语义零扩展依赖=最稳，性能换正确）。
+    /// 约束：双方活名、src COPY_SRC 与 dst COPY_DST、aspect All、双方单层同像素宽、非深度族、mip 域内、
+    /// 双矩形界内。 @public
+    pub fn copy_texture_to_texture(
+        &mut self,
+        source: crate::types::TexelCopyTextureInfo<'_>,
+        destination: crate::types::TexelCopyTextureInfo<'_>,
+        copy_size: crate::types::Extent3d,
+    ) {
+        crate::upload_inner::copy_texture_to_texture_impl(self, source, destination, copy_size)
+    }
     /// 开渲染通道（形制=25.0.2 双生命周期：'encoder 通道锁、desc 独立短借读毕即弃——
     /// 描述符临时对象可直接内联传入）。检查项（一次全量）：color_attachments 中 Some ≤1（纯深度通道合法）；
     /// 宿主附件四前置门（死名/D2/sample1/RENDER_ATTACHMENT）+槽系族校验（色槽拒深度族、深度槽需深度族、
