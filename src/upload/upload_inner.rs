@@ -248,11 +248,314 @@ pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopy
     }
 }
 
+// 设计预期（伪码·示意·非唯一实现）：纹理→缓冲读回=同步即时（录制即执行的读侧投影）。
+// 1. 门：宿主两方活名；tex COPY_SRC、buf COPY_DST；aspect=All；深度族/数组层/越界/行对齐=拒止断言（短码）。
+// 2. 通路：色宿键 FBO 重挂 target mip→逐行 readPixels（行翻=纹理顶行 0 语义对齐上游；GL 原行 0=底）
+//    组装块（bpr_eff stride，行隙零填）→交还 write_buffer 子写路。无 PBO/扩枚面（ES2 可达+同步保证）。
+// 3. 缓冲内容即刻可读（get_sub_data 同调用点后有效）——无 pending 态。
+pub(crate) fn copy_texture_to_buffer_impl(
+    _e: &mut crate::entry::CommandEncoder,
+    src: TexelCopyTextureInfo<'_>,
+    dst: crate::types::TexelCopyBufferInfo<'_>,
+    size: Extent3d,
+) {
+    let tex = src.texture;
+    let buf = dst.buffer;
+    let tn = tex._h.name();
+    assert!(
+        tn.is_some(),
+        "upload 断言: 拷贝源纹理死句柄（label={:?}）",
+        tex._h.generation()
+    );
+    let bn = buf._h.name();
+    assert!(bn.is_some(), "upload 断言: 拷贝目标缓冲死句柄");
+    assert!(
+        tex._usage.contains(crate::types::TextureUsages::COPY_SRC),
+        "upload 断言 ErrCopySrc: 源缺 COPY_SRC 位（usage={:?}）",
+        tex._usage
+    );
+    assert!(
+        buf._usage.contains(crate::types::BufferUsages::COPY_DST),
+        "upload 断言 ErrCopyDst: 目标缺 COPY_DST 位（usage={:?}）",
+        buf._usage
+    );
+    assert!(
+        src.aspect == crate::types::TextureAspect::All,
+        "upload 断言 ErrCopyAspect: 本批仅 aspect=All 读回（aspect={:?}）",
+        src.aspect
+    );
+    assert!(
+        !crate::draw_inner::is_depth_format(tex._format),
+        "upload 断言 ErrCopyDepth: 深度族 readPixels=本驱动环境拒（0x502 实测），采样路归二阶（format={:?}）",
+        tex._format
+    );
+    assert!(
+        tex._layers == 1 && src.origin.z == 0 && size.depth_or_array_layers == 1,
+        "upload 断言 ErrCopyArray: 数组/深向拷贝归二阶（layers={}, z={}, d={})",
+        tex._layers,
+        src.origin.z,
+        size.depth_or_array_layers
+    );
+    assert!(
+        src.mip_level < tex._mip,
+        "upload 断言 ErrCopyMip: mip 越出源层数（mip={} count={})）",
+        src.mip_level,
+        tex._mip
+    );
+    assert!(
+        src.mip_level == 0,
+        "upload 断言 ErrCopyMipLevel: 非零 mip 拷贝归二阶（mip={})）",
+        src.mip_level
+    );
+    let w: u64 = size.width as u64;
+    let h: u64 = size.height as u64;
+    assert!(w >= 1 && h >= 1, "upload 断言: 拷贝范围宽高须≥1");
+    let ox: u64 = src.origin.x as u64;
+    let oy: u64 = src.origin.y as u64;
+    assert!(
+        ox + w <= tex._size.width as u64 && oy + h <= tex._size.height as u64,
+        "upload 断言 ErrCopyOver: 源矩形越出纹理尺寸（x={}+{}≤{} y={}+{}≤{}）",
+        ox,
+        w,
+        tex._size.width,
+        oy,
+        h,
+        tex._size.height
+    );
+    let bpp: u32 = tex.params.block_bytes;
+    let row_bytes: u64 = w * bpp as u64;
+    let bpr_raw: u64 = dst.layout.bytes_per_row.unwrap_or(0) as u64;
+    let align: u64 = crate::types::COPY_BYTES_PER_ROW_ALIGNMENT as u64;
+    let bpr_eff: u64 = if bpr_raw == 0 {
+        (row_bytes + align - 1) / align * align
+    } else {
+        assert!(
+            bpr_raw % align == 0,
+            "upload 断言 ErrCopyAlign: bytes_per_row 须 4 倍数（={}）",
+            bpr_raw
+        );
+        bpr_raw
+    };
+    let total: u64 = bpr_eff * h;
+    assert!(
+        dst.layout.offset + total <= buf.size,
+        "upload 断言 ErrCopyOut: 写入块越出缓冲（off={} + {} > size={}）",
+        dst.layout.offset,
+        bpr_eff * h,
+        buf.size
+    );
+    let mut block: Vec<u8> = vec![0u8; total as usize];
+    let mip: i32 = src.mip_level as i32;
+    let item = {
+        let mut cache = _e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
+        crate::objects::ensure_reuse(
+            crate::objects::ReuseKey::Fbo(crate::draw_inner::rtt_fbo_key(Some(tex), None)),
+            &mut cache,
+        )
+    };
+    let fb = item.handle.expect("upload 断言: Fbo 复用行无名");
+    let tname = tex._h.name().expect("前置活名");
+    let bpr_usize: usize = bpr_eff as usize;
+    let row_bytes_usize: usize = row_bytes as usize;
+    let layers: u64 = tex._size.height as u64;
+    with_gl(|gl| unsafe {
+        gl.bind_framebuffer(
+            GL_FRAMEBUFFER,
+            Some(glow::NativeFramebuffer(
+                std::num::NonZeroU32::new(fb.0).expect("非零 fb 名"),
+            )),
+        );
+        gl.framebuffer_texture_2d(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            tex._target,
+            Some(glow::NativeTexture(
+                std::num::NonZeroU32::new(tname.0).expect("非零纹理名"),
+            )),
+            mip,
+        );
+        for r in 0..(h as usize) {
+            // GL 原生行 0=底；wgpu 语义行 0=顶——读取逐行翻转对齐。
+            let gl_y: i32 = layers as i32 - 1 - (oy as i32 + r as i32);
+            let slice: &mut [u8] = &mut block[r * bpr_usize..r * bpr_usize + row_bytes_usize];
+            gl.read_pixels(
+                src.origin.x as i32,
+                gl_y,
+                w as i32,
+                1,
+                tex.params.format,
+                tex.params.pixel_type,
+                glow::PixelPackData::Slice(slice),
+            );
+        }
+        gl.bind_framebuffer(GL_FRAMEBUFFER, None);
+    });
+    crate::objects::release_reuse(&item);
+    // 写回走即时子写路（COPY_WRITE 目标；范围已在门内校验）——缓冲内容调用返回后即可 get_sub_data 读。
+    let q: crate::entry::Queue = crate::entry::Queue { _dev: None };
+    write_buffer_impl(&q, buf, dst.layout.offset, &block);
+}
+
+/// 缓冲同步读回（get_sub_data 消费芯）：活名+界内断言；COPY_READ 目标自绑自收（不在镜像管辖），读毕即返。
+pub(crate) fn get_sub_data_impl(
+    b: &crate::entry::Buffer,
+    offset: BufferAddress,
+    size: crate::types::BufferSize,
+) -> Vec<u8> {
+    let n = b._h.name();
+    assert!(n.is_some(), "upload 断言: 读回命中死句柄缓冲");
+    let len: u64 = size.get();
+    assert!(
+        offset + len <= b.size,
+        "upload 断言 ErrSlice: 读回越界（off={} len={} size={}）",
+        offset,
+        len,
+        b.size
+    );
+    let mut v: Vec<u8> = vec![0u8; len as usize];
+    with_gl(|gl| unsafe {
+        let nn = std::num::NonZeroU32::new(n.expect("前置活名").0).expect("非零缓冲名");
+        gl.bind_buffer(GL_COPY_READ_BUFFER, Some(glow::NativeBuffer(nn)));
+        gl.get_buffer_sub_data(GL_COPY_READ_BUFFER, offset as i32, &mut v);
+        gl.bind_buffer(GL_COPY_READ_BUFFER, None);
+    });
+    v
+}
+
+/// GL_PIXEL_PACK 通路常量组。
+/// GL_FRAMEBUFFER 通用目标。
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+/// GL_COLOR_ATTACHMENT0。
+const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+const GL_COPY_READ_BUFFER: u32 = 0x8F36;
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::objects::{DirectHandle, DirectKind};
     use crate::upload::convert_upload_layout;
+
+    /// GPU→CPU 读回全链：离屏 clear→copy_texture_to_buffer→get_sub_data 比对；
+    /// 行翻语义（纹理行 0=顶）+ bpr 补齐零填 + 边界/对齐负断言。真实 GL（attach→probe 同序）。
+    pub(crate) fn gl_copy_check() {
+        let _caps = crate::caps_inner::probe_impl();
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let mut enc = crate::entry::CommandEncoder {
+            _opened_pass: false,
+            _inner: dev._inner.clone(),
+        };
+        let tex = crate::entry_inner::create_texture_impl(
+            &dev,
+            &crate::types::TextureDescriptor {
+                label: Some("cb"),
+                size: crate::types::Extent3d {
+                    width: 4,
+                    height: 4,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: crate::types::TextureDimension::D2,
+                format: crate::types::TextureFormat::Rgba8Unorm,
+                usage: crate::types::TextureUsages::RENDER_ATTACHMENT
+                    | crate::types::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let buf = crate::entry_inner::create_buffer_impl(
+            &dev,
+            &crate::types::BufferDescriptor {
+                label: Some("cb-dst"),
+                size: 1024,
+                usage: crate::types::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
+        let view = tex.create_view(&crate::types::TextureViewDescriptor::default());
+        let ca = crate::types::RenderPassColorAttachment {
+            view: &view,
+            resolve_target: None,
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Clear(crate::types::Color {
+                    r: 0.25,
+                    g: 0.5,
+                    b: 0.75,
+                    a: 1.0,
+                }),
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let desc = crate::types::RenderPassDescriptor {
+            label: Some("cb-pass"),
+            color_attachments: &[Some(ca)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        drop(enc.begin_render_pass(&desc));
+        let src = crate::types::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: crate::types::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: crate::types::TextureAspect::All,
+        };
+        let dst = crate::types::TexelCopyBufferInfo {
+            buffer: &buf,
+            layout: crate::types::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: None,
+                rows_per_image: None,
+            },
+        };
+        let ext = crate::types::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        };
+        enc.copy_texture_to_buffer(src, dst, ext);
+        // bpr 缺省=上游 256 对齐行距补齐（4×RGBA8=16B 有效 + 240B 零填）×4 行=1024B。
+        let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
+        let mut rows: usize = 0;
+        for row in got.chunks(256) {
+            rows = rows + 1;
+            let pxs: &[u8] = &row[..16];
+            for chunk in pxs.chunks(4) {
+                assert!(
+                    (chunk[0] as i32 - 64).abs() <= 2
+                        && (chunk[1] as i32 - 128).abs() <= 2
+                        && (chunk[2] as i32 - 191).abs() <= 2
+                        && chunk[3] >= 253,
+                    "readback px mismatch: {:?}",
+                    got
+                );
+            }
+            assert!(
+                row[16..].iter().all(|b| *b == 0),
+                "行距补齐区应为零: {:?}",
+                row
+            );
+        }
+        assert_eq!(rows, 4, "四行读回");
+        // 负断言：越出缓冲写入块=ErrCopyOut。
+        let bad = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let dstbad = crate::types::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: crate::types::TexelCopyBufferLayout {
+                    offset: 48,
+                    bytes_per_row: None,
+                    rows_per_image: None,
+                },
+            };
+            enc.copy_texture_to_buffer(src, dstbad, ext);
+        }));
+        assert!(bad.is_err(), "越界写入块=ErrCopyOut 断言");
+    }
 
     /// convert：缺省层行按 extent.height 推定；bytes_per_row 缺省保持 None。
     #[test]
@@ -280,6 +583,7 @@ mod tests {
         let b = Buffer {
             _h: DirectHandle::placeholder(DirectKind::Buffer, 1),
             size: 16,
+            _usage: crate::types::BufferUsages::COPY_DST,
         };
         write_buffer_impl(&q, &b, 0, &[0u8; 4]);
     }

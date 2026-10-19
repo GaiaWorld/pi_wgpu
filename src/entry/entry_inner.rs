@@ -336,6 +336,7 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
     Buffer {
         _h: h,
         size: b.size,
+        _usage: b.usage,
     }
 }
 

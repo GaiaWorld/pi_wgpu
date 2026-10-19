@@ -23,6 +23,14 @@ pub type SurfaceConfiguration = wgpu_types::SurfaceConfiguration<Vec<TextureForm
 pub type TextureViewDescriptor<'a> = wgpu_types::TextureViewDescriptor<Label<'a>>;
 pub type TexelCopyTextureInfo<'a> = wgpu_types::TexelCopyTextureInfo<&'a crate::entry::Texture>;
 pub type ImageCopyTexture<'a> = wgpu_types::TexelCopyTextureInfo<&'a crate::entry::Texture>;
+/// 缓冲侧拷贝信息（api 层借用形——上游 wgpu 同法：wgt 布局位收本层 Buffer 引用）。 @public
+#[derive(Debug)]
+pub struct TexelCopyBufferInfo<'a> {
+    /// 目标/源缓冲。
+    pub buffer: &'a crate::entry::Buffer,
+    /// 行布局（bytes_per_row 0=按行 4 对齐紧凑；offset=写入起点）。
+    pub layout: wgpu_types::TexelCopyBufferLayout,
+}
 
 /// 位集合 `|` 算子生成宏：位并集（组合两个 flags 的位）——所有位集合壳共用；不校验（超集位由消费方校验断言）。`&`/contains 等其余算子后续批按需补。
 macro_rules! flag_bitor {

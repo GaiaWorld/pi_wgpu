@@ -411,7 +411,8 @@ mod tests {
     /// 实现层合同=创建线程存活期间跨绑全通；跨模块合验在本线程内完成（B1+B2 联合验收）。
     #[test]
     #[ignore = "需真实 GL 环境（桌面/安卓/Web 三形态手工验证）：cargo test -- --ignored"]
-    fn gl_state_machine_test() {
+    /// 真 GL 全链单线程收拢：状态机 B1-B10 → 离屏 RTT → 读回 copy → 跨线程移交 → 收层。
+    fn gl_full_chain_test() {
         let first = attach_impl().expect("首次 attach 应成功");
         assert!(first.generation >= 1);
         let g = gen_bump_impl();
@@ -675,14 +676,17 @@ mod tests {
         pass.set_viewport(0.0, 0.0, 4.0, 4.0, 0.0, 1.0);
         drop(pass);
         assert!(!enc._opened_pass, "Drop=end 释放守卫");
+        // —— 并入面（同线程调用，共享附着体免短命线程污染）——
+        crate::draw_inner::tests::gl_offscreen_check();
+        crate::upload_inner::tests::gl_copy_check();
+        gl_handoff_probe();
         let_go_impl();
     }
 
     /// 跨线程移交复现验收（真实事故形状）：线程 A 完整持有-交还一轮后，
     /// 线程 B 必须能重新 bind 成功（解流与锁同步）——旧现状 B 撞 pi_egl 库内 assert。
-    #[test]
-    #[ignore = "需真实 GL 环境：cargo test -- --ignored"]
-    fn gl_cross_thread_handoff_test() {
+    /// 移交探针体（并入全链：其 A/B 子线程共享主测试线程所创附着体，自污染解除）。
+    pub(crate) fn gl_handoff_probe() {
         // A 线程保活（生产形状=bevy 主/worker 皆长驻；线程终止=隐窗随亡、DC 失效，非本合同场景）。
         let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let dflag = done.clone();

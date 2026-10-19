@@ -27,6 +27,8 @@ pub struct RenderPass<'pass> {
     pub(crate) _index_range: (u64, u64),
     /// 当前管线 VAO 名（管线级复用对象；由 set_pipeline 提供，通道不持有其生命周期）。
     pub(crate) _vao: Option<crate::objects::GlHandle>,
+    /// 离屏附件 FBO 复用持行（begin 计数、end 交还；None=默认帧缓冲通道）。
+    pub(crate) _fbo: Option<crate::objects::Reusable>,
     /// 当前管线布局的槽分配（set_pipeline 时从管线拷入）：查槽必须与所用管线同源——
     /// 设备级槽表会被后来建的任何管线整体覆盖，唯有管线自带那份与该管线出码一致。
     pub(crate) _slots: crate::binds::SlotTable,

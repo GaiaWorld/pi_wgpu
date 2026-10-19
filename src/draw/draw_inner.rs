@@ -14,6 +14,13 @@ use crate::types::{Color, DynamicOffset, IndexFormat, RenderPassDescriptor};
 
 // GL 常量（glow 根面不导出 GL_*；规范值内联）。
 const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+const GL_DEPTH_ATTACHMENT: u32 = 0x8229;
+const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
+const GL_DEPTH_BUFFER_BIT: u32 = 0x0000_0100;
+const GL_STENCIL_BUFFER_BIT: u32 = 0x0000_0400;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
 const GL_ARRAY_BUFFER: u32 = 0x8892;
 const GL_ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
@@ -149,7 +156,7 @@ fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirro
 // 设计预期（伪码·示意·非唯一实现）：begin=开通道。
 // 1. 编码器守卫检查：已有开启中通道=断言，通道不建。
 // 2. 颜色附件恰一 Some；视图活态；timestamp_writes/occlusion_query_set=Some 恒拒（查询面无对应物）。违约=断言。
-// 3. 目标：帧视图=默认帧缓冲 0；离屏视图=登记差异（本批暂停，落错误日志后走 0）。load=Clear 即时清。
+// 3. 目标：帧视图=默认帧缓冲；宿主视图=按配置键复用 FBO（色附件 mip0/层0；深度、MSAA、
 // 4. 守卫置位，返回借用编码器的 RenderPass。
 pub(crate) fn begin_impl<'p>(
     e: &'p mut CommandEncoder,
@@ -163,24 +170,149 @@ pub(crate) fn begin_impl<'p>(
     );
     let some = d.color_attachments.iter().filter(|x| x.is_some()).count();
     assert!(
-        some == 1,
-        "draw str-assert: 颜色附件须恰一 Some（得 {some}）"
+        some <= 1,
+        "draw str-assert: 颜色附件至多一个 Some（得 {some}）"
     );
-    let ca = d
-        .color_attachments
-        .iter()
-        .find_map(|x| x.as_ref())
-        .expect("恰一 Some（前置断言保证）");
-    let is_frame = ca.view._tex.is_none();
-    if !is_frame {
-        log::error!("draw: 离屏附件 FBO 路径待后续批（登记差异；本批暂停，走默认帧缓冲）");
+    let ca = d.color_attachments.iter().find_map(|x| x.as_ref());
+    let dsa = d.depth_stencil_attachment.as_ref();
+    let ctext: Option<&crate::entry::Texture> = ca.and_then(|x| x.view._tex.as_ref());
+    let dtext: Option<&crate::entry::Texture> = dsa.and_then(|x| x.view._tex.as_ref());
+    if let Some(t) = ctext {
+        host_gate(t, "color");
     }
-    if let crate::types::LoadOp::Clear(c) = ca.ops.load {
+    if let Some(t) = dtext {
+        host_gate(t, "depth");
+    }
+    // 附件宿主合法性：dsa 视图缺宿主（帧视图挂深度槽）或 color 槽挂深度族=拒止。
+    if let Some(x) = dsa {
+        assert!(
+            x.view._tex.is_some(),
+            "draw str-assert: ErrRttDepth 深度槽不接受帧视图宿主（label={:?}）",
+            d.label
+        );
+        assert!(
+            !(dsa.is_some()
+                && dsa.unwrap().stencil_ops.is_some()
+                && !is_packed_stencil(
+                    dsa.unwrap()
+                        .view
+                        ._tex
+                        .as_ref()
+                        .map(|t| t._format)
+                        .unwrap_or(crate::types::TextureFormat::Rgba8Unorm)
+                )),
+            "draw str-assert: ErrStencilFormat 模板槽需打包深度格式（label={:?}）",
+            d.label
+        );
+    }
+    // 通道目标：双无宿主=默认帧缓冲；任一宿主=按（色×深×目标）配置键复用 FBO 行。
+    let host = ctext.or(dtext);
+    let fbo: Option<crate::objects::Reusable> = match host {
+        None => None,
+        Some(_) => {
+            let item = {
+                let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
+                crate::objects::ensure_reuse(
+                    crate::objects::ReuseKey::Fbo(rtt_fbo_key(ctext, dtext)),
+                    &mut cache,
+                )
+            };
+            let fb = item
+                .handle
+                .expect("draw str-assert: ensure_reuse 返回无名行（Fbo 半登记）");
+            let cname = ctext.and_then(|t| t._h.name());
+            let dname = dtext.and_then(|t| t._h.name());
+            with_gl(|gl| unsafe {
+                gl.bind_framebuffer(
+                    GL_FRAMEBUFFER,
+                    Some(glow::NativeFramebuffer(
+                        NonZeroU32::new(fb.0).expect("非零 fb 名"),
+                    )),
+                );
+                if let (Some(t), Some(nm)) = (ctext, cname) {
+                    gl.framebuffer_texture_2d(
+                        GL_FRAMEBUFFER,
+                        GL_COLOR_ATTACHMENT0,
+                        t._target,
+                        Some(glow::NativeTexture(
+                            NonZeroU32::new(nm.0).expect("非零纹理名"),
+                        )),
+                        0,
+                    );
+                }
+                if let (Some(t), Some(nm)) = (dtext, dname) {
+                    let slot = if is_packed_stencil(t._format) {
+                        GL_DEPTH_STENCIL_ATTACHMENT
+                    } else {
+                        GL_DEPTH_ATTACHMENT
+                    };
+                    gl.framebuffer_texture_2d(
+                        GL_FRAMEBUFFER,
+                        slot,
+                        t._target,
+                        Some(glow::NativeTexture(
+                            NonZeroU32::new(nm.0).expect("非零纹理名"),
+                        )),
+                        0,
+                    );
+                }
+                assert!(
+                    gl.check_framebuffer_status(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
+                    "draw str-assert: 离屏 FBO 不完备（incomplete）"
+                );
+            });
+            Some(item)
+        }
+    };
+    if fbo.is_none() {
+        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) });
+    }
+    // 清除掩码合成：color/depth/stencil 各槽按 load=Clear 参与同一次 glClear（目标已绑）。
+    let mut mask: u32 = 0;
+    let mut col: Option<crate::types::Color> = None;
+    if let Some(x) = ca {
+        if let crate::types::LoadOp::Clear(c) = x.ops.load {
+            mask |= GL_COLOR_BUFFER_BIT;
+            col = Some(c);
+        }
+    }
+    let mut dep: Option<f32> = None;
+    let mut ste: Option<u32> = None;
+    if let Some(x) = dsa {
+        if let Some(ops) = x.depth_ops.as_ref() {
+            if let crate::types::LoadOp::Clear(v) = ops.load {
+                mask |= GL_DEPTH_BUFFER_BIT;
+                dep = Some(v as f32);
+            }
+        }
+        if let Some(ops) = x.stencil_ops.as_ref() {
+            if let crate::types::LoadOp::Clear(v) = ops.load {
+                mask |= GL_STENCIL_BUFFER_BIT;
+                ste = Some(v);
+            }
+        }
+    }
+    if mask != 0 {
         with_gl(|gl| unsafe {
-            gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None);
-            gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
-            gl.clear(GL_COLOR_BUFFER_BIT);
+            if let Some(c) = col {
+                gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
+            }
+            if let Some(v) = dep {
+                // 深度清除走核心入口 glClearDepth(f64)——glClearDepthf 为 ES/EXT 名，
+                // 桌面上下文经 wgl 取该指针不保证在场（实测静默丢，登记事故）。
+                gl.clear_depth_f64(v as f64);
+            }
+            if let Some(v) = ste {
+                gl.clear_stencil(v as i32);
+            }
+            gl.clear(mask);
         });
+    }
+    // store=Discard 档：GL 单缓冲无丢弃语义，log 留痕后 noop（登记差异）。
+    if let Some(x) = ca {
+        if x.ops.store == crate::types::StoreOp::Discard {
+            log::debug!("draw: store=Discard 落 noop（GL 单缓冲语义，登记差异）");
+        }
     }
     e._opened_pass = true;
     RenderPass {
@@ -194,6 +326,7 @@ pub(crate) fn begin_impl<'p>(
         _index_range: (0, 0),
         _vao: None,
         _slots: crate::binds::SlotTable::default(),
+        _fbo: fbo,
     }
 }
 
@@ -441,10 +574,91 @@ pub(crate) fn draw_idx_impl(
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
+    if let Some(item) = p._fbo.take() {
+        // 离屏通道交还：Fbo 行计数-1（归零即物理删除=下次同名附件重建，复用表自持一致）。
+        crate::objects::release_reuse(&item);
+    }
     with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
     p._enc._opened_pass = false;
 }
 
+// desc-align-wgpu25：合法域恒拒止——GL 路无 push constants（能力位恒 0/上限恒 0），一切调用=违约断言（前置拒止；正式错误码通道归实现批）。
+
+/// 离屏附件配置键：色/深双宿主纹理名混列 GL 目标——同附件组合跨通道复用同一 FBO 行。
+pub(crate) fn rtt_fbo_key(
+    c: Option<&crate::entry::Texture>,
+    d: Option<&crate::entry::Texture>,
+) -> u64 {
+    let mix = |acc: u64, v: u64| -> u64 { (acc ^ v).wrapping_mul(0x0100_0000_0000_b711) };
+    let mut k: u64 = 0;
+    if let Some(t) = c {
+        k = mix(k, t._h.name().map(|g| g.0 as u64).unwrap_or(0));
+        k = mix(k, t._target as u64);
+    }
+    if let Some(t) = d {
+        k = mix(k, t._h.name().map(|g| g.0 as u64).unwrap_or(0));
+        k = mix(k, t._target as u64 | 0xFFFF_0000);
+    }
+    k
+}
+
+/// 附件宿主四前置门 + 槽系族校验（depth_lane=深度槽须深度族；色槽反之）。
+pub(crate) fn host_gate(t: &crate::entry::Texture, lane: &str) {
+    assert!(
+        t._h.name().is_some(),
+        "draw str-assert: 附件宿主纹理死句柄（{lane}）"
+    );
+    assert!(
+        matches!(t._dim, crate::types::TextureDimension::D2),
+        "draw str-assert: ErrRttDim 离屏附件本批仅 D2 宿主（{lane} dim={:?}）",
+        t._dim
+    );
+    assert!(
+        t._samples == 1,
+        "draw str-assert: ErrRttMsaa MSAA 离屏与 resolve 归二阶批（{lane} samples={}）",
+        t._samples
+    );
+    assert!(
+        t._usage
+            .contains(crate::types::TextureUsages::RENDER_ATTACHMENT),
+        "draw str-assert: 附件宿主缺 RENDER_ATTACHMENT 位（{lane} usage={:?}）",
+        t._usage
+    );
+    if lane == "depth" {
+        assert!(
+            is_depth_format(t._format),
+            "draw str-assert: ErrNeedDepth 深度槽挂非深度族（format={:?}）",
+            t._format
+        );
+    } else {
+        assert!(
+            !is_depth_format(t._format),
+            "draw str-assert: ErrRttDepth 深度族不可挂色附件槽（format={:?}）",
+            t._format
+        );
+    }
+}
+
+/// 深度族判定（与本层 formats 表深度词汇同名单）。
+pub(crate) fn is_depth_format(f: crate::types::TextureFormat) -> bool {
+    matches!(
+        f,
+        crate::types::TextureFormat::Depth16Unorm
+            | crate::types::TextureFormat::Depth24Plus
+            | crate::types::TextureFormat::Depth24PlusStencil8
+            | crate::types::TextureFormat::Depth32Float
+            | crate::types::TextureFormat::Depth32FloatStencil8
+    )
+}
+
+/// 打包深度+模板族（挂 DEPTH_STENCIL_ATTACHMENT 双宽高面槽）。
+fn is_packed_stencil(f: crate::types::TextureFormat) -> bool {
+    matches!(
+        f,
+        crate::types::TextureFormat::Depth24PlusStencil8
+            | crate::types::TextureFormat::Depth32FloatStencil8
+    )
+}
 // desc-align-wgpu25：合法域恒拒止——GL 路无 push constants（能力位恒 0/上限恒 0），一切调用=违约断言（前置拒止；正式错误码通道归实现批）。
 pub(crate) fn set_push_impl(_p: &mut RenderPass<'_>, _offset: u32, _data: &[u8]) {
     assert!(
@@ -453,4 +667,197 @@ pub(crate) fn set_push_impl(_p: &mut RenderPass<'_>, _offset: u32, _data: &[u8])
         _offset,
         _data.len()
     );
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// 离屏 RTT 全链验收：色+深双附件 clear 落宿主→同配置键复用读回比对→释放重建→
+    /// 深度族误挂色槽负断言。真实 GL 面（attach→probe 序与 B10 用例同法）。
+    pub(crate) fn gl_offscreen_check() {
+        // 附着与 caps 门控由全链主函数持有（本体检沿同线程入口）。
+        let _caps = crate::caps_inner::probe_impl();
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let mut enc = crate::entry::CommandEncoder {
+            _opened_pass: false,
+            _inner: dev._inner.clone(),
+        };
+        let mk = |label: &str, fmt: crate::types::TextureFormat| {
+            crate::entry_inner::create_texture_impl(
+                &dev,
+                &crate::types::TextureDescriptor {
+                    label: Some(label),
+                    size: crate::types::Extent3d {
+                        width: 8,
+                        height: 8,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: crate::types::TextureDimension::D2,
+                    format: fmt,
+                    usage: crate::types::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                },
+            )
+        };
+        let ctex = mk("rtt-c", crate::types::TextureFormat::Rgba8Unorm);
+        let dtex = mk("rtt-d", crate::types::TextureFormat::Depth16Unorm);
+        let cview = ctex.create_view(&crate::types::TextureViewDescriptor::default());
+        let dview = dtex.create_view(&crate::types::TextureViewDescriptor::default());
+        let ca = crate::types::RenderPassColorAttachment {
+            view: &cview,
+            resolve_target: None,
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Clear(crate::types::Color {
+                    r: 0.25,
+                    g: 0.5,
+                    b: 0.75,
+                    a: 1.0,
+                }),
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let dsa = crate::types::RenderPassDepthStencilAttachment {
+            view: &dview,
+            depth_ops: Some(crate::types::Operations {
+                load: crate::types::LoadOp::Clear(0.55),
+                store: crate::types::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        };
+        let desc = crate::types::RenderPassDescriptor {
+            label: Some("rtt-pass"),
+            color_attachments: &[Some(ca)],
+            depth_stencil_attachment: Some(dsa),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        drop(enc.begin_render_pass(&desc));
+        // 双附件复用：test 直接按同键 ensure 再手动绑读（begin/end 已交还行=此处重建属同配置）。
+        let item = {
+            let mut cache = enc._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
+            crate::objects::ensure_reuse(
+                crate::objects::ReuseKey::Fbo(rtt_fbo_key(Some(&ctex), Some(&dtex))),
+                &mut cache,
+            )
+        };
+        let fb = item.handle.expect("ensure 有名行");
+        let px: [u8; 4] = with_gl(|gl| unsafe {
+            gl.bind_framebuffer(
+                GL_FRAMEBUFFER,
+                Some(glow::NativeFramebuffer(
+                    std::num::NonZeroU32::new(fb.0).expect("非零"),
+                )),
+            );
+            gl.framebuffer_texture_2d(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                ctex._target,
+                Some(glow::NativeTexture(
+                    std::num::NonZeroU32::new(ctex._h.name().expect("活名").0).expect("非零"),
+                )),
+                0,
+            );
+            gl.framebuffer_texture_2d(
+                GL_FRAMEBUFFER,
+                GL_DEPTH_ATTACHMENT,
+                dtex._target,
+                Some(glow::NativeTexture(
+                    std::num::NonZeroU32::new(dtex._h.name().expect("活名").0).expect("非零"),
+                )),
+                0,
+            );
+            let mut cbuf = [0u8; 4];
+            gl.read_pixels(
+                4,
+                4,
+                1,
+                1,
+                0x1908,
+                GL_UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(&mut cbuf),
+            );
+            let mut dbuf = [0u8; 2];
+            gl.read_pixels(
+                4,
+                4,
+                1,
+                1,
+                0x1902,
+                0x1403,
+                glow::PixelPackData::Slice(&mut dbuf),
+            );
+            let derr = gl.get_error() as u32;
+            let dnow = gl.get_parameter_f32(0x0B73);
+            eprintln!("DEPTH-READ derr={derr:#x} cd={dnow} bytes={dbuf:?}");
+            gl.bind_framebuffer(GL_FRAMEBUFFER, None);
+            cbuf
+        });
+        // 深度附件通路状态面断言（本机无 attachment-iv 查询口、readPixels 深度=0x502 环境拒；
+        // 内容级深度读回归 copy/采样批）：重挂深度槽→重清 0.77→清值寄存器与 FBO 完备双验。
+        let cok = with_gl(|gl| unsafe {
+            gl.bind_framebuffer(
+                GL_FRAMEBUFFER,
+                Some(glow::NativeFramebuffer(
+                    std::num::NonZeroU32::new(fb.0).expect("非零"),
+                )),
+            );
+            gl.framebuffer_texture_2d(
+                GL_FRAMEBUFFER,
+                GL_DEPTH_ATTACHMENT,
+                dtex._target,
+                Some(glow::NativeTexture(
+                    std::num::NonZeroU32::new(dtex._h.name().expect("活名").0).expect("非零"),
+                )),
+                0,
+            );
+            gl.clear_depth_f64(0.77);
+            gl.clear(GL_DEPTH_BUFFER_BIT);
+            let stv = gl.check_framebuffer_status(GL_FRAMEBUFFER) as u32;
+            let cdv = gl.get_parameter_f32(0x0B73);
+            gl.bind_framebuffer(GL_FRAMEBUFFER, None);
+            stv == GL_FRAMEBUFFER_COMPLETE && (cdv - 0.77).abs() < 0.01
+        });
+        assert!(cok, "深度附件通路状态面验证失败");
+
+        crate::objects::release_reuse(&item);
+        let near = |v: u8, t: f64| -> bool { ((v as f64) - t).abs() <= 2.0 };
+        assert!(
+            near(px[0], 64.0) && near(px[1], 128.0) && near(px[2], 191.0) && near(px[3], 255.0),
+            "off-screen color clear missing: {:?}",
+            px
+        );
+
+        // 深度族误挂色槽=拒止（不留半通道）。
+        let bad_ca = crate::types::RenderPassColorAttachment {
+            view: &dview,
+            resolve_target: None,
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Load,
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let bad_desc = crate::types::RenderPassDescriptor {
+            label: Some("rtt-bad"),
+            color_attachments: &[Some(bad_ca)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let p = enc.begin_render_pass(&bad_desc);
+            drop(p);
+        }));
+        assert!(r.is_err(), "深度族挂色槽=ErrRttDepth 断言");
+        assert!(!enc._opened_pass, "拒止不留半通道");
+    }
 }

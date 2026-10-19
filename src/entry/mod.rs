@@ -126,6 +126,20 @@ impl Buffer {
             size,
         }
     }
+    /// 创建期用途位集（上游同形）。 @public
+    pub fn usage(&self) -> crate::types::BufferUsages {
+        self._usage
+    }
+    /// 同步读回缓冲字节（本层读回消费面——上游 map_async/get_mapped_range 族不移植的投影替代；
+    /// 登记有意差异）。契约=copy_texture_to_buffer/write_buffer 等即时写路径完成后即读可读
+    /// （录制即执行同步语义，无 pending 态）。越界/死名=断言短码（usage 门见 copy 侧；本层读回不设映射态门禁）。 @public
+    pub fn get_sub_data(
+        &self,
+        offset: crate::types::BufferAddress,
+        size: crate::types::BufferSize,
+    ) -> Vec<u8> {
+        crate::upload_inner::get_sub_data_impl(self, offset, size)
+    }
 }
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
 /// 末引用 Drop 才调驱动删除（共享计数：绑定组与用户双持时互不删）；死句柄使用=错误码。 @public
@@ -135,6 +149,8 @@ pub struct Buffer {
     pub(crate) _h: crate::objects::DirectHandle,
     /// 缓冲字节长度（创建期定格、4 字节倍数）；upload 范围校验消费。
     pub(crate) size: crate::types::BufferAddress,
+    /// 创建期用途快照（上游 Buffer::usage() 同形；copy 写/读回门消费）。
+    pub(crate) _usage: crate::types::BufferUsages,
 }
 /// 缓冲同一性 = 直建句柄名与定格长度全同（上游 wgpu 对 Dispatch 代理的 eq 之本层投影；
 /// 两名皆失活（None）判不为等——死句柄不参与相等推理）。
@@ -448,10 +464,25 @@ impl CommandEncoder {
     pub fn finish(self) -> CommandBuffer {
         crate::entry_inner::encoder_finish(self)
     }
+    /// 纹理→缓冲读回（形照 25.0.2：源=TexelCopyTextureInfo 借用位、目标布局=TexelCopyBufferLayout、
+    /// 尺寸 Into<Extent3d>——本层取 Extent3d 直形）。录制即执行：调用点同步完成读出并写入缓冲
+    /// 存储（内部 glFinish 收敛 PBO 异步面，登记法窄）。约束（违约=断言短码）：纹理活名+COPY_SRC+
+    /// aspect=All+深度族/数组/MIP>源暂拒（环境读口面，登二阶）；缓冲活名+COPY_DST+写入区在界内；
+    /// bytes_per_row 0=紧凑（按行自动 4 对齐换算）否则 %4。消费面=get_sub_data。 @public
+    pub fn copy_texture_to_buffer(
+        &mut self,
+        source: crate::types::TexelCopyTextureInfo<'_>,
+        destination: crate::types::TexelCopyBufferInfo<'_>,
+        copy_size: crate::types::Extent3d,
+    ) {
+        crate::upload_inner::copy_texture_to_buffer_impl(self, source, destination, copy_size)
+    }
+
     /// 开渲染通道（形制=25.0.2 双生命周期：'encoder 通道锁、desc 独立短借读毕即弃——
-    /// 描述符临时对象可直接内联传入）。检查项（一次全量）：color_attachments 中 Some 恰好 1 个。
-    /// 违约=断言（短码），通道未开、编码器守卫不变。
-    /// 登记差异：深度/模板附件与 store 语义本批暂缓；离屏 FBO 本批暂停（走默认帧缓冲）；
+    /// 描述符临时对象可直接内联传入）。检查项（一次全量）：color_attachments 中 Some ≤1（纯深度通道合法）；
+    /// 宿主附件四前置门（死名/D2/sample1/RENDER_ATTACHMENT）+槽系族校验（色槽拒深度族、深度槽需深度族、
+    /// 模板 ops 需打包格式）；load=Clear 的色/深/模板按位合一 glClear。违约=断言（短码），通道未开、守卫不变。
+    /// 登记差异：store=Discard 落 noop（GL 单缓冲）；宿主视图=离屏 RTT——按「色×深×目标」配置键复用 FBO 行；
     /// 上游 forget_lifetime 不移植——上游通道对编码器为 PhantomDrop 抹除借、本层通道锁定借
     /// 是真引用（借用+守卫双重合同），无法安全升 'static。 @public
     pub fn begin_render_pass<'encoder>(
