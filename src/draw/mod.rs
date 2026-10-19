@@ -27,6 +27,9 @@ pub struct RenderPass<'pass> {
     pub(crate) _index_range: (u64, u64),
     /// 当前管线 VAO 名（管线级复用对象；由 set_pipeline 提供，通道不持有其生命周期）。
     pub(crate) _vao: Option<crate::objects::GlHandle>,
+    /// 当前管线布局的槽分配（set_pipeline 时从管线拷入）：查槽必须与所用管线同源——
+    /// 设备级槽表会被后来建的任何管线整体覆盖，唯有管线自带那份与该管线出码一致。
+    pub(crate) _slots: crate::binds::SlotTable,
 }
 /// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
 #[derive(Debug, Clone)]
@@ -84,12 +87,14 @@ impl<'pass> RenderPass<'pass> {
         crate::draw_inner::set_push_impl(self, offset, data)
     }
     /// 录制即执行的数组绘制（形照 25.0.2：顶点区间+实例区间）。前置断言=管线与属性绑定完备，
-    /// 缺一=断言且零副作用；instances 非 0..1=断言（实例化路未接，兼容子集收窄）。 @public
+    /// 缺一=断言且零副作用；实例化经 glDrawArraysInstanced（ES3.0/WebGL2 与桌面核心共有），
+    /// instance 区间起点须 0（WebGL2 无 base_instance；上游恒传 0..N）。 @public
     pub fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
         crate::draw_inner::draw_impl(self, vertices, instances)
     }
     /// 录制即执行的索引绘制（形照 25.0.2 三参）：base_vertex≠0=断言（参数级约束，报错前无副作用）；
-    /// instances 非 0..1=断言；索引未绑/区间越出绑定片段=断言；通过后调用点即发元素绘制。 @public
+    /// instance 区间起点须 0（WebGL2 无 base_instance）；索引未绑/区间越出绑定片段=断言；
+    /// 通过后调用点即发元素绘制（实例化经 glDrawElementsInstanced）。 @public
     pub fn draw_indexed(
         &mut self,
         indices: std::ops::Range<u32>,

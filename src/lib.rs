@@ -98,6 +98,16 @@ pub(crate) mod upload_inner;
 #[cfg(not(feature = "use_wgpu"))]
 pub mod utils;
 
+#[cfg(all(windows, not(feature = "use_wgpu")))]
+mod crash_diag;
+#[cfg(all(not(windows), not(feature = "use_wgpu")))]
+mod crash_diag {
+    /// 非 Windows 形态：无诊断钩子。
+    pub(crate) fn op(_label: &str) {}
+    /// 非 Windows 形态：无诊断钩子。
+    pub(crate) fn install() {}
+}
+
 #[cfg(not(feature = "use_wgpu"))]
 #[path = "utils/utils_inner.rs"]
 pub(crate) mod utils_inner;

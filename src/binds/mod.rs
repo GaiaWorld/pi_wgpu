@@ -36,8 +36,10 @@ pub(crate) struct BoundEntry {
 }
 
 /// 槽表：UBO 与纹理单元各 16 个定长槽；值=占槽条目的 (set,binding) 打包键（set<<16|binding），索引即 GL 绑定点号/单元号。
-/// 不变量：满槽或越界引用=断言——不存在「静默丢绑定」路径。 @internal
-#[derive(Debug)]
+/// 不变量：满槽或越界引用=断言——不存在「静默丢绑定」路径。
+/// 归属：分配结果与「创建它的那份布局」绑定——管线持有自身那份（出码期与绘制期同源），
+/// 设备级槽表只作「最近一次分配」的查询面（未设管线即绑定时的唯一可依信息来源）。 @internal
+#[derive(Debug, Clone)]
 pub(crate) struct SlotTable {
     pub(crate) ubo: [Option<u32>; 16],
     pub(crate) sampler: [Option<u32>; 16],

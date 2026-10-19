@@ -25,61 +25,63 @@ const GL_UNSIGNED_INT: u32 = 0x1405;
 /// 实例步进除数（Instance 模式）。
 const INSTANCE_DIVISOR: u32 = 1;
 
-/// 顶点格式→(分量数, GL 类型, 归一化)——上游全 45 值 GL 核心号全表（WebGL2 ES3 合法子集；
-/// Float64 系/双源类为完备性收录——管线创建域外白名单先拒，本表实际只达六型，余路不可达）。
+/// 顶点格式→(分量数, GL 类型, 归一化, 整数通路)——上游全 45 值 GL 核心号全表（WebGL2 ES3 合法子集；
+/// Float64 系为桌面专有、Unorm8x4Bgra 为桌面专有扩展——管线创建域外白名单先拒，本表余项全可达，权作完备登记）。
+/// 整数通路=非归一化整型格式须走 glVertexAttribIPointer：ES3/WebGL2 的 f32 变体类型集不含 INT/UNSIGNED_INT，
+/// 且整型属性经 f32 变体必被驱动转浮点=uvec/ivec 形参语义错。归一化族（Unorm/Snorm）与浮点族仍走 f32 变体。
 const GL_BYTE: u32 = 0x1400;
 const GL_HALF_FLOAT: u32 = 0x140B;
 const GL_DOUBLE: u32 = 0x140E;
 const GL_UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
 const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
-fn vtx_fmt(f: crate::types::VertexFormat) -> (i32, u32, bool) {
+fn vtx_fmt(f: crate::types::VertexFormat) -> (i32, u32, bool, bool) {
     use crate::types::VertexFormat::*;
     match f {
-        Uint8 => (1, GL_UNSIGNED_BYTE, false),
-        Uint8x2 => (2, GL_UNSIGNED_BYTE, false),
-        Uint8x4 => (4, GL_UNSIGNED_BYTE, false),
-        Sint8 => (1, GL_BYTE, false),
-        Sint8x2 => (2, GL_BYTE, false),
-        Sint8x4 => (4, GL_BYTE, false),
-        Unorm8 => (1, GL_UNSIGNED_BYTE, true),
-        Unorm8x2 => (2, GL_UNSIGNED_BYTE, true),
-        Unorm8x4 => (4, GL_UNSIGNED_BYTE, true),
-        Snorm8 => (1, GL_BYTE, true),
-        Snorm8x2 => (2, GL_BYTE, true),
-        Snorm8x4 => (4, GL_BYTE, true),
-        Uint16 => (1, GL_UNSIGNED_SHORT, false),
-        Uint16x2 => (2, GL_UNSIGNED_SHORT, false),
-        Uint16x4 => (4, GL_UNSIGNED_SHORT, false),
-        Sint16 => (1, GL_SHORT, false),
-        Sint16x2 => (2, GL_SHORT, false),
-        Sint16x4 => (4, GL_SHORT, false),
-        Unorm16 => (1, GL_UNSIGNED_SHORT, true),
-        Unorm16x2 => (2, GL_UNSIGNED_SHORT, true),
-        Unorm16x4 => (4, GL_UNSIGNED_SHORT, true),
-        Snorm16 => (1, GL_SHORT, true),
-        Snorm16x2 => (2, GL_SHORT, true),
-        Snorm16x4 => (4, GL_SHORT, true),
-        Float16 => (1, GL_HALF_FLOAT, false),
-        Float16x2 => (2, GL_HALF_FLOAT, false),
-        Float16x4 => (4, GL_HALF_FLOAT, false),
-        Float32 => (1, GL_FLOAT, false),
-        Float32x2 => (2, GL_FLOAT, false),
-        Float32x3 => (3, GL_FLOAT, false),
-        Float32x4 => (4, GL_FLOAT, false),
-        Uint32 => (1, GL_UNSIGNED_INT, false),
-        Uint32x2 => (2, GL_UNSIGNED_INT, false),
-        Uint32x3 => (3, GL_UNSIGNED_INT, false),
-        Uint32x4 => (4, GL_UNSIGNED_INT, false),
-        Sint32 => (1, GL_INT, false),
-        Sint32x2 => (2, GL_INT, false),
-        Sint32x3 => (3, GL_INT, false),
-        Sint32x4 => (4, GL_INT, false),
-        Float64 => (1, GL_DOUBLE, false),
-        Float64x2 => (2, GL_DOUBLE, false),
-        Float64x3 => (3, GL_DOUBLE, false),
-        Float64x4 => (4, GL_DOUBLE, false),
-        Unorm10_10_10_2 => (4, GL_UNSIGNED_INT_2_10_10_10_REV, true),
-        Unorm8x4Bgra => (4, GL_UNSIGNED_INT_8_8_8_8_REV, true),
+        Uint8 => (1, GL_UNSIGNED_BYTE, false, true),
+        Uint8x2 => (2, GL_UNSIGNED_BYTE, false, true),
+        Uint8x4 => (4, GL_UNSIGNED_BYTE, false, true),
+        Sint8 => (1, GL_BYTE, false, true),
+        Sint8x2 => (2, GL_BYTE, false, true),
+        Sint8x4 => (4, GL_BYTE, false, true),
+        Unorm8 => (1, GL_UNSIGNED_BYTE, true, false),
+        Unorm8x2 => (2, GL_UNSIGNED_BYTE, true, false),
+        Unorm8x4 => (4, GL_UNSIGNED_BYTE, true, false),
+        Snorm8 => (1, GL_BYTE, true, false),
+        Snorm8x2 => (2, GL_BYTE, true, false),
+        Snorm8x4 => (4, GL_BYTE, true, false),
+        Uint16 => (1, GL_UNSIGNED_SHORT, false, true),
+        Uint16x2 => (2, GL_UNSIGNED_SHORT, false, true),
+        Uint16x4 => (4, GL_UNSIGNED_SHORT, false, true),
+        Sint16 => (1, GL_SHORT, false, true),
+        Sint16x2 => (2, GL_SHORT, false, true),
+        Sint16x4 => (4, GL_SHORT, false, true),
+        Unorm16 => (1, GL_UNSIGNED_SHORT, true, false),
+        Unorm16x2 => (2, GL_UNSIGNED_SHORT, true, false),
+        Unorm16x4 => (4, GL_UNSIGNED_SHORT, true, false),
+        Snorm16 => (1, GL_SHORT, true, false),
+        Snorm16x2 => (2, GL_SHORT, true, false),
+        Snorm16x4 => (4, GL_SHORT, true, false),
+        Float16 => (1, GL_HALF_FLOAT, false, false),
+        Float16x2 => (2, GL_HALF_FLOAT, false, false),
+        Float16x4 => (4, GL_HALF_FLOAT, false, false),
+        Float32 => (1, GL_FLOAT, false, false),
+        Float32x2 => (2, GL_FLOAT, false, false),
+        Float32x3 => (3, GL_FLOAT, false, false),
+        Float32x4 => (4, GL_FLOAT, false, false),
+        Uint32 => (1, GL_UNSIGNED_INT, false, true),
+        Uint32x2 => (2, GL_UNSIGNED_INT, false, true),
+        Uint32x3 => (3, GL_UNSIGNED_INT, false, true),
+        Uint32x4 => (4, GL_UNSIGNED_INT, false, true),
+        Sint32 => (1, GL_INT, false, true),
+        Sint32x2 => (2, GL_INT, false, true),
+        Sint32x3 => (3, GL_INT, false, true),
+        Sint32x4 => (4, GL_INT, false, true),
+        Float64 => (1, GL_DOUBLE, false, false),
+        Float64x2 => (2, GL_DOUBLE, false, false),
+        Float64x3 => (3, GL_DOUBLE, false, false),
+        Float64x4 => (4, GL_DOUBLE, false, false),
+        Unorm10_10_10_2 => (4, GL_UNSIGNED_INT_2_10_10_10_REV, true, false),
+        Unorm8x4Bgra => (4, GL_UNSIGNED_INT_8_8_8_8_REV, true, false),
     }
 }
 const GL_INT: u32 = 0x1404;
@@ -191,6 +193,7 @@ pub(crate) fn begin_impl<'p>(
         _index_format: None,
         _index_range: (0, 0),
         _vao: None,
+        _slots: crate::binds::SlotTable::default(),
     }
 }
 
@@ -204,6 +207,8 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
     p._vertex = x._vertex.clone();
     p._topology = x._topology;
     p._vao = Some(x._vao.handle.expect("draw str-assert: 死 VAO 句柄"));
+    // 槽表随管线：查槽须与所用管线出码期同源（设备级槽表已被后来管线覆盖=不可依）。
+    p._slots = x._slots.clone();
     p._pipe_set = true;
 }
 
@@ -218,13 +223,13 @@ pub(crate) fn set_bind_group_impl(
     let mut m = lock_state(p);
     let mut offs = o;
     crate::binds::consume_dynamic_offsets(g, &mut offs);
-    let slots = p
-        ._enc
-        ._inner
-        .slots
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    crate::binds::apply_layout(s, g, o, &slots, &mut m);
+    // 槽表=当前管线那份（set_pipeline 拷入）；未设管线即绑定=违约断言（查槽无同源地）。
+    // 用设备级表会把「后建的别的管线」的编号错配到本组，绝无静默错绑路径。
+    assert!(
+        p._pipe_set,
+        "draw str-assert: 未设管线即 set_bind_group（set={s}）"
+    );
+    crate::binds::apply_layout(s, g, o, &p._slots, &mut m);
 }
 
 // 设计预期：句柄活态（形照 25.0.2：入参=BufferSlice，步长由管线布局权威、不再收调用方值——
@@ -248,15 +253,26 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
         gl.bind_vertex_array(Some(glow::NativeVertexArray(nz(vao_name.0))));
         gl.bind_buffer(GL_ARRAY_BUFFER, Some(glow::NativeBuffer(nz(name.0))));
         for a in layout.attributes.iter() {
-            let (n, ty, norm) = vtx_fmt(a.format);
-            gl.vertex_attrib_pointer_f32(
-                a.shader_location,
-                n,
-                ty,
-                norm,
-                layout.array_stride as i32,
-                o as i32 + a.offset as i32,
-            );
+            let (n, ty, norm, integer) = vtx_fmt(a.format);
+            if integer {
+                // 非归一化整型：须经 I 变体，否则驱动按浮点转换=uvec/ivec 形参语义错。
+                gl.vertex_attrib_pointer_i32(
+                    a.shader_location,
+                    n,
+                    ty,
+                    layout.array_stride as i32,
+                    o as i32 + a.offset as i32,
+                );
+            } else {
+                gl.vertex_attrib_pointer_f32(
+                    a.shader_location,
+                    n,
+                    ty,
+                    norm,
+                    layout.array_stride as i32,
+                    o as i32 + a.offset as i32,
+                );
+            }
             gl.enable_vertex_attrib_array(a.shader_location);
         }
         if matches!(layout.step_mode, crate::types::VertexStepMode::Instance) {
@@ -326,7 +342,9 @@ pub(crate) fn set_blend_impl(p: &mut RenderPass<'_>, c: Color) {
     state_inner::set_blend_constant(&mut m, c);
 }
 
-// 设计预期（形照 25.0.2 Range 双参）：绑定完备缺一=断言零副作用；instances 恒 0..1（实例化未接）；
+// 设计预期（形照 25.0.2 Range 双参）：绑定完备缺一=断言零副作用；
+// 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异），instance 区间起点须 0
+// （WebGL2 无 base_instance；上游恒传 0..N）；实例数 1 走非实例化快路。
 // 完备→立即发出数组绘制（first=start，count=end-start）。
 pub(crate) fn draw_impl(
     p: &mut RenderPass<'_>,
@@ -334,8 +352,12 @@ pub(crate) fn draw_impl(
     ins: std::ops::Range<u32>,
 ) {
     assert!(
-        ins == (0..1) && v.end >= v.start,
-        "draw str-assert: ErrInstances/区间倒置（instances={ins:?} vertices={v:?}）"
+        v.end >= v.start && ins.end >= ins.start,
+        "draw str-assert: 区间倒置（instances={ins:?} vertices={v:?}）"
+    );
+    assert!(
+        ins.start == 0,
+        "draw str-assert: instance 区间起点须 0（WebGL2 无 base_instance；instances={ins:?}）"
     );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
@@ -344,12 +366,31 @@ pub(crate) fn draw_impl(
         state_inner::flush_impl(&mut m);
     }
     let mode = topo(p._topology);
-    with_gl(|gl| unsafe { gl.draw_arrays(mode, v.start as i32, (v.end - v.start) as i32) });
+    let count = (v.end - v.start) as i32;
+    let icount = (ins.end - ins.start) as i32;
+    crate::crash_diag::op(&format!(
+        "draw_arrays mode={mode:#x} first={} count={count} instances={icount} vao={:?} prog={:?}",
+        v.start,
+        p._vao,
+        p._enc
+            ._inner
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .program
+    ));
+    with_gl(|gl| unsafe {
+        if icount == 1 {
+            gl.draw_arrays(mode, v.start as i32, count);
+        } else {
+            gl.draw_arrays_instanced(mode, v.start as i32, count, icount);
+        }
+    });
 }
 
-// 设计预期（形照 25.0.2 三参 Range 形）：base≠0=断言；instances 恒 0..1；绘制区间须落在
-// 绑定片段 [start,end) 内（越界=断言，取代旧绑定期 c-count 校验——口径随形改为 draw 期）；
-// 通过→立即发元素绘制。
+// 设计预期（形照 25.0.2 三参 Range 形）：base≠0=断言；instance 区间起点须 0（WebGL2 无 base_instance）；
+// 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异）；绘制区间须落在绑定片段 [start,end) 内
+// （越界=断言，取代旧绑定期 c-count 校验——口径随形改为 draw 期）；通过→立即发元素绘制。
 pub(crate) fn draw_idx_impl(
     p: &mut RenderPass<'_>,
     ix: std::ops::Range<u32>,
@@ -358,8 +399,12 @@ pub(crate) fn draw_idx_impl(
 ) {
     assert!(base == 0, "draw str-assert: base_vertex≠0");
     assert!(
-        ins == (0..1) && ix.end >= ix.start,
-        "draw str-assert: ErrInstances/区间倒置（instances={ins:?} indices={ix:?}）"
+        ix.end >= ix.start && ins.end >= ins.start,
+        "draw str-assert: 区间倒置（instances={ins:?} indices={ix:?}）"
+    );
+    assert!(
+        ins.start == 0,
+        "draw str-assert: instance 区间起点须 0（WebGL2 无 base_instance；instances={ins:?}）"
     );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
@@ -379,8 +424,18 @@ pub(crate) fn draw_idx_impl(
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let mode = topo(p._topology);
     let off = st + (ix.start as u64) * w;
+    let count = (ix.end - ix.start) as i32;
+    let icount = (ins.end - ins.start) as i32;
+    crate::crash_diag::op(&format!(
+        "draw_elements mode={mode:#x} count={count} off={off} instances={icount} vao={:?} prog={:?}",
+        p._vao, p._enc._inner.state.lock().unwrap_or_else(|e| e.into_inner()).program
+    ));
     with_gl(|gl| unsafe {
-        gl.draw_elements(mode, (ix.end - ix.start) as i32, idx_type(f), off as i32)
+        if icount == 1 {
+            gl.draw_elements(mode, count, idx_type(f), off as i32)
+        } else {
+            gl.draw_elements_instanced(mode, count, idx_type(f), off as i32, icount)
+        }
     });
 }
 

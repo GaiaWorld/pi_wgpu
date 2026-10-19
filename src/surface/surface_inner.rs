@@ -26,10 +26,17 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
         log::error!("surface {:?} usage empty", SurfaceErr::BadSize);
         return;
     }
-    if !matches!(
-        (c.present_mode, c.alpha_mode),
-        (PresentMode::Fifo, CompositeAlphaMode::PreMultiplied)
-    ) {
+    // (present × alpha) 合法面：Fifo 之外无呈现模式；alpha 收 Auto/PreMultiplied/Opaque——
+    // Auto=wgpu 标准「由实现按能力选定」语义，本层解析为 PreMultiplied；Opaque=忽略 alpha（GL 天然行为）；
+    // PostMultiplied/Inherit 两形态核心都无对应物=仍拒（上层 init_render/render_windows 恒传 Auto）。
+    if !matches!(c.present_mode, PresentMode::Fifo)
+        || !matches!(
+            c.alpha_mode,
+            CompositeAlphaMode::Auto
+                | CompositeAlphaMode::PreMultiplied
+                | CompositeAlphaMode::Opaque
+        )
+    {
         log::error!(
             "surface {:?} present={:?} alpha={:?}",
             SurfaceErr::BadCombo,
@@ -127,7 +134,12 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
             TextureFormat::Rgba8UnormSrgb,
         ],
         present_modes: vec![PresentMode::Fifo],
-        alpha_modes: vec![CompositeAlphaMode::PreMultiplied],
+        // 回报面与 configure 合法面同源（Auto 是 wgpu 标准默认值，上游恒用之）。
+        alpha_modes: vec![
+            CompositeAlphaMode::Auto,
+            CompositeAlphaMode::PreMultiplied,
+            CompositeAlphaMode::Opaque,
+        ],
     }
 }
 

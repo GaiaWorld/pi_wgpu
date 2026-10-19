@@ -116,6 +116,13 @@ pub(crate) fn write_texture_impl(
     let lay = convert_impl(l, &e);
     let bpp = p.block_bytes.max(1) as u64;
     let target = t.texture._target;
+    crate::crash_diag::op(&format!(
+        "write_texture target={target:#x} mip={} origin=({},{},{}) extent={}x{}x{} bpr={:?} rpi={:?} src_len={} fmt={:?} type={:#x} tex_size={:?} layers={}",
+        t.mip_level, t.origin.x, t.origin.y, t.origin.z,
+        e.width, e.height, e.depth_or_array_layers,
+        lay.bytes_per_row, lay.rows_per_image, src.len(), p.format, p.pixel_type,
+        t.texture._size, t.texture._layers
+    ));
     let restore_unit = upload_restore_unit(q);
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);

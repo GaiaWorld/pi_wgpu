@@ -43,13 +43,67 @@ const BUFFER_USAGE_MASK: crate::types::BufferUsages = crate::types::BufferUsages
     .union(crate::types::BufferUsages::INDEX)
     .union(crate::types::BufferUsages::VERTEX)
     .union(crate::types::BufferUsages::UNIFORM);
-/// 纹理支持域（COPY_DST|TEXTURE_BINDING|RENDER_ATTACHMENT；COPY_SRC/STORAGE_BINDING 词位在场但域外拒止）。
-const TEXTURE_USAGE_MASK: crate::types::TextureUsages = crate::types::TextureUsages::COPY_DST
+/// 纹理支持域（COPY_SRC|COPY_DST|TEXTURE_BINDING|RENDER_ATTACHMENT；STORAGE_BINDING 词位在场但域外拒止）。
+/// COPY_SRC 只作声明位：本层无 copy_texture_to_* 命令族（纹理写入唯经 Queue::write_texture CPU 通路），
+/// 该位无命令消费=不引入行为，纯描述符兼容面（上游 RenderTexture 构造恒带此位，全引擎渲染目标必经）。
+/// STORAGE_BINDING 需 image load/store 绑定，本层未接=仍拒。
+const TEXTURE_USAGE_MASK: crate::types::TextureUsages = crate::types::TextureUsages::COPY_SRC
+    .union(crate::types::TextureUsages::COPY_DST)
     .union(crate::types::TextureUsages::TEXTURE_BINDING)
     .union(crate::types::TextureUsages::RENDER_ATTACHMENT);
 /// 阶段支持域（VERTEX|FRAGMENT；COMPUTE/TASK/MESH 词位在场但本层无对应管线=域外拒止）。
 const STAGE_MASK: crate::types::ShaderStages =
     crate::types::ShaderStages::VERTEX.union(crate::types::ShaderStages::FRAGMENT);
+
+/// 顶点格式兼容域（无平台差异口径）：ES3.0/WebGL2 与桌面 GL 核心**共有**的 40 型合法顶点格式。
+/// 域外=桌面专有（Float64 系核心、Unorm8x4Bgra 扩展）——WebGL2 无此能力，按「无平台差异」拒止。
+/// 非归一化整型（Uint*/Sint*）经 draw 侧 glVertexAttribIPointer 通路，其余走 f32 变体。
+fn vtx_format_in_domain(f: crate::types::VertexFormat) -> bool {
+    use crate::types::VertexFormat::*;
+    matches!(
+        f,
+        Uint8
+            | Uint8x2
+            | Uint8x4
+            | Sint8
+            | Sint8x2
+            | Sint8x4
+            | Unorm8
+            | Unorm8x2
+            | Unorm8x4
+            | Snorm8
+            | Snorm8x2
+            | Snorm8x4
+            | Uint16
+            | Uint16x2
+            | Uint16x4
+            | Sint16
+            | Sint16x2
+            | Sint16x4
+            | Unorm16
+            | Unorm16x2
+            | Unorm16x4
+            | Snorm16
+            | Snorm16x2
+            | Snorm16x4
+            | Float16
+            | Float16x2
+            | Float16x4
+            | Float32
+            | Float32x2
+            | Float32x3
+            | Float32x4
+            | Uint32
+            | Uint32x2
+            | Uint32x3
+            | Uint32x4
+            | Sint32
+            | Sint32x2
+            | Sint32x3
+            | Sint32x4
+            | Unorm10_10_10_2
+    )
+}
 
 /// 句柄名→非零包装（零名=非法断言）。
 fn nz(name: GlHandle) -> NonZeroU32 {
@@ -162,10 +216,15 @@ pub(crate) fn request_device_impl(
     // 本层无产出面也不拒止——赋值无效果，参数不消费。
     let avail = caps::fill_features(&a._caps);
     if !avail.contains(d.required_features) {
+        log::error!(
+            "request_device 拒绝: features 不足 missing={:?}",
+            d.required_features & !avail
+        );
         return Err(RequestDeviceError);
     }
     let cap = limits_of(&a._caps);
     if over_limits(&d.required_limits, &cap) {
+        log::error!("request_device 拒绝: limits 超限");
         return Err(RequestDeviceError);
     }
     let mut state = StateMirror::default();
@@ -321,6 +380,10 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
     let layers = t.size.depth_or_array_layers;
     let h = crate::objects_inner::create_direct(DirectKind::Texture);
     let name = h.name().expect("entry 断言: 新纹理无名");
+    crate::crash_diag::op(&format!(
+        "create_texture target={target:#x} {}x{} layers={layers} mips={} fmt={:?} ifmt={:#x} samples={}",
+        t.size.width, t.size.height, t.mip_level_count, t.format, params.internal_format, t.sample_count
+    ));
     crate::context_inner::with_gl(|gl| unsafe {
         gl.bind_texture(target, Some(glow::NativeTexture(nz(name))));
         match target {
@@ -711,18 +774,11 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
                 a.offset,
                 p.label
             );
-            // desc-align 法窄：VF 词汇全形在场，兼容域六型之外=拒止（短码）。
+            // 无平台差异口径：两形态核心共有的合法顶点格式全支持，域外=桌面专有（拒止）。
             assert!(
-                matches!(
-                    a.format,
-                    crate::types::VertexFormat::Float32
-                        | crate::types::VertexFormat::Float32x2
-                        | crate::types::VertexFormat::Float32x3
-                        | crate::types::VertexFormat::Float32x4
-                        | crate::types::VertexFormat::Uint8x4
-                        | crate::types::VertexFormat::Sint16x2
-                ),
-                "entry 断言 ErrVtxFormat: 顶点格式在本层兼容域外（field=format, label={:?}）",
+                vtx_format_in_domain(a.format),
+                "entry 断言 ErrVtxFormat: 顶点格式在本层兼容域外（field=format={:?}, label={:?}）",
+                a.format,
                 p.label
             );
         }
@@ -742,12 +798,16 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
             }
         }
     }
-    {
+    // 槽表=本管线专属（create 期定格并随管线下发）：设备级槽表只作「最近一次分配」的查询面，
+    // 若绘制期读它，则「后建的任何管线」都会把当前管线的编号覆盖掉=绑定错配。故此处既写设备级
+    // （兼容未设管线路径/探针）、也把同一份拷进管线，出码与查槽全走管线自带那份，天然同源。
+    let own_slots = {
         let mut slots = d._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
         binds::alloc_slots(p.layout.expect("ErrNoLayout 已前置断言"), &mut slots);
-    }
+        slots.clone()
+    };
     let (vs, fs) = {
-        let slots = d._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let slots = &own_slots;
         let vs = shader::emit_stage(
             &p.vertex.module._compiled,
             naga::ShaderStage::Vertex,
@@ -810,6 +870,7 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         _vao: vao,
         _vertex: vertex,
         _topology: p.primitive.topology,
+        _slots: own_slots,
     }
 }
 

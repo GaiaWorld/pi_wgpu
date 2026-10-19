@@ -272,6 +272,9 @@ pub struct RenderPipeline {
     pub(crate) _vertex: Vec<crate::draw::VertexLayout>,
     /// 图元拓扑（供 draw 选 GL 图元）。
     pub(crate) _topology: crate::types::PrimitiveTopology,
+    /// 本管线布局的槽分配结果（创建期定格）：出码期的绑定号与绘制期查槽必须同源——
+    /// 设备级槽表会被后续建管线整体覆盖，故管线自持一份；set_pipeline 时拷入通道。 @internal
+    pub(crate) _slots: crate::binds::SlotTable,
 }
 /// 着色器模块：持反射登记表（(set,binding)↔类别/名映射）与转译产物（IR，供管线创建按入口出码）。 @public
 #[derive(Debug)]

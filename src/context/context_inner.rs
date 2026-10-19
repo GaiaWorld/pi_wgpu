@@ -123,6 +123,8 @@ fn ensure_generation() {
 /// 任一步失败即 panic，槽未写入半步状态（无半附着残留）。
 #[cfg(not(target_arch = "wasm32"))]
 fn bind_current_thread() {
+    #[cfg(windows)]
+    crate::crash_diag::install();
     let me = thread::current().id();
     // SAFETY: 与并发读写的互斥由重入门锁控——只有刚赢得持锁位的线程走到这里。
     let slot = unsafe { &mut *SLOT.0.get() };
@@ -294,10 +296,15 @@ pub(crate) fn web_bind_glow(gl: glow::Context) {
 /// 3. 代号首建=1、此后只随 gen_bump 单调增；返回的附着体=代号读数。
 pub(crate) fn attach_impl() -> AttachmentSlot {
     claim_and_attach();
-    Some(Attachment {
+    let out = Some(Attachment {
         _raw: (),
         generation: generation_now(),
-    })
+    });
+    // 配对归还：Attachment 只是代号读数载体（非 RAII guard），层不跨 API 边界持有——
+    // 否则首附着线程常驻持 current，他线程重绑必撞 WGL「同上下文他线程持 current」律。
+    // 真实驱动调用全部经 with_gl（自成一对 claim/release），不依赖此处持层。
+    release_one_layer();
+    out
 }
 
 /// let_go 芯实现。让出=解绑当前线程与上下文的绑定，不销毁上下文本体。
@@ -540,6 +547,7 @@ mod tests {
             ),
             _vertex: Vec::new(),
             _topology: crate::types::PrimitiveTopology::TriangleList,
+            _slots: crate::binds::SlotTable::default(),
         };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
@@ -692,12 +700,16 @@ mod tests {
         let b = std::thread::Builder::new()
             .name("handoff-b".to_string())
             .spawn(|| {
-                assert!(crate::context::attach().is_some(), "B 线程 attach 应成功（A 已解流交锁）");
+                assert!(
+                    crate::context::attach().is_some(),
+                    "B 线程 attach 应成功（A 已解流交锁）"
+                );
                 with_gl(|_gl| {});
                 crate::context::let_go();
             })
             .expect("spawn b");
-        b.join().expect("thread B 应无 panic 完成（移交成功=事故形状消解）");
+        b.join()
+            .expect("thread B 应无 panic 完成（移交成功=事故形状消解）");
         done.store(true, std::sync::atomic::Ordering::SeqCst);
         a.join().expect("thread A 应无 panic 完成");
     }

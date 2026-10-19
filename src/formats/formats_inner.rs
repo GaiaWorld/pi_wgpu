@@ -11,6 +11,12 @@ use crate::formats::GlParams;
 use crate::types::{Extent3d, TextureDescriptor, TextureFormat};
 
 /// —— GL 枚举值内联表（glow 根面未导出 GL_* 枚举行名；取 GL 4.6 规范值，与 ES3.0/WebGL2 交集一致）——
+/// GL_R8：单通道 u8 归一化内部格式（0x8229；GL3.0 与 ES3.0 核心均在场=无平台差）。
+const GL_R8: u32 = 0x8229;
+/// GL_RG8：双通道 u8 归一化内部格式（0x822B；同上，两形态核心同在）。
+const GL_RG8: u32 = 0x822B;
+/// GL_RGBA32F：全浮点 RGBA 内部格式（0x8814；两形态核心同在，过滤能力另按 FLOAT_LINEAR 判读）。
+const GL_RGBA32F: u32 = 0x8814;
 /// GL_RGBA8：未压缩 RGBA8 内部格式（0x8058）。
 const GL_RGBA8: u32 = 0x8058;
 /// GL_SRGB8_ALPHA8：sRGB RGBA8 内部格式（0x8C43）。
@@ -21,6 +27,16 @@ const GL_RGBA16F: u32 = 0x881A;
 const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
 /// GL_DEPTH_COMPONENT32F：浮点深度内部格式（0x8CAF；两形态核心皆有）。
 const GL_DEPTH_COMPONENT32F: u32 = 0x8CAF;
+/// GL_DEPTH_COMPONENT16：16 位深度内部格式（0x81A5；两形态核心皆有）。
+const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
+/// GL_DEPTH_COMPONENT24：24 位深度内部格式（0x81A6；两形态核心皆有）。
+const GL_DEPTH_COMPONENT24: u32 = 0x81A6;
+/// GL_DEPTH32F_STENCIL8：32F 深度+8 位模板打包内部格式（0x8CAD；两形态核心皆有）。
+const GL_DEPTH32F_STENCIL8: u32 = 0x8CAD;
+/// GL_RED：像素格式单通道（0x1903）。
+const GL_RED: u32 = 0x1903;
+/// GL_RG：像素格式双通道（0x8227）。
+const GL_RG: u32 = 0x8227;
 /// GL_RGBA：像素格式 RGBA 元组（0x1908）。
 const GL_RGBA: u32 = 0x1908;
 /// GL_BGRA（=GL_BGRA_EXT 同值）：像素格式 BGRA 元组（0x80E1，ES 侧同名扩展值）。
@@ -37,16 +53,46 @@ const GL_HALF_FLOAT: u32 = 0x140B;
 const GL_FLOAT: u32 = 0x1406;
 /// GL_UNSIGNED_INT_24_8：D24S8 打包数据类型（0x83F1）。
 const GL_UNSIGNED_INT_24_8: u32 = 0x83F1;
+/// GL_FLOAT_32_UNSIGNED_INT_24_8_REV：D32F_S8 打包数据类型（0x8DAD）。
+const GL_FLOAT_32_UNSIGNED_INT_24_8_REV: u32 = 0x8DAD;
+/// GL_UNSIGNED_SHORT：u16 数据类型（0x1403）。
+const GL_UNSIGNED_SHORT: u32 = 0x1403;
+/// GL_UNSIGNED_INT：u32 数据类型（0x1405）。
+const GL_UNSIGNED_INT: u32 = 0x1405;
 /// GL_TEXTURE_2D：单层 2D 目标（0x0DE1）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 /// GL_TEXTURE_2D_ARRAY：多层 2D 数组目标（0x8C1A）。
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 
 /// 格式转换表：词汇→驱动参数组单一转换点。词汇全表 75 项在场（desc-align 后续批），本表当前
-/// 只收录已接 GL 映射的 7 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
+/// 收录已接 GL 映射的 13 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
 /// 全条目未压缩：block=(1,1)、block_bytes=单像素字节；sRGB 只换内部格式不动采样通路（交 caps/GL 判读）。
+/// 收录口径=GL3.0∨ES3.0 核心**共有**且映射唯一的格式（无平台分歧；有分歧者留表外断言，不近似替代）。
 fn table_entry(f: TextureFormat) -> Option<GlParams> {
     let p = match f {
+        // R/RG 单双通道 u8：两形态核心同名同参，映射唯一。
+        TextureFormat::R8Unorm => GlParams {
+            internal_format: GL_R8,
+            format: GL_RED,
+            pixel_type: GL_UNSIGNED_BYTE,
+            block: (1, 1),
+            block_bytes: 1,
+        },
+        TextureFormat::Rg8Unorm => GlParams {
+            internal_format: GL_RG8,
+            format: GL_RG,
+            pixel_type: GL_UNSIGNED_BYTE,
+            block: (1, 1),
+            block_bytes: 2,
+        },
+        // 全浮点 RGBA：内部格式两形态同名（过滤能力另行按 caps FLOAT_LINEAR 判读）。
+        TextureFormat::Rgba32Float => GlParams {
+            internal_format: GL_RGBA32F,
+            format: GL_RGBA,
+            pixel_type: GL_FLOAT,
+            block: (1, 1),
+            block_bytes: 16,
+        },
         TextureFormat::Rgba8Unorm => GlParams {
             internal_format: GL_RGBA8,
             format: GL_RGBA,
@@ -96,6 +142,28 @@ fn table_entry(f: TextureFormat) -> Option<GlParams> {
             pixel_type: GL_FLOAT,
             block: (1, 1),
             block_bytes: 4,
+        },
+        // 深度族余项：内部格式/打包类型两形态核心同名同参，映射唯一（无平台分歧）。
+        TextureFormat::Depth16Unorm => GlParams {
+            internal_format: GL_DEPTH_COMPONENT16,
+            format: GL_DEPTH_COMPONENT,
+            pixel_type: GL_UNSIGNED_SHORT,
+            block: (1, 1),
+            block_bytes: 2,
+        },
+        TextureFormat::Depth24Plus => GlParams {
+            internal_format: GL_DEPTH_COMPONENT24,
+            format: GL_DEPTH_COMPONENT,
+            pixel_type: GL_UNSIGNED_INT,
+            block: (1, 1),
+            block_bytes: 4,
+        },
+        TextureFormat::Depth32FloatStencil8 => GlParams {
+            internal_format: GL_DEPTH32F_STENCIL8,
+            format: GL_DEPTH_STENCIL,
+            pixel_type: GL_FLOAT_32_UNSIGNED_INT_24_8_REV,
+            block: (1, 1),
+            block_bytes: 8,
         },
         _ => return None,
     };
@@ -228,15 +296,18 @@ mod tests {
         }
     }
 
-    /// 表覆盖全词汇子集：7 条目内部格式逐一对规范值。
+    /// 表覆盖全词汇子集：13 条目内部格式逐一对规范值。
     #[test]
     fn table_covers_subset_test() {
-        let cases: [(TextureFormat, u32, u32); 7] = [
+        let cases: [(TextureFormat, u32, u32); 13] = [
+            (TextureFormat::R8Unorm, GL_R8, GL_RED),
+            (TextureFormat::Rg8Unorm, GL_RG8, GL_RG),
             (TextureFormat::Rgba8Unorm, GL_RGBA8, GL_RGBA),
             (TextureFormat::Rgba8UnormSrgb, GL_SRGB8_ALPHA8, GL_RGBA),
             (TextureFormat::Bgra8Unorm, GL_RGBA8, GL_BGRA),
             (TextureFormat::Bgra8UnormSrgb, GL_SRGB8_ALPHA8, GL_BGRA),
             (TextureFormat::Rgba16Float, GL_RGBA16F, GL_RGBA),
+            (TextureFormat::Rgba32Float, GL_RGBA32F, GL_RGBA),
             (
                 TextureFormat::Depth24PlusStencil8,
                 GL_DEPTH24_STENCIL8,
@@ -246,6 +317,21 @@ mod tests {
                 TextureFormat::Depth32Float,
                 GL_DEPTH_COMPONENT32F,
                 GL_DEPTH_COMPONENT,
+            ),
+            (
+                TextureFormat::Depth16Unorm,
+                GL_DEPTH_COMPONENT16,
+                GL_DEPTH_COMPONENT,
+            ),
+            (
+                TextureFormat::Depth24Plus,
+                GL_DEPTH_COMPONENT24,
+                GL_DEPTH_COMPONENT,
+            ),
+            (
+                TextureFormat::Depth32FloatStencil8,
+                GL_DEPTH32F_STENCIL8,
+                GL_DEPTH_STENCIL,
             ),
         ];
         for (f, internal, format) in cases {
@@ -263,8 +349,8 @@ mod tests {
         let d = desc("ut");
         for f in [
             TextureFormat::Bc1RgbaUnorm,
-            TextureFormat::R8Unorm,
-            TextureFormat::Depth32FloatStencil8,
+            TextureFormat::R8Snorm,
+            TextureFormat::Rgba16Unorm,
         ] {
             assert!(
                 std::panic::catch_unwind(|| params_impl(&d, f)).is_err(),
