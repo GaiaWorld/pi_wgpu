@@ -29,6 +29,11 @@ const GL_VERTEX_SHADER: u32 = 0x8B31;
 const GL_FRAGMENT_SHADER: u32 = 0x8B30;
 const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+const GL_TEXTURE_MIN_LOD: u32 = 0x8130;
+const GL_TEXTURE_MAX_LOD: u32 = 0x8131;
+
+const GL_TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FE;
+const GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FF;
 const GL_TEXTURE_WRAP_S: u32 = 0x2802;
 const GL_TEXTURE_WRAP_T: u32 = 0x2803;
 const GL_TEXTURE_COMPARE_MODE: u32 = 0x884C;
@@ -505,7 +510,11 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
     let name = h.name().expect("entry 断言: 新采样器无名");
     crate::context_inner::with_gl(|gl| unsafe {
         let sm = glow::NativeSampler(nz(name));
-        gl.sampler_parameter_i32(sm, GL_TEXTURE_MIN_FILTER, filter_gl(s.min_filter));
+        gl.sampler_parameter_i32(
+            sm,
+            GL_TEXTURE_MIN_FILTER,
+            min_filter_gl(s.min_filter, s.mipmap_filter),
+        );
         gl.sampler_parameter_i32(sm, GL_TEXTURE_MAG_FILTER, filter_gl(s.mag_filter));
         gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_S, addr_gl(s.address_mode_u));
         gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_T, addr_gl(s.address_mode_v));
@@ -513,8 +522,51 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
             gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
             gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_FUNC, compare_gl(cf));
         }
+        // MIP 夹值直通：上游字段语义（缺省 -1000/32 与 GL 内部约定同值；实际采样层
+        // 硬件再按 [min, min(max, levels-1)] 收拢——25 形无 lod_bias 字段，GL 侧不掷偏置。
+        gl.sampler_parameter_f32(sm, GL_TEXTURE_MIN_LOD, s.lod_min_clamp);
+        gl.sampler_parameter_f32(sm, GL_TEXTURE_MAX_LOD, s.lod_max_clamp);
+        // 各向异性：EXT_texture_filter_anisotropic——能力顶=查询可得值；无扩展=降级不掷
+        // （warn 留痕，请求不生效=能力面实话），有则取请求与硬件顶的较小值。
+        if s.anisotropy_clamp > 1 {
+            let cap = aniso_cap(gl);
+            if cap > 1.0 {
+                let v: f32 = (s.anisotropy_clamp as f32).min(cap);
+                gl.sampler_parameter_f32(sm, GL_TEXTURE_MAX_ANISOTROPY_EXT, v);
+            } else {
+                log::warn!(
+                    "entry: 本形态无各向异性扩展，请求 {} 被降级",
+                    s.anisotropy_clamp
+                );
+            }
+        }
     });
     Sampler { _h: h }
+}
+
+/// min 过滤合成值：单级值×mipmap 组合（GL 0x2700-0x2703 四档）——上游 mipmap_filter 词位真消费。
+fn min_filter_gl(min: FilterMode, mip: FilterMode) -> i32 {
+    use crate::types::FilterMode as F;
+    match (min, mip) {
+        (F::Nearest, F::Nearest) => 0x2700,
+        (F::Linear, F::Nearest) => 0x2701,
+        (F::Nearest, F::Linear) => 0x2702,
+        (F::Linear, F::Linear) => 0x2703,
+    }
+}
+
+/// 各向异性能力顶（EXT 全局查询；无条目/枚举不认=返回 1 即不支持——先清残留 error 再看新鲜面）。
+fn aniso_cap(gl: &glow::Context) -> f32 {
+    unsafe {
+        while gl.get_error() != 0 {}
+        let v = gl.get_parameter_f32(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+        let fresh = gl.get_error();
+        if fresh == 0 && v > 1.0 {
+            v
+        } else {
+            1.0
+        }
+    }
 }
 
 fn filter_gl(f: FilterMode) -> i32 {
@@ -1000,5 +1052,20 @@ mod send_sync_contract_tests {
         assert_send_sync::<CommandBuffer>();
         assert_send_sync::<crate::surface::Surface<'static>>();
         assert_send_sync::<crate::surface::SurfaceTexture>();
+    }
+}
+
+#[cfg(test)]
+mod sampler_map_tests {
+    use super::*;
+    use crate::types::FilterMode as FM;
+
+    /// min×mipmap 组合映射四档（GL 标准名值；纯函数无 GL 环境）。
+    #[test]
+    fn min_filter_gl_table_test() {
+        assert_eq!(min_filter_gl(FM::Nearest, FM::Nearest), 0x2700);
+        assert_eq!(min_filter_gl(FM::Linear, FM::Nearest), 0x2701);
+        assert_eq!(min_filter_gl(FM::Nearest, FM::Linear), 0x2702);
+        assert_eq!(min_filter_gl(FM::Linear, FM::Linear), 0x2703);
     }
 }

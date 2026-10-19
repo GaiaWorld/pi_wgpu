@@ -397,6 +397,7 @@ pub(crate) fn surface_swap() -> Result<(), SurfaceOpErr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glow::HasContext;
 
     #[test]
     fn gen_bump_monotonic_test() {
@@ -680,7 +681,62 @@ mod tests {
         crate::draw_inner::tests::gl_offscreen_check();
         crate::upload_inner::tests::gl_copy_check();
         gl_handoff_probe();
+        gl_sampler_probe();
         let_go_impl();
+    }
+
+    /// 采样器出码探针（并入全链）：下发零 error + glow 回读口断言（min 组合档/各向异性 EXT 顶）。
+    /// lod 夹取=桌面 3.2+ 才落地（本上下文 ES 系 pname 空转）——下发保留、回读不 assert，登能力面差异。
+    pub(crate) fn gl_sampler_probe() {
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let sm = crate::entry_inner::create_sampler_impl(
+            &dev,
+            &crate::types::SamplerDescriptor {
+                label: Some("probe"),
+                mag_filter: crate::types::FilterMode::Linear,
+                min_filter: crate::types::FilterMode::Linear,
+                mipmap_filter: crate::types::FilterMode::Linear,
+                lod_min_clamp: 0.0,
+                lod_max_clamp: 2.0,
+                compare: None,
+                address_mode_u: crate::types::AddressMode::ClampToEdge,
+                address_mode_v: crate::types::AddressMode::ClampToEdge,
+                address_mode_w: crate::types::AddressMode::ClampToEdge,
+                border_color: Some(crate::types::SamplerBorderColor::TransparentBlack),
+                anisotropy_clamp: 4,
+            },
+        );
+        let errs: u32 = with_gl(|gl| unsafe {
+            let mut n: u32 = 0;
+            loop {
+                let v = gl.get_error() as u32;
+                if v == 0 {
+                    break n;
+                }
+                n = n + 1;
+            }
+        });
+        assert_eq!(errs, 0, "sampler 下发链出现驱动 error");
+        let r = with_gl(|gl| unsafe {
+            let sn = glow::NativeSampler(
+                std::num::NonZeroU32::new(sm._h.name().expect("采样器活名").0).expect("非零"),
+            );
+            (
+                gl.get_sampler_parameter_i32(sn, 0x2801),
+                gl.get_sampler_parameter_f32(sn, 0x8131),
+                gl.get_sampler_parameter_f32(sn, 0x84FE),
+            )
+        });
+        assert_eq!(r.0, 0x2703, "min×mip 组合档回读");
+        let _ = r.1;
+        assert!((r.2 - 4.0).abs() < 0.01, "各向异性回读 {}", r.2);
     }
 
     /// 跨线程移交复现验收（真实事故形状）：线程 A 完整持有-交还一轮后，

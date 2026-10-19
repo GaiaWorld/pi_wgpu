@@ -398,7 +398,7 @@ impl Device {
         crate::entry_inner::create_texture_impl(self, desc)
     }
     /// 建采样器（形制=25.0.2 十二字段）。检查项：anisotropy_clamp ≥1、非 1 时三过滤全 Linear
-    /// （上游合同；lod 夹值/GL 各向异性下发归实现批）。（compare 与绑定类型相容性属绑定组对表，不在本步。）
+    /// （上游合同；lod 夹值/偏置与各向异性 EXT 在创建点下发——无扩展形态降级不掷）。（compare 与绑定类型相容性属绑定组对表，不在本步。）
     /// 违约后果同创建族共同合同。 @public
     pub fn create_sampler(&self, desc: &SamplerDescriptor<'_>) -> Sampler {
         crate::entry_inner::create_sampler_impl(self, desc)
