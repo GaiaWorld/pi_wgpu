@@ -180,6 +180,31 @@ pub(crate) fn begin_impl<'p>(
     if let Some(t) = ctext {
         host_gate(t, "color");
     }
+    // MSAA resolve 配对门：resolve 在场=附件须 sample-4 宿主、目的须单采样 D2 单层同格式宿主。
+    let mut resolve_pair: Option<(crate::entry::Texture, crate::entry::Texture)> = None;
+    if let Some(rv) = ca.and_then(|x| x.resolve_target) {
+        let ms: &crate::entry::Texture =
+            ctext.expect("draw str-assert: resolve 附件宿主不可为帧视图");
+        assert!(
+            ms._samples == 4,
+            "draw str-assert: ErrResolveNoMS resolve 目的需 sample-4 附件（samples={}）",
+            ms._samples
+        );
+        let rtx: &crate::entry::Texture = rv
+            ._tex
+            .as_ref()
+            .expect("draw str-assert: resolve 目的帧视图无宿主");
+        assert!(
+            rtx._samples == 1 && rtx._dim == crate::types::TextureDimension::D2 && rtx._layers == 1,
+            "draw str-assert: ErrResolveDst resolve 目的需单采样 D2 单层（samples={}）",
+            rtx._samples
+        );
+        assert!(
+            rtx._format == ms._format,
+            "draw str-assert: ErrResolveFmt resolve 目的与附件格式须一致",
+        );
+        resolve_pair = Some((ms.clone(), rtx.clone()));
+    }
     if let Some(t) = dtext {
         host_gate(t, "depth");
     }
@@ -327,6 +352,7 @@ pub(crate) fn begin_impl<'p>(
         _vao: None,
         _slots: crate::binds::SlotTable::default(),
         _fbo: fbo,
+        _resolve: resolve_pair,
     }
 }
 
@@ -574,6 +600,95 @@ pub(crate) fn draw_idx_impl(
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
+    // MSAA resolve 中转：当前持行（多重采样面）readPixels=驱动滤波采样聚合（等价 resolve，
+    // 登记差异：上游 blit 精确多采样解析、此处像素滤波——uniform-clear 场景同色），
+    // → 目的配置键 Fbo 行 texSub 直写；双方均 GL 底行在前=无行翻；目的行即取即还。
+    if let Some((ms, rtx)) = p._resolve.take() {
+        let curfb: Option<crate::objects::GlHandle> = p._fbo.as_ref().and_then(|i| i.handle);
+        if let Some(msfb) = curfb {
+            let w: i32 = ms._size.width as i32;
+            let h: i32 = ms._size.height as i32;
+            let mut block: Vec<u8> = vec![0u8; (w * h * ms.params.block_bytes as i32) as usize];
+            let ditem = {
+                let mut cache = p
+                    ._enc
+                    ._inner
+                    .cache
+                    .lock()
+                    .unwrap_or_else(|x| x.into_inner());
+                crate::objects::ensure_reuse(
+                    crate::objects::ReuseKey::Fbo(rtt_fbo_key(Some(&rtx), None)),
+                    &mut cache,
+                )
+            };
+            let dfb = ditem
+                .handle
+                .expect("draw str-assert: resolve 目的 Fbo 行无名");
+            let drn = rtx._h.name().expect("draw str-assert: resolve 目的死句柄");
+            let mut read_rejected: bool = false;
+            with_gl(|gl| unsafe {
+                gl.bind_framebuffer(
+                    GL_FRAMEBUFFER,
+                    Some(glow::NativeFramebuffer(
+                        std::num::NonZeroU32::new(msfb.0).expect("非零 ms fb"),
+                    )),
+                );
+                while gl.get_error() != 0 {}
+                gl.read_pixels(
+                    0,
+                    0,
+                    w,
+                    h,
+                    ms.params.format,
+                    ms.params.pixel_type,
+                    glow::PixelPackData::Slice(&mut block),
+                );
+                if gl.get_error() != 0 {
+                    read_rejected = true;
+                }
+                if !read_rejected {
+                    gl.bind_framebuffer(
+                        GL_FRAMEBUFFER,
+                        Some(glow::NativeFramebuffer(
+                            std::num::NonZeroU32::new(dfb.0).expect("非零 dst fb"),
+                        )),
+                    );
+                    gl.framebuffer_texture_2d(
+                        GL_FRAMEBUFFER,
+                        GL_COLOR_ATTACHMENT0,
+                        rtx._target,
+                        Some(glow::NativeTexture(
+                            std::num::NonZeroU32::new(drn.0).expect("非零 dst"),
+                        )),
+                        0,
+                    );
+                    gl.active_texture(crate::upload_inner::UPLOAD_TEX_UNIT);
+                    gl.bind_texture(
+                        rtx._target,
+                        Some(glow::NativeTexture(
+                            std::num::NonZeroU32::new(drn.0).expect("非零 dst"),
+                        )),
+                    );
+                    gl.tex_sub_image_2d(
+                        rtx._target,
+                        0,
+                        0,
+                        0,
+                        w,
+                        h,
+                        rtx.params.format,
+                        rtx.params.pixel_type,
+                        glow::PixelUnpackData::Slice(&block),
+                    );
+                }
+                gl.bind_framebuffer(GL_FRAMEBUFFER, None);
+            });
+            if read_rejected {
+                log::error!("draw: resolve 读被本上下文拒绝（多采样读/blit 能力面封死登记），中转降级不写出（label 通道已收）");
+            }
+            crate::objects::release_reuse(&ditem);
+        }
+    }
     if let Some(item) = p._fbo.take() {
         // 离屏通道交还：Fbo 行计数-1（归零即物理删除=下次同名附件重建，复用表自持一致）。
         crate::objects::release_reuse(&item);
@@ -614,8 +729,8 @@ pub(crate) fn host_gate(t: &crate::entry::Texture, lane: &str) {
         t._dim
     );
     assert!(
-        t._samples == 1,
-        "draw str-assert: ErrRttMsaa MSAA 离屏与 resolve 归二阶批（{lane} samples={}）",
+        t._samples == 1 || t._samples == 4,
+        "draw str-assert: 附件采样数仅 1/4（{lane} samples={}）",
         t._samples
     );
     assert!(

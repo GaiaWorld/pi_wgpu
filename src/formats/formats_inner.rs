@@ -61,6 +61,8 @@ const GL_UNSIGNED_SHORT: u32 = 0x1403;
 const GL_UNSIGNED_INT: u32 = 0x1405;
 /// GL_TEXTURE_2D：单层 2D 目标（0x0DE1）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
+/// GL_TEXTURE_2D_MULTISAMPLE（多重采样 2D 目标面）。
+const GL_TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
 /// GL_TEXTURE_2D_ARRAY：多层 2D 数组目标（0x8C1A）。
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 
@@ -245,7 +247,13 @@ pub(crate) fn target_impl(desc: &TextureDescriptor<'_>) -> u32 {
         TextureDimension::D2 => {
             let layers = desc.size.depth_or_array_layers;
             match (cube_compat_impl(desc), layers) {
-                (false, 1) => GL_TEXTURE_2D,
+                (false, 1) => {
+                    if desc.sample_count > 1 {
+                        GL_TEXTURE_2D_MULTISAMPLE
+                    } else {
+                        GL_TEXTURE_2D
+                    }
+                }
                 (false, _) => GL_TEXTURE_2D_ARRAY,
                 (true, 6) => GL_TEXTURE_CUBE_MAP,
                 (true, _) => GL_TEXTURE_CUBE_MAP_ARRAY,

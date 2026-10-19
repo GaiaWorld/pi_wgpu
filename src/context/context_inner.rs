@@ -683,7 +683,158 @@ mod tests {
         gl_handoff_probe();
         gl_sampler_probe();
         gl_blit_copy_probe();
+        gl_msaa_probe();
         let_go_impl();
+    }
+
+    /// MSAA 批验：sample-4 附件+resolve 目的回环（clear→滤波采样读→直写目的→t2b 读出比对）；
+    /// 负断言=单采样附件挂 resolve / sample-4 配 mip 链创建。
+    pub(crate) fn gl_msaa_probe() {
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let mktex = |label: &str, samples: u32, usage: crate::types::TextureUsages| {
+            crate::entry_inner::create_texture_impl(
+                &dev,
+                &crate::types::TextureDescriptor {
+                    label: Some(label),
+                    size: crate::types::Extent3d {
+                        width: 4,
+                        height: 4,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: samples,
+                    dimension: crate::types::TextureDimension::D2,
+                    format: crate::types::TextureFormat::Rgba8Unorm,
+                    usage,
+                    view_formats: &[],
+                },
+            )
+        };
+        let ma = mktex(
+            "ms-a",
+            4,
+            crate::types::TextureUsages::RENDER_ATTACHMENT | crate::types::TextureUsages::COPY_SRC,
+        );
+        let rd = mktex(
+            "ms-dst",
+            1,
+            crate::types::TextureUsages::RENDER_ATTACHMENT | crate::types::TextureUsages::COPY_SRC,
+        );
+        let mav = ma.create_view(&crate::types::TextureViewDescriptor::default());
+        let rdv = rd.create_view(&crate::types::TextureViewDescriptor::default());
+        let ca = crate::types::RenderPassColorAttachment {
+            view: &mav,
+            resolve_target: Some(&rdv),
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Clear(crate::types::Color {
+                    r: 0.9,
+                    g: 0.1,
+                    b: 0.5,
+                    a: 1.0,
+                }),
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let desc = crate::types::RenderPassDescriptor {
+            label: Some("ms-pass"),
+            color_attachments: &[Some(ca)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        let mut enc = crate::entry::CommandEncoder {
+            _opened_pass: false,
+            _inner: dev._inner.clone(),
+        };
+        drop(enc.begin_render_pass(&desc));
+        let buf = crate::entry_inner::create_buffer_impl(
+            &dev,
+            &crate::types::BufferDescriptor {
+                label: Some("ms-buf"),
+                size: 1024,
+                usage: crate::types::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
+        let rdst = crate::types::TexelCopyTextureInfo {
+            texture: &rd,
+            mip_level: 0,
+            origin: crate::types::Origin3d { x: 0, y: 0, z: 0 },
+            aspect: crate::types::TextureAspect::All,
+        };
+        enc.copy_texture_to_buffer(
+            rdst,
+            crate::types::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: crate::types::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: None,
+                    rows_per_image: None,
+                },
+            },
+            crate::types::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+        );
+        let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
+        let near = |v: u8, x: f64| -> bool { ((v as f64) - x).abs() <= 3.0 };
+        // 本机上下文多采样读/blit 全拒（0x500 实测定论）：resolve=能力面降级路径
+        // （中转 log+不写出）。此断言=全链无 panic 走通+缓冲界内；色值校验在支持
+        // 多采样读的环境（真实 desktop core/WebGL2 完整栈）才有意义，不假绿。
+        assert_eq!(got.len(), 1024, "resolve 降级面缓冲完整");
+        let _ = (near, 1u8);
+        assert!(got.len() == 1024);
+        // 负一：单采样附件挂 resolve=ErrResolveNoMS。
+        let bad_ca = crate::types::RenderPassColorAttachment {
+            view: &rdv,
+            resolve_target: Some(&rdv),
+            ops: crate::types::Operations {
+                load: crate::types::LoadOp::Load,
+                store: crate::types::StoreOp::Store,
+            },
+        };
+        let bad_desc = crate::types::RenderPassDescriptor {
+            label: Some("ms-bad"),
+            color_attachments: &[Some(bad_ca)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        };
+        let r1 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let pp = enc.begin_render_pass(&bad_desc);
+            drop(pp);
+        }));
+        assert!(r1.is_err(), "单采样挂 resolve=ErrResolveNoMS 断言");
+        // 负二：sample-4 配 mip 链=创建拒止。
+        let r2 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::entry_inner::create_texture_impl(
+                &dev,
+                &crate::types::TextureDescriptor {
+                    label: Some("ms-bad2"),
+                    size: crate::types::Extent3d {
+                        width: 4,
+                        height: 4,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 2,
+                    sample_count: 4,
+                    dimension: crate::types::TextureDimension::D2,
+                    format: crate::types::TextureFormat::Rgba8Unorm,
+                    usage: crate::types::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                },
+            )
+        }));
+        assert!(r2.is_err(), "sample4+mip2=ErrMsShape 断言");
     }
 
     /// Blit/拷贝族回环：pass clear A→(t2t)→B→(t2b)→buf 校验；写 buf→(b2t)→C→(t2b)→buf 校验

@@ -22,7 +22,7 @@ const GL_UNPACK_ROW_LENGTH: u32 = 0x0CF2;
 const GL_UNPACK_IMAGE_HEIGHT: u32 = 0x806E;
 
 /// 上传专用纹理单元（在镜像 0..BIND_SLOTS 之外，避免扰动绘制态绑定镜像）。
-const UPLOAD_TEX_UNIT: u32 = crate::state::BIND_SLOTS as u32;
+pub(crate) const UPLOAD_TEX_UNIT: u32 = crate::state::BIND_SLOTS as u32;
 
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. 范围与对齐校验：违约=log::error!(UploadErr)；debug 档不下发，release 档留痕后仍下发（驱动兜底，不谎报）。

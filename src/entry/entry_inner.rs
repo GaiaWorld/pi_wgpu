@@ -29,6 +29,8 @@ const GL_VERTEX_SHADER: u32 = 0x8B31;
 const GL_FRAGMENT_SHADER: u32 = 0x8B30;
 const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+/// GL_MAX_SAMPLES（多重采样能力顶查询，桌面 3.2+/ES3.1 EXT）。
+const GL_MAX_SAMPLES: u32 = 0x8D57;
 const GL_TEXTURE_MIN_LOD: u32 = 0x8130;
 const GL_TEXTURE_MAX_LOD: u32 = 0x8131;
 
@@ -370,6 +372,18 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         t.sample_count,
         t.label
     );
+    if t.sample_count > 1 {
+        assert!(
+            matches!(t.dimension, TextureDimension::D2)
+                && t.size.depth_or_array_layers == 1
+                && t.mip_level_count == 1,
+            "entry 断言 ErrMsShape: 多重采样仅 D2 单层无 mip 链（dim={:?} layers={} mips={} label={:?}）",
+            t.dimension,
+            t.size.depth_or_array_layers,
+            t.mip_level_count,
+            t.label
+        );
+    }
     assert!(
         TEXTURE_USAGE_MASK.contains(t.usage),
         "entry 断言: 纹理 usage 含非支持位（field=usage={:?}, label={:?}）",
@@ -406,13 +420,32 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
                 );
             }
             _ => {
-                gl.tex_storage_2d(
-                    target,
-                    t.mip_level_count as i32,
-                    params.internal_format,
-                    t.size.width as i32,
-                    t.size.height as i32,
-                );
+                if t.sample_count > 1 {
+                    let maxs = gl.get_parameter_i32(GL_MAX_SAMPLES);
+                    assert!(
+                        maxs >= t.sample_count as i32,
+                        "entry 断言 ErrMsCap: 设备采样顶 {} 低于请求 {}（label={:?}）",
+                        maxs,
+                        t.sample_count,
+                        t.label
+                    );
+                    gl.tex_storage_2d_multisample(
+                        target,
+                        t.sample_count as i32,
+                        params.internal_format,
+                        t.size.width as i32,
+                        t.size.height as i32,
+                        true,
+                    );
+                } else {
+                    gl.tex_storage_2d(
+                        target,
+                        t.mip_level_count as i32,
+                        params.internal_format,
+                        t.size.width as i32,
+                        t.size.height as i32,
+                    );
+                }
             }
         }
     });
