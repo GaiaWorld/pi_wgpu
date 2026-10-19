@@ -74,8 +74,10 @@ impl ApplicationHandler for App {
                 .create_window(Window::default_attributes().with_title("textured_quad"))
                 .expect("create_window"),
         ));
-        let instance: &'static Instance =
-            Box::leak(Box::new(Instance::new(&InstanceDescriptor::default())));
+        let instance: &'static Instance = Box::leak(Box::new(Instance::new(&InstanceDescriptor {
+            backends: Backends::GL,
+            ..Default::default()
+        })));
         let size = window.inner_size();
         let surface = instance.create_surface(window).expect("create_surface");
         let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {

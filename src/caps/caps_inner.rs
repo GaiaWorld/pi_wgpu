@@ -312,6 +312,12 @@ pub(crate) fn fill_impl(c: &Caps) -> crate::types::Features {
     if (family & CAP_FLOAT_LINEAR) != 0 {
         flags |= crate::types::Features::FLOAT32_FILTERABLE;
     }
+    // 形态事实：本层纹理格式面=静态白名单（adapter_format_features 恒等返回，不依赖驱动逐格式查询），
+    // 故「按适配器逐格式能力」这一位恒成立——GL 面全部格式已实现，该位按 wgpu 语义本就多余
+    // （见 wgpu-types features.rs 注释）。不报它=render_core 在 Functionality 优先级下强加的请求被拒。
+    if c._gl_version >= (3, 0) {
+        flags |= crate::types::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
+    }
     flags
 }
 
@@ -354,6 +360,7 @@ mod tests {
             Features::DEPTH32FLOAT_STENCIL8
                 | Features::TEXTURE_COMPRESSION_ETC2
                 | Features::FLOAT32_FILTERABLE
+                | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         );
         let i = Caps {
             _gl_version: (3, 2),
@@ -368,6 +375,7 @@ mod tests {
                 | Features::TEXTURE_COMPRESSION_BC
                 | Features::TEXTURE_COMPRESSION_ETC2
                 | Features::FLOAT32_FILTERABLE
+                | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         );
     }
 

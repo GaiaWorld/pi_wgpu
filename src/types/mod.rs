@@ -36,23 +36,6 @@ macro_rules! flag_bitor {
     };
 }
 
-/// Instance 创建输入。默认 backends=GL；填其他位只会在创建校验处失败，不会多出后端。
-#[derive(Debug, Clone, Copy)]
-pub struct InstanceDescriptor<'a> {
-    pub name: &'a str,
-    pub flags: InstanceFlags,
-    pub backends: Backends,
-}
-impl<'a> Default for InstanceDescriptor<'a> {
-    fn default() -> Self {
-        Self {
-            name: "",
-            flags: InstanceFlags::default(),
-            backends: Backends::GL,
-        }
-    }
-}
-
 /// 绑定组布局创建输入；槽位归组在布局面声明（set 域 0-3），条目违约=断言含 label。
 #[derive(Debug, Clone)]
 pub struct BindGroupLayoutDescriptor<'a> {
