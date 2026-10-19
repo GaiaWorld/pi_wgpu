@@ -42,6 +42,8 @@ pub(crate) struct DeviceInner {
     pub(crate) cache: ShareMutex<crate::objects::HandleCache>,
     /// 绑定槽表。
     pub(crate) slots: ShareMutex<crate::binds::SlotTable>,
+    /// 错误通道态（scope 栈 + 未捕获回调；形= 上游 Device 错误作用域面）。
+    pub(crate) error_state: ShareMutex<crate::error_inner::ErrorState>,
 }
 /// 设备句柄：持共享内芯（镜像/缓存/槽表），可被命令编码器克隆共享。
 /// 引用链为 Share（被否方案：Rc——违反单线程合同）。 @public
@@ -421,6 +423,21 @@ impl Device {
     /// 缓冲偏移满足对齐与边界、动态偏移条目数在此登记。违约=未建组、无残留。 @public
     pub fn create_bind_group(&self, desc: &BindGroupDescriptor<'_>) -> BindGroup {
         crate::entry_inner::create_bg_impl(self, desc)
+    }
+    /// 登记未捕获错误回调（形= 上游 on_uncaptured_error）。本层缺省=通道空且无回调时
+    /// `log::error!` 降级留痕不 panic（AGENTS 纪律，差异=上游默认 panic）。 @public
+    pub fn on_uncaptured_error(&self, handler: Box<dyn crate::error::UncapturedErrorHandler>) {
+        crate::entry_inner::on_uncaptured_error_impl(self, handler);
+    }
+    /// 开启错误作用域（形= 上游 push_error_scope）：此后新违约错误按 filter 归栈内层。 @public
+    pub fn push_error_scope(&self, filter: crate::error::ErrorFilter) {
+        crate::entry_inner::push_error_scope_impl(self, filter);
+    }
+    /// 关闭最近错误作用域并取回首条捕获（无捕获=None；async 形= 上游 pop_error_scope ready）。 @public
+    pub fn pop_error_scope(
+        &self,
+    ) -> impl std::future::Future<Output = Option<crate::error::Error>> + Send {
+        crate::entry_inner::pop_error_scope_impl(self)
     }
     /// 建管线布局。检查项：成员 set 归属 0-3、不重复、组数不超上限；
     /// push_constant_ranges 非空=违约断言短码（GL 路恒拒止，能力位恒 0/上限恒 0，芯 TODO-DECL）。持成员强链。 @public

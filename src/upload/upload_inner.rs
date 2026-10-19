@@ -703,6 +703,7 @@ pub(crate) mod tests {
             state: std::sync::Mutex::new(crate::state::StateMirror::default()),
             cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
             slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+            error_state: std::sync::Mutex::new(crate::error_inner::ErrorState::default()),
         };
         let dev = crate::entry::Device {
             _inner: pi_share::Share::new(di),

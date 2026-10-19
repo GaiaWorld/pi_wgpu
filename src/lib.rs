@@ -64,6 +64,17 @@ pub(crate) mod state_inner;
 pub(crate) mod binds;
 
 #[cfg(not(feature = "use_wgpu"))]
+pub mod error;
+
+#[cfg(not(feature = "use_wgpu"))]
+#[path = "error/error_inner.rs"]
+pub(crate) mod error_inner;
+
+// 根面错误词（对齐上游 crate 根 `wgpu::Error` 挂位；use_wgpu 面由 wgpu::* 自带）。
+#[cfg(not(feature = "use_wgpu"))]
+pub use error::{Error, ErrorFilter, ErrorSource, UncapturedErrorHandler};
+
+#[cfg(not(feature = "use_wgpu"))]
 #[path = "binds/binds_inner.rs"]
 pub(crate) mod binds_inner;
 

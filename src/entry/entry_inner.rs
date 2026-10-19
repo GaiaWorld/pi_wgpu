@@ -243,6 +243,7 @@ pub(crate) fn request_device_impl(
             state: ShareMutex::new(state),
             cache: ShareMutex::new(HandleCache::default()),
             slots: ShareMutex::new(SlotTable::default()),
+            error_state: ShareMutex::new(crate::error_inner::ErrorState::default()),
         }),
     };
     let q = Queue {
@@ -1102,5 +1103,66 @@ mod sampler_map_tests {
         assert_eq!(min_filter_gl(FM::Linear, FM::Nearest), 0x2701);
         assert_eq!(min_filter_gl(FM::Nearest, FM::Linear), 0x2702);
         assert_eq!(min_filter_gl(FM::Linear, FM::Linear), 0x2703);
+    }
+}
+
+/// 注册未捕获错误回调（Device::on_uncaptured_error 芯）。
+pub(crate) fn on_uncaptured_error_impl(
+    dev: &crate::entry::Device,
+    handler: Box<dyn crate::error::UncapturedErrorHandler>,
+) {
+    let mut st = dev
+        ._inner
+        .error_state
+        .lock()
+        .unwrap_or_else(|x| x.into_inner());
+    st.uncaptured = Some(handler);
+}
+
+/// 开启错误作用域（Device::push_error_scope 芯）。
+pub(crate) fn push_error_scope_impl(dev: &crate::entry::Device, filter: crate::error::ErrorFilter) {
+    let mut st = dev
+        ._inner
+        .error_state
+        .lock()
+        .unwrap_or_else(|x| x.into_inner());
+    st.push(filter);
+}
+
+/// 关闭最近作用域取回首条捕获（Device::pop_error_scope 芯，ready future=上游 async 形）。
+pub(crate) fn pop_error_scope_impl(
+    dev: &crate::entry::Device,
+) -> impl std::future::Future<Output = Option<crate::error::Error>> + Send {
+    let inner = dev._inner.clone();
+    async move {
+        let mut st = inner.error_state.lock().unwrap_or_else(|x| x.into_inner());
+        st.pop()
+    }
+}
+
+/// 拒绝/降级错误上报通道（内部 helper）：最内匹配 scope 捕获；无捕获走 uncaptured 回调；
+/// 再无=默认留痕降级（不 panic=本层纪律差异）。返回 true=通道或回调接管。
+pub(crate) fn report_error(inner: &crate::entry::DeviceInner, err: crate::error::Error) -> bool {
+    let mut st = inner.error_state.lock().unwrap_or_else(|x| x.into_inner());
+    if st.capture(&err) {
+        return true;
+    }
+    if let Some(h) = st.uncaptured.as_ref() {
+        h(err);
+        return true;
+    }
+    drop(st);
+    log::error!("pi_wgpu 未捕获错误（通道空，降级留痕）: {err}");
+    false
+}
+
+impl crate::entry::DeviceInner {
+    /// 错误态短临界访问（通道内部/测试用）。
+    pub(crate) fn with_error<R>(
+        &self,
+        f: impl FnOnce(&mut crate::error_inner::ErrorState) -> R,
+    ) -> R {
+        let mut st = self.error_state.lock().unwrap_or_else(|x| x.into_inner());
+        f(&mut st)
     }
 }
