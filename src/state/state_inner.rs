@@ -403,14 +403,16 @@ fn apply_vao(m: &StateMirror) {
 /// 目标组下发。
 fn apply_fbo(m: &StateMirror) {
     with_gl(|gl| unsafe {
+        // 通用目标 GL_FRAMEBUFFER（双端同绑；本上下文 DRAW 分绑枚举实测被拒 0x500 族）。
         match m.fbo_draw {
-            Some(g) => {
-                gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(g.0))))
-            }
-            None => gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None),
-        }
+            Some(g) => gl.bind_framebuffer(GL_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(g.0)))),
+            None => gl.bind_framebuffer(GL_FRAMEBUFFER, None),
+        };
     });
 }
+
+/// GL_FRAMEBUFFER：通用帧缓冲目标（双端同绑；本上下文 DRAW 分绑被拒实测）。
+const GL_FRAMEBUFFER: u32 = 0x8D40;
 
 /// 上传组下发。
 fn apply_unpack(m: &StateMirror) {

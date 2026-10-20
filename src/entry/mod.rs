@@ -128,6 +128,14 @@ impl Buffer {
             size,
         }
     }
+    /// 整段缓冲绑定具例（形= 上游 as_entire_buffer_binding：offset 0 至末尾）。 @public
+    pub fn as_entire_buffer_binding(&self) -> crate::types::BufferBinding<'_> {
+        crate::types::BufferBinding {
+            buffer: self,
+            offset: 0,
+            size: None,
+        }
+    }
     /// 创建期用途位集（上游同形）。 @public
     pub fn usage(&self) -> crate::types::BufferUsages {
         self._usage
@@ -290,6 +298,10 @@ pub struct RenderPipeline {
     pub(crate) _vertex: Vec<crate::draw::VertexLayout>,
     /// 图元拓扑（供 draw 选 GL 图元）。
     pub(crate) _topology: crate::types::PrimitiveTopology,
+    /// 深度模板态（创建期定格；set_pipeline 随管线切换下发——曾断线 2026-10-20 实锤）。
+    pub(crate) _depth_stencil: Option<crate::types::DepthStencilState>,
+    /// 图元固定功能（剔除/绕序/填充；同上发）。
+    pub(crate) _primitive: crate::types::PrimitiveState,
     /// 本管线布局的槽分配结果（创建期定格）：出码期的绑定号与绘制期查槽必须同源——
     /// 设备级槽表会被后续建管线整体覆盖，故管线自持一份；set_pipeline 时拷入通道。 @internal
     pub(crate) _slots: crate::binds::SlotTable,

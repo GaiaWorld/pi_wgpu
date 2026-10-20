@@ -19,6 +19,16 @@ fn domain_array(t: &SlotTable, d: BindDomain) -> &[Option<u32>; 16] {
     }
 }
 
+/// set→GL 绑定点基址：每 set 占 4 连续位（单元 0-3/4-7/…、UBO 同构；wgpu 上游 set<=8 同量级约束）。
+pub(crate) fn bind_base(set: u32, slot: u32) -> u32 {
+    let g = set * 4 + slot;
+    assert!(
+        g < 64,
+        "binds 断言: GL 绑定点 {g} 超 64 上限（set={set} slot={slot}）"
+    );
+    g
+}
+
 /// 查槽：返回该 (set,binding) 占用槽号；未找到=断言（布局与组不对表）。
 fn lookup_slot(t: &SlotTable, d: BindDomain, set: u32, binding: u32) -> u32 {
     let key = pack(set, binding);
@@ -107,6 +117,7 @@ pub(crate) fn apply_impl(
             .unwrap_or_else(|| panic!("binds 断言: 死句柄 set={set} binding={}", e.binding));
         match e.domain {
             BindDomain::Uniform => {
+                let slot = bind_base(set, slot);
                 let dyn_off = if e.dynamic {
                     let d = offsets[di];
                     di += 1;
@@ -117,8 +128,12 @@ pub(crate) fn apply_impl(
                 let size = e.size.unwrap_or(0);
                 bind_ubo(state, slot, Some(name), e.offset + dyn_off, size);
             }
-            BindDomain::Texture => bind_texture(state, slot, e.target, Some(name)),
-            BindDomain::Sampler => bind_sampler(state, slot, Some(name)),
+            BindDomain::Texture => {
+                bind_texture(state, bind_base(set, slot), e.target, Some(name));
+            }
+            BindDomain::Sampler => {
+                bind_sampler(state, bind_base(set, slot), Some(name));
+            }
         }
     }
 }

@@ -237,22 +237,41 @@ pub(crate) fn begin_impl<'p>(
         Some(_) => {
             let item = {
                 let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
-                crate::objects::ensure_reuse(
-                    crate::objects::ReuseKey::Fbo(rtt_fbo_key(ctext, dtext)),
-                    &mut cache,
-                )
+                let fk: u64 = rtt_fbo_key(ctext, dtext);
+                crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(fk), &mut cache)
             };
             let fb = item
                 .handle
                 .expect("draw str-assert: ensure_reuse 返回无名行（Fbo 半登记）");
+            // 绑定即水位：换 pass 必同步 fbo_draw，防 flush 按旧行重绑致漂移。
+            {
+                let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
+                crate::state_inner::set_draw_fbo(&mut mm, Some(fb));
+                crate::state_inner::flush_impl(&mut mm);
+            }
             let cname = ctext.and_then(|t| t._h.name());
             let dname = dtext.and_then(|t| t._h.name());
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
-                    GL_FRAMEBUFFER,
+                    GL_DRAW_FRAMEBUFFER,
                     Some(glow::NativeFramebuffer(
                         NonZeroU32::new(fb.0).expect("非零 fb 名"),
                     )),
+                );
+                // 行复用安全：先裸槽，防旧配置行残挂他宿主误判（0x8CD7 实测教训）。
+                gl.framebuffer_texture_2d(
+                    GL_FRAMEBUFFER,
+                    GL_COLOR_ATTACHMENT0,
+                    0x0DE1, // GL_TEXTURE_2D
+                    None,
+                    0,
+                );
+                gl.framebuffer_texture_2d(
+                    GL_FRAMEBUFFER,
+                    GL_DEPTH_ATTACHMENT,
+                    0x0DE1, // GL_TEXTURE_2D
+                    None,
+                    0,
                 );
                 if let (Some(t), Some(nm)) = (ctext, cname) {
                     gl.framebuffer_texture_2d(
@@ -265,11 +284,18 @@ pub(crate) fn begin_impl<'p>(
                         0,
                     );
                 }
+                gl.framebuffer_texture_2d(
+                    GL_FRAMEBUFFER,
+                    0x821A, // GL_DEPTH_STENCIL_ATTACHMENT（组合槽，packed 格式行残留剥离）
+                    0x0DE1, // GL_TEXTURE_2D
+                    None,
+                    0,
+                );
                 if let (Some(t), Some(nm)) = (dtext, dname) {
                     let slot = if is_packed_stencil(t._format) {
-                        GL_DEPTH_STENCIL_ATTACHMENT
+                        0x8D80
                     } else {
-                        GL_DEPTH_ATTACHMENT
+                        0x8D00
                     };
                     gl.framebuffer_texture_2d(
                         GL_FRAMEBUFFER,
@@ -281,16 +307,21 @@ pub(crate) fn begin_impl<'p>(
                         0,
                     );
                 }
+                let st: u32 = gl.check_framebuffer_status(GL_FRAMEBUFFER) as u32;
                 assert!(
-                    gl.check_framebuffer_status(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE,
-                    "draw str-assert: 离屏 FBO 不完备（incomplete）"
+                    st == GL_FRAMEBUFFER_COMPLETE,
+                    "draw str-assert: 离屏 FBO 不完备（status={:#x}）",
+                    st
                 );
             });
             Some(item)
         }
     };
     if fbo.is_none() {
-        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) });
+        // 默认帧通道也同步水位；DRAW 目标与 flush 下发面对齐。
+        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
+        let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
+        crate::state_inner::set_draw_fbo(&mut mm, None);
     }
     // 清除掩码合成：color/depth/stencil 各槽按 load=Clear 参与同一次 glClear（目标已绑）。
     let mut mask: u32 = 0;
@@ -366,7 +397,24 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
     p._vertex = x._vertex.clone();
     p._topology = x._topology;
     p._vao = Some(x._vao.handle.expect("draw str-assert: 死 VAO 句柄"));
-    // 槽表随管线：查槽须与所用管线出码期同源（设备级槽表已被后来管线覆盖=不可依）。
+    // 深度态随管线切换下发（None 臂显式关测试保写掩码，防继承污染下一通道）。
+    {
+        let mut m = lock_state(p);
+        match x._depth_stencil.as_ref() {
+            Some(ds) => crate::state_inner::set_depth(
+                &mut m,
+                true,
+                ds.depth_write_enabled,
+                ds.depth_compare,
+            ),
+            None => crate::state_inner::set_depth(
+                &mut m,
+                false,
+                true,
+                crate::types::CompareFunction::Always,
+            ),
+        }
+    }
     p._slots = x._slots.clone();
     p._pipe_set = true;
 }
@@ -628,7 +676,7 @@ pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
             let mut read_rejected: bool = false;
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
-                    GL_FRAMEBUFFER,
+                    GL_DRAW_FRAMEBUFFER,
                     Some(glow::NativeFramebuffer(
                         std::num::NonZeroU32::new(msfb.0).expect("非零 ms fb"),
                     )),
@@ -693,7 +741,17 @@ pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
         // 离屏通道交还：Fbo 行计数-1（归零即物理删除=下次同名附件重建，复用表自持一致）。
         crate::objects::release_reuse(&item);
     }
-    with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
+    // 通道交还=水位归默认帧缓冲（与真实绑定同步；旧版只裸绑不回写致跨 pass 漂移）。
+    {
+        let mut mm = p
+            ._enc
+            ._inner
+            .state
+            .lock()
+            .unwrap_or_else(|x| x.into_inner());
+        crate::state_inner::set_draw_fbo(&mut mm, None);
+        crate::state_inner::flush_impl(&mut mm);
+    }
     p._enc._opened_pass = false;
 }
 
@@ -705,7 +763,10 @@ pub(crate) fn rtt_fbo_key(
     d: Option<&crate::entry::Texture>,
 ) -> u64 {
     let mix = |acc: u64, v: u64| -> u64 { (acc ^ v).wrapping_mul(0x0100_0000_0000_b711) };
-    let mut k: u64 = 0;
+    // 域标记先行：色域/深域各自前置不同种子——修「(c,None)×(None,d) 同值碰撞」
+    // （2026-10-20 双 pass 样例实锤：两 fb 行共用一 u64 致后开通道画进前通道的 fb）。
+    let mut k: u64 = if c.is_some() { 0xC0FFEE } else { 0 };
+    k = if d.is_some() { mix(k, 0xDEED) } else { k };
     if let Some(t) = c {
         k = mix(k, t._h.name().map(|g| g.0 as u64).unwrap_or(0));
         k = mix(k, t._target as u64);

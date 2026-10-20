@@ -549,6 +549,8 @@ mod tests {
             ),
             _vertex: Vec::new(),
             _topology: crate::types::PrimitiveTopology::TriangleList,
+            _depth_stencil: None,
+            _primitive: crate::types::PrimitiveState::default(),
             _slots: crate::binds::SlotTable::default(),
         };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);

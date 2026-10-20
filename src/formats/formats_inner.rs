@@ -25,8 +25,8 @@ const GL_SRGB8_ALPHA8: u32 = 0x8C43;
 const GL_RGBA16F: u32 = 0x881A;
 /// GL_DEPTH24_STENCIL8：D24+S8 打包深度模板内部格式（0x88F0；GLES 核心无此组合）。
 const GL_DEPTH24_STENCIL8: u32 = 0x88F0;
-/// GL_DEPTH_COMPONENT32F：浮点深度内部格式（0x8CAF；两形态核心皆有）。
-const GL_DEPTH_COMPONENT32F: u32 = 0x8CAF;
+/// GL_DEPTH_COMPONENT32F：浮点深度内部格式（0x8C1A；两形态核心皆有。0x8CAF 为错值旧账，1280 实跑定论）。
+const GL_DEPTH_COMPONENT32F: u32 = 0x8C1A;
 /// GL_DEPTH_COMPONENT16：16 位深度内部格式（0x81A5；两形态核心皆有）。
 const GL_DEPTH_COMPONENT16: u32 = 0x81A5;
 /// GL_DEPTH_COMPONENT24：24 位深度内部格式（0x81A6；两形态核心皆有）。

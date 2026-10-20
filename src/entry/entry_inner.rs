@@ -438,13 +438,45 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
                         t.size.height as i32,
                         true,
                     );
+                } else if matches!(
+                    t.format,
+                    crate::types::TextureFormat::Depth16Unorm
+                        | crate::types::TextureFormat::Depth24Plus
+                        | crate::types::TextureFormat::Depth32Float
+                        | crate::types::TextureFormat::Depth24PlusStencil8
+                        | crate::types::TextureFormat::Depth32FloatStencil8
+                ) {
+                    // 深度族=经典 texImage 路（本上下文 texStorage 对深度 internal 实测无效
+                    // 置存储 err0/internal0 三证定论 2026-10-19；texImage 全代通用含 ES2）。
+                    gl.tex_image_2d(
+                        target,
+                        0,
+                        params.internal_format as i32,
+                        t.size.width as i32,
+                        t.size.height as i32,
+                        0,
+                        params.format,
+                        params.pixel_type,
+                        None::<&[u8]>,
+                    );
                 } else {
+                    while gl.get_error() != 0 {}
                     gl.tex_storage_2d(
                         target,
                         t.mip_level_count as i32,
                         params.internal_format,
                         t.size.width as i32,
                         t.size.height as i32,
+                    );
+                }
+                let serr = gl.get_error() as u32;
+                if serr != 0 {
+                    log::error!(
+                        "entry: 纹理存储被拒 fmt={:?} ifmt={:#x} err={:#x}（label={:?}）",
+                        t.format,
+                        params.internal_format,
+                        serr,
+                        t.label
                     );
                 }
             }
@@ -959,6 +991,8 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         _vao: vao,
         _vertex: vertex,
         _topology: p.primitive.topology,
+        _depth_stencil: p.depth_stencil.clone(),
+        _primitive: p.primitive.clone(),
         _slots: own_slots,
     }
 }
