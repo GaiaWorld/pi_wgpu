@@ -27,7 +27,8 @@ const GL_CURRENT_PROGRAM: u32 = 0x8B8D;
 /// DRAW framebuffer 目标号与回读号（规范同源 0x8CA9）。
 const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
 /// PIXEL_UNPACK_BUFFER 目标号。
-const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EB;
+// 0x88EB is GL_PIXEL_PACK_BUFFER; unpack target is 0x88EC.
+const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EC;
 /// UNIFORM_BUFFER 目标号。
 const GL_UNIFORM_BUFFER: u32 = 0x8A11;
 /// 纹理单元基号与 ACTIVE_TEXTURE 回读参数号。
@@ -47,12 +48,14 @@ const GL_FRONT_FACE: u32 = 0x0B46;
 const GL_BLEND: u32 = 0x0BE2;
 /// 裁剪开关与框参数号。
 const GL_SCISSOR_TEST: u32 = 0x0C11;
-const GL_SCISSOR_BOX: u32 = 0x0410;
+// GL_SCISSOR_BOX is 0x0C10 (0x0410 is not a valid pname -> INVALID_ENUM on every read).
+const GL_SCISSOR_BOX: u32 = 0x0C10;
 /// 视口与深度区间参数号。
 const GL_VIEWPORT: u32 = 0x0BA2;
 const GL_DEPTH_RANGE: u32 = 0x0B70;
 /// 多边形偏置开关参数号。
-const GL_POLYGON_OFFSET_FILL: u32 = 0x8E30;
+// 0x8E30 is not a valid enable cap; polygon offset fill is 0x8037.
+const GL_POLYGON_OFFSET_FILL: u32 = 0x8037;
 /// 覆盖采样开关参数号。
 const GL_SAMPLE_ALPHA_TO_COVERAGE: u32 = 0x809E;
 /// 模板朝向参数号。
@@ -425,6 +428,25 @@ fn apply_unpack(m: &StateMirror) {
 }
 
 /// 开/关统一下发体（调用者在 gl 门禁内）。
+/// Env-gated GL error tap (PI_GL_CHECK=1): logs pending errors with a call-site tag.
+/// Diagnostics only; drains the queue so it must stay off in production runs.
+pub(crate) fn check_err(tag: &str) {
+    if std::env::var_os("PI_GL_CHECK").is_none() {
+        return;
+    }
+    crate::context_inner::with_gl(|gl| unsafe {
+        let mut n = 0;
+        loop {
+            let e = gl.get_error() as u32;
+            if e == 0 || n > 4 {
+                break;
+            }
+            log::error!("glcheck tag={} err={:#x} tid={:?}", tag, e, std::thread::current().id());
+            n += 1;
+        }
+    });
+}
+
 unsafe fn set_enable(gl: &glow::Context, group: u32, on: bool) {
     if on {
         gl.enable(group);
@@ -815,6 +837,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 }
             }
         }
+        crate::state_inner::check_err("f_readback");
         // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
         if has_removed() {
             // 死名表非空：镜像可能仍指名被删对象——清水位=下轮整组强发。
@@ -868,6 +891,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                     probe(1);
                 }
             }
+        crate::state_inner::check_err("f_ubo");
             let tex_t = m.texture_bindings[i].map(|(g, tg)| (g.0, tg));
             if m.water.tex[i] != Some(tex_t) {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
@@ -879,6 +903,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 m.water.tex[i] = Some(tex_t);
                 probe(1);
             }
+        crate::state_inner::check_err("f_tex");
             let smp_t = m.sampler_bindings[i].map(|g| g.0);
             if m.water.sampler[i] != Some(smp_t) {
                 match smp_t {
@@ -889,6 +914,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 probe(1);
             }
         }
+        crate::state_inner::check_err("f_sampler");
         if switched {
             gl.active_texture(GL_TEXTURE0 + exp_active);
         }
@@ -912,6 +938,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             m.water.blend = blend6;
             probe(1);
         }
+        crate::state_inner::check_err("f_blend");
         let bconst = m.blend_constant.map(|c| [c.r, c.g, c.b, c.a]);
         if m.water.blend_constant != bconst {
             if let Some(c) = bconst {
@@ -948,6 +975,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             m.water.depth_bias = bias_t;
             probe(1);
         }
+        crate::state_inner::check_err("f_blendconst");
         let stencil_t = match (m.stencil_front, m.stencil_back) {
             (Some(fs), Some(bs)) => {
                 let r = m.stencil_reference.unwrap_or(0) as i32;

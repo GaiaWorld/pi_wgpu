@@ -13,11 +13,13 @@ use crate::state_inner;
 use crate::types::{Color, DynamicOffset, IndexFormat, RenderPassDescriptor};
 
 // GL 常量（glow 根面不导出 GL_*；规范值内联）。
-const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+// NOTE: split DRAW/READ framebuffer enums are rejected (0x500) on this WGL context;
+// every framebuffer bind must use the combined GL_FRAMEBUFFER target.
 const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
 const GL_FRAMEBUFFER: u32 = 0x8D40;
 const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
-const GL_DEPTH_ATTACHMENT: u32 = 0x8229;
+// 0x8229 is GL_R8; the framebuffer depth attachment point is 0x8D00.
+const GL_DEPTH_ATTACHMENT: u32 = 0x8D00;
 const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
 const GL_DEPTH_BUFFER_BIT: u32 = 0x0000_0100;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x0000_0400;
@@ -38,7 +40,8 @@ const INSTANCE_DIVISOR: u32 = 1;
 /// 且整型属性经 f32 变体必被驱动转浮点=uvec/ivec 形参语义错。归一化族（Unorm/Snorm）与浮点族仍走 f32 变体。
 const GL_BYTE: u32 = 0x1400;
 const GL_HALF_FLOAT: u32 = 0x140B;
-const GL_DOUBLE: u32 = 0x140E;
+// GL_DOUBLE is 0x140A (0x140E is not a vertex type).
+const GL_DOUBLE: u32 = 0x140A;
 const GL_UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
 const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
 fn vtx_fmt(f: crate::types::VertexFormat) -> (i32, u32, bool, bool) {
@@ -162,6 +165,7 @@ pub(crate) fn begin_impl<'p>(
     e: &'p mut CommandEncoder,
     d: &RenderPassDescriptor<'_>,
 ) -> RenderPass<'p> {
+    crate::state_inner::check_err("begin_pass");
     assert!(!e._opened_pass, "draw str-assert: 嵌套 render pass");
     assert!(
         d.timestamp_writes.is_none() && d.occlusion_query_set.is_none(),
@@ -247,12 +251,13 @@ pub(crate) fn begin_impl<'p>(
                 let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
                 crate::state_inner::set_draw_fbo(&mut mm, Some(fb));
                 crate::state_inner::flush_impl(&mut mm);
+    crate::state_inner::check_err("after_flush_mm");
             }
             let cname = ctext.and_then(|t| t._h.name());
             let dname = dtext.and_then(|t| t._h.name());
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
-                    GL_DRAW_FRAMEBUFFER,
+                    GL_FRAMEBUFFER,
                     Some(glow::NativeFramebuffer(
                         NonZeroU32::new(fb.0).expect("非零 fb 名"),
                     )),
@@ -318,7 +323,7 @@ pub(crate) fn begin_impl<'p>(
     };
     if fbo.is_none() {
         // 默认帧通道也同步水位；DRAW 目标与 flush 下发面对齐。
-        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None) });
+        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) });
         let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
         crate::state_inner::set_draw_fbo(&mut mm, None);
     }
@@ -390,6 +395,7 @@ pub(crate) fn begin_impl<'p>(
 
 // 设计预期：死程序句柄=断言；管线字段改记，程序切换差异下发。
 pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
+    crate::state_inner::check_err("set_pipeline");
     let name = x._program.handle.expect("draw str-assert: 死程序句柄");
     {
         let mut m = lock_state(p);
@@ -560,6 +566,7 @@ pub(crate) fn draw_impl(
     v: std::ops::Range<u32>,
     ins: std::ops::Range<u32>,
 ) {
+    crate::state_inner::check_err("draw");
     assert!(
         v.end >= v.start && ins.end >= ins.start,
         "draw str-assert: 区间倒置（instances={ins:?} vertices={v:?}）"
@@ -573,6 +580,7 @@ pub(crate) fn draw_impl(
     {
         let mut m = lock_state(p);
         state_inner::flush_impl(&mut m);
+    crate::state_inner::check_err("after_flush_m");
     }
     let mode = topo(p._topology);
     let count = (v.end - v.start) as i32;
@@ -606,6 +614,7 @@ pub(crate) fn draw_idx_impl(
     base: i32,
     ins: std::ops::Range<u32>,
 ) {
+    crate::state_inner::check_err("draw");
     assert!(base == 0, "draw str-assert: base_vertex≠0");
     assert!(
         ix.end >= ix.start && ins.end >= ins.start,
@@ -629,6 +638,7 @@ pub(crate) fn draw_idx_impl(
     {
         let mut m = lock_state(p);
         state_inner::flush_impl(&mut m);
+    crate::state_inner::check_err("after_flush_m");
     }
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let mode = topo(p._topology);
@@ -650,6 +660,7 @@ pub(crate) fn draw_idx_impl(
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
 pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
+    crate::state_inner::check_err("end_pass");
     // MSAA resolve 中转：当前持行（多重采样面）readPixels=驱动滤波采样聚合（等价 resolve，
     // 登记差异：上游 blit 精确多采样解析、此处像素滤波——uniform-clear 场景同色），
     // → 目的配置键 Fbo 行 texSub 直写；双方均 GL 底行在前=无行翻；目的行即取即还。
@@ -678,7 +689,7 @@ pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
             let mut read_rejected: bool = false;
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
-                    GL_DRAW_FRAMEBUFFER,
+                    GL_FRAMEBUFFER,
                     Some(glow::NativeFramebuffer(
                         std::num::NonZeroU32::new(msfb.0).expect("非零 ms fb"),
                     )),
@@ -753,6 +764,7 @@ pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
             .unwrap_or_else(|x| x.into_inner());
         crate::state_inner::set_draw_fbo(&mut mm, None);
         crate::state_inner::flush_impl(&mut mm);
+    crate::state_inner::check_err("after_flush_mm");
     }
     p._enc._opened_pass = false;
 }

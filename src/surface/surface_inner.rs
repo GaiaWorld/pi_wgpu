@@ -13,6 +13,7 @@ use crate::types::*;
 //    重 GetDC/SetPixelFormat 同一窗口 DC 是 Windows 禁止的用法）；Web：无 EGL 步（画布即表面）。
 // 3. 驱动步骤全部成功后才写 _cfg=Some；中途失败=log，_cfg 保持未配置（不留半配置）。
 pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfiguration) {
+    crate::state_inner::check_err("configure");
     if c.width == 0 || c.height == 0 {
         log::error!(
             "surface {:?} w={} h={}",
@@ -148,6 +149,7 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
 // 1. 桌面/安卓：swap_buffers（换帧+同步）；Web：空操作。
 // 2. 换帧报错不回传错误值（租约已消耗）：记 log::error!(码)，由下一次 get_current 以 Lost/Outdated 暴露。
 pub(crate) fn present_impl(_t: SurfaceTexture) {
+    crate::state_inner::check_err("present");
     if let Err(e) = crate::context_inner::surface_swap() {
         log::error!("surface {:?}", e);
     }

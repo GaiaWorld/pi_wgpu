@@ -54,7 +54,8 @@ const GL_HALF_FLOAT: u32 = 0x140B;
 /// GL_FLOAT：f32 数据类型（0x1406；深度侧=可写但采样过滤按 FLOAT_LINEAR）。
 const GL_FLOAT: u32 = 0x1406;
 /// GL_UNSIGNED_INT_24_8：D24S8 打包数据类型（0x83F1）。
-const GL_UNSIGNED_INT_24_8: u32 = 0x83F1;
+// Packed depth-stencil upload type is 0x84FA (0x83F1 is UNSIGNED_INT_8_8_8_8).
+const GL_UNSIGNED_INT_24_8: u32 = 0x84FA;
 /// GL_FLOAT_32_UNSIGNED_INT_24_8_REV：D32F_S8 打包数据类型（0x8DAD）。
 const GL_FLOAT_32_UNSIGNED_INT_24_8_REV: u32 = 0x8DAD;
 /// GL_UNSIGNED_SHORT：u16 数据类型（0x1403）。

@@ -11,7 +11,8 @@ use crate::types::{BufferAddress, Extent3d, TexelCopyBufferLayout, TexelCopyText
 use crate::upload::UploadErr;
 
 /// GL_COPY_WRITE_BUFFER（GL3.1+/ES3.0/WebGL2；非镜像/VAO 管辖的通用子写目标）。
-const GL_COPY_WRITE_BUFFER: u32 = 0x8F3F;
+// COPY_WRITE_BUFFER is 0x8F37.
+const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
 /// GL_TEXTURE_2D。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 /// GL_TEXTURE0 基址。

@@ -31,8 +31,10 @@ const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 /// GL_MAX_SAMPLES（多重采样能力顶查询，桌面 3.2+/ES3.1 EXT）。
 const GL_MAX_SAMPLES: u32 = 0x8D57;
-const GL_TEXTURE_MIN_LOD: u32 = 0x8130;
-const GL_TEXTURE_MAX_LOD: u32 = 0x8131;
+// LOD clamps are sampler-object params; 0x813A/0x813B are the spec values
+// (0x8130/0x8131 are not valid pnames -> INVALID_ENUM 0x500 on every call).
+const GL_TEXTURE_MIN_LOD: u32 = 0x813A;
+const GL_TEXTURE_MAX_LOD: u32 = 0x813B;
 
 const GL_TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FE;
 const GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FF;
@@ -42,7 +44,8 @@ const GL_TEXTURE_COMPARE_MODE: u32 = 0x884C;
 const GL_TEXTURE_COMPARE_FUNC: u32 = 0x884D;
 const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
 /// GL_COPY_WRITE_BUFFER（通用子写/分配目标；与 upload 芯同源）。
-const GL_COPY_WRITE_BUFFER: u32 = 0x8F3F;
+// COPY_WRITE_BUFFER is 0x8F37 (0x8F3F belongs to the copy-buffer binding group).
+const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
 /// GL_DYNAMIC_DRAW（存储用途提示）。
 const GL_DYNAMIC_DRAW: u32 = 0x88E8;
 /// 缓冲支持域（INDEX|VERTEX|UNIFORM|COPY_DST|COPY_SRC 按上游位值合成；MAP/STORAGE 词位在场但域外拒止——
@@ -574,6 +577,7 @@ pub(crate) fn texture_destroy_impl(tex: &Texture) {
 
 /// 建纹理视图（唯一 @public 视图入口）：维度相容校验 + 视图目标覆盖（Cube/CubeArray）。
 pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> TextureView {
+    crate::state_inner::check_err("create_view");
     use crate::types::TextureViewDimension as VD;
     // desc-align-wgpu25：dimension=None=按宿主维度/层数推定（上游语义）；本层「取整张」。
     let dim = d.dimension.unwrap_or_else(|| match tex._dim {
@@ -632,6 +636,7 @@ fn same_family(a: TextureFormat, b: TextureFormat) -> bool {
 }
 
 pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sampler {
+    crate::state_inner::check_err("create_sampler");
     // desc-align 补齐：上游合同——anisotropy ≥1，非 1 时三过滤须全 Linear（旧 2 的幂集校验随形退役）。
     assert!(
         s.anisotropy_clamp >= 1,
@@ -659,8 +664,10 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
             min_filter_gl(s.min_filter, s.mipmap_filter),
         );
         gl.sampler_parameter_i32(sm, GL_TEXTURE_MAG_FILTER, filter_gl(s.mag_filter));
+        crate::state_inner::check_err("s_min_filter");
         gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_S, addr_gl(s.address_mode_u));
         gl.sampler_parameter_i32(sm, GL_TEXTURE_WRAP_T, addr_gl(s.address_mode_v));
+        crate::state_inner::check_err("s_wrap");
         if let Some(cf) = s.compare {
             gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
             gl.sampler_parameter_i32(sm, GL_TEXTURE_COMPARE_FUNC, compare_gl(cf));
@@ -669,6 +676,7 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
         // 硬件再按 [min, min(max, levels-1)] 收拢——25 形无 lod_bias 字段，GL 侧不掷偏置。
         gl.sampler_parameter_f32(sm, GL_TEXTURE_MIN_LOD, s.lod_min_clamp);
         gl.sampler_parameter_f32(sm, GL_TEXTURE_MAX_LOD, s.lod_max_clamp);
+        crate::state_inner::check_err("s_lod");
         // 各向异性：EXT_texture_filter_anisotropic——能力顶=查询可得值；无扩展=降级不掷
         // （warn 留痕，请求不生效=能力面实话），有则取请求与硬件顶的较小值。
         if s.anisotropy_clamp > 1 {
@@ -684,6 +692,7 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
             }
         }
     });
+    crate::state_inner::check_err("s_return");
     Sampler { _h: h }
 }
 
@@ -791,6 +800,7 @@ pub(crate) fn create_bgl_impl(_d: &Device, b: &BindGroupLayoutDescriptor<'_>) ->
 }
 
 pub(crate) fn create_bg_impl(_d: &Device, b: &BindGroupDescriptor<'_>) -> BindGroup {
+    crate::state_inner::check_err("create_bind_group");
     let mut bound: Vec<crate::binds::BoundEntry> = Vec::with_capacity(b.entries.len());
     for e in b.entries {
         let le = b
@@ -923,6 +933,7 @@ pub(crate) fn create_pl_impl(_d: &Device, p: &PipelineLayoutDescriptor<'_>) -> P
 }
 
 pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> RenderPipeline {
+    crate::state_inner::check_err("create_pipeline");
     // desc-align-wgpu25：形照齐、法收窄——以下违约=短码断言含 label，无半建管线（前置拒止先于一切分配）。
     // entry_point=None=实现批落地：透传出码面自动选唯一入口（缺失/歧义=Err(NoEntry)→出码失败断言路径）。
     assert!(
