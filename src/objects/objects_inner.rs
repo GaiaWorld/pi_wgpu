@@ -33,6 +33,10 @@ fn bump(key: ReuseKey) -> u32 {
     *slot
 }
 
+/// 取用/交还串行闸：`count_active` 与 `bump` 分锁查询+自增之间存在他线程清零删除的窗口——
+/// 两函数整体串行化（每通道各一次，非热路径；锁序=cache→本闸→驱动）。
+static CACHE_OP: Mutex<()> = Mutex::new(());
+
 /// 活物理判据：当前计数>0 即活；纯读判定不改计数。
 fn count_active(key: ReuseKey) -> bool {
     let t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -124,10 +128,23 @@ fn delete_by_key(key: ReuseKey, name: GlHandle) {
     note_removed(kind_num_reuse(key), name.0);
 }
 
+/// 克隆持行：计数+1 并复制句柄快照（录制期把管线等复用对象引用延到提交后）。
+/// 与 release_reuse 严格成对；不做 GL 调用（对象已存在）。
+pub(crate) fn retain_reuse_impl(item: &Reusable) -> Reusable {
+    let _op = CACHE_OP.lock().unwrap_or_else(|e| e.into_inner());
+    let c = bump(item.key);
+    Reusable {
+        key: item.key,
+        handle: item.handle,
+        refcount: ShareU32::new(c),
+    }
+}
+
 // 1. 查表行且计数活跃 → 计数+1，行模板计数覆写快照，返回持有者副本（原子快照读数，真相在驻留表）。
 // 2. 行存在但计数已零（release 已物理删）→ 重新 glGen 原地覆写行（不复用缓存旧名——驱动可回收该名，行只做覆写不假定新名≠旧名）。
 // 3. 未命中 → 建物理、以计数=1 登记行与驻留表后返回；创建失败=断言，全表保持调用前原状。
 pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusable {
+    let _op = CACHE_OP.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(row) = cache.map.get_mut(&key) {
         if let Some(item) = row.first_mut() {
             if count_active(key) {
@@ -170,6 +187,7 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
 // 1. 全局计数-1（本地原子快照不参与真相）；已为零 → 断言（成对合同被破）。
 // 2. 减到零 → 按域物理删除 + 登记死名；缓存行留死名原样待 ensure 换新覆写。
 pub(crate) fn release_reuse_impl(item: &Reusable) {
+    let _op = CACHE_OP.lock().unwrap_or_else(|e| e.into_inner());
     let left = drop_count(item.key);
     if left == 0 {
         if let Some(name) = item.handle {

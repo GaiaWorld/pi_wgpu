@@ -100,6 +100,9 @@ pub mod draw;
 pub(crate) mod draw_inner;
 
 #[cfg(not(feature = "use_wgpu"))]
+pub(crate) mod record;
+
+#[cfg(not(feature = "use_wgpu"))]
 pub mod upload;
 
 #[cfg(not(feature = "use_wgpu"))]

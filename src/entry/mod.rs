@@ -63,10 +63,15 @@ pub struct Queue {
 pub struct CommandEncoder {
     pub(crate) _opened_pass: bool,
     pub(crate) _inner: Share<DeviceInner>,
+    /// 已录制命令（finish 时移交 CommandBuffer；提交序回放）。
+    pub(crate) _commands: Vec<crate::record::Command>,
 }
 /// 空类型：录制即执行之下没有可记录的内容，此类型仅维系官方伞面形状。契约=无内容、无资源。 @public
 #[derive(Debug)]
-pub struct CommandBuffer;
+pub struct CommandBuffer {
+    /// 录制命令（submit 时按序回放）。
+    pub(crate) _commands: Vec<crate::record::Command>,
+}
 /// 查询集句柄：RenderPassDescriptor.timestamp_writes / occlusion_query_set 词位的照齐占位类型。
 /// 本层 GL 路无对应实现、创建建面不提供（create_query_set 不立）——&QuerySet 按构造不可达，
 /// Some 值仅作防御拒止词汇位（短码 ErrQuery，begin 通道芯断言）。形宽法窄，与 PipelineCache 同式。 @public
@@ -153,7 +158,7 @@ impl Buffer {
 }
 /// 一对一直建的 GL 缓冲。句柄契约：活态⟺与当前附着代号一致；使用死句柄=错误码；
 /// 末引用 Drop 才调驱动删除（共享计数：绑定组与用户双持时互不删）；死句柄使用=错误码。 @public
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Buffer {
     /// 直建句柄（活态判定 + 驱动名）。
     pub(crate) _h: crate::objects::DirectHandle,
@@ -308,6 +313,23 @@ pub struct RenderPipeline {
     /// 设备级槽表会被后续建管线整体覆盖，故管线自持一份；set_pipeline 时拷入通道。 @internal
     pub(crate) _slots: crate::binds::SlotTable,
 }
+/// 管线持行（录制命令用）：程序/VAO 复用计数各 +1、布局与定态值拷贝。
+/// 生命周期：由 record 芯的持行体在命令销毁时成对 release。 @internal
+impl RenderPipeline {
+    /// 取一份持行副本。 @internal
+    pub(crate) fn retain(&self) -> RenderPipeline {
+        RenderPipeline {
+            _program: crate::objects::retain_reuse(&self._program),
+            _vao: crate::objects::retain_reuse(&self._vao),
+            _vertex: self._vertex.clone(),
+            _topology: self._topology,
+            _depth_stencil: self._depth_stencil.clone(),
+            _primitive: self._primitive.clone(),
+            _slots: self._slots.clone(),
+        }
+    }
+}
+
 /// 着色器模块：持反射登记表（(set,binding)↔类别/名映射）与转译产物（IR，供管线创建按入口出码）。 @public
 #[derive(Debug)]
 pub struct ShaderModule {
@@ -486,7 +508,10 @@ impl Device {
 
 /// Queue：提交面空壳——上层不得依赖提交生效点（录制即执行的公开合同）。写路径见 upload 模块。 @public
 impl Queue {
-    pub fn submit<I: IntoIterator<Item = super::CommandBuffer>>(&self, _buffer: I) {} // 真·空壳：不委托芯——「无提交点语义」本身就是契约。
+    pub fn submit<I: IntoIterator<Item = super::CommandBuffer>>(&self, buffers: I) {
+        let list: Vec<super::CommandBuffer> = buffers.into_iter().collect();
+        crate::record::submit_impl(self, &list)
+    }
 }
 
 /// CommandEncoder 的通道开关面。 @public

@@ -29,8 +29,15 @@ pub struct RenderPass<'pass> {
     pub(crate) _vao: Option<crate::objects::GlHandle>,
     /// 离屏附件 FBO 复用持行（begin 计数、end 交还；None=默认帧缓冲通道）。
     pub(crate) _fbo: Option<crate::objects::Reusable>,
+    /// 颜色附件宿主持行：wgpu 语义=通道持有附件引用（begin 之后上游即可放手，宿主须活到通道结束）——
+    /// 缺此持行则宿主被删时驱动自动从 FBO 剥离附件，绘制期报 0x8CD7。
+    pub(crate) _hold_color: Option<crate::entry::Texture>,
+    /// 深度附件宿主持行（同颜色持行语义）。
+    pub(crate) _hold_depth: Option<crate::entry::Texture>,
     /// MSAA resolve 对（多重采样宿主, resolve 目的宿主）——end 走驱动滤波采样读+直写中转。
     pub(crate) _resolve: Option<(crate::entry::Texture, crate::entry::Texture)>,
+    /// 回放通道标记：true=提交流回放的执行体（Drop 走执行芯），false=录制体（Drop 只入表）。
+    pub(crate) _replay: bool,
     /// 当前管线布局的槽分配（set_pipeline 时从管线拷入）：查槽必须与所用管线同源——
     /// 设备级槽表会被后来建的任何管线整体覆盖，唯有管线自带那份与该管线出码一致。
     pub(crate) _slots: crate::binds::SlotTable,
@@ -112,6 +119,10 @@ impl<'pass> RenderPass<'pass> {
 /// 自此起本通道绑定的资源方可合法销毁（引用合同：经绑定组持有的资源受强引用保护；program/VAO 由管线存活期覆盖——管线须存活至通道结束）。 @public
 impl Drop for RenderPass<'_> {
     fn drop(&mut self) {
-        crate::draw_inner::end_impl(self)
+        if self._replay {
+            crate::draw_inner::exec_end_impl(self)
+        } else {
+            crate::draw_inner::end_impl(self)
+        }
     }
 }

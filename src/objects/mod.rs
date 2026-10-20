@@ -105,6 +105,11 @@ pub(crate) struct HandleCache {
 pub(crate) fn ensure_reuse(key: ReuseKey, cache: &mut HandleCache) -> Reusable {
     crate::objects_inner::ensure_reuse_impl(key, cache)
 }
+/// 克隆持行：计数+1（录制命令持有复用对象用；与 release_reuse 成对）。
+pub(crate) fn retain_reuse(item: &Reusable) -> Reusable {
+    crate::objects_inner::retain_reuse_impl(item)
+}
+
 /// 一方引用退出：计数-1；归零即物理删+死名登记（镜像刷失=下次 flush 强制重发，非即时改写镜像）。
 /// 计数已为零再释放=断言（成对合同被破）。 @internal
 pub(crate) fn release_reuse(item: &Reusable) {

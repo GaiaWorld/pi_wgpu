@@ -185,6 +185,16 @@ pub(crate) struct Water {
 }
 
 /// 镜像名读数（None=驱动侧 0 名=无绑定语义）。
+/// 镜像字段名读数（诊断探针用）：None=0。
+pub(crate) fn name_of_public(o: Option<GlHandle>) -> u32 {
+    name_of(o)
+}
+
+/// 死名判据：登记表为空时零开销（常态）；非空才查表（避免把已删名重新下发进驱动）。
+fn dead_name(pending: bool, domain: u8, name: u32) -> bool {
+    pending && name != 0 && is_removed(domain, name)
+}
+
 fn name_of(o: Option<GlHandle>) -> u32 {
     match o {
         Some(g) => g.0,
@@ -428,6 +438,50 @@ fn apply_unpack(m: &StateMirror) {
 }
 
 /// 开/关统一下发体（调用者在 gl 门禁内）。
+/// UBO 区间下发的驱动对齐粒度（GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT）。
+const GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: u32 = 0x8A34;
+/// 当前 FBO 绑定查询名。
+const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+/// 帧缓冲完备态。
+const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+
+/// 驱动 UBO 区间对齐粒度缓存（首次查询；零值回落 256，WebGL2 合同值）。
+static UBO_ALIGN: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// wgpu 只要求绑定偏移 4 对齐，GL 的 bindBufferRange 却要求偏移对齐到
+/// UNIFORM_BUFFER_OFFSET_ALIGNMENT（本机/WebGL2=256）——向下取整并把窗口扩回原区间，
+/// 可见字节集合不变。
+fn ubo_range(off: u32, size: u32) -> (i32, i32) {
+    let align = *UBO_ALIGN.get_or_init(|| {
+        crate::context_inner::with_gl(|gl| unsafe {
+            let a = gl.get_parameter_i32(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT) as u32;
+            if a == 0 { 256 } else { a }
+        })
+    });
+    let aligned = off - off % align;
+    (aligned as i32, (size + (off - aligned)) as i32)
+}
+
+/// Env-gated framebuffer completeness tap (PI_GL_CHECK=1): logs an incomplete FBO before a draw.
+pub(crate) fn check_fbo(tag: &str, expect: u32) {
+    if std::env::var_os("PI_GL_CHECK").is_none() {
+        return;
+    }
+    crate::context_inner::with_gl(|gl| unsafe {
+        let st = gl.check_framebuffer_status(GL_FRAMEBUFFER);
+        if st == GL_FRAMEBUFFER_COMPLETE {
+            return;
+        }
+        let fbo = gl.get_parameter_i32(GL_FRAMEBUFFER_BINDING);
+        let mut vp = [0i32; 4];
+        gl.get_parameter_i32_slice(GL_VIEWPORT, &mut vp);
+        log::error!(
+            "glfbo tag={} status={:#x} fbo={} expect={} viewport={:?} tid={:?}",
+            tag, st, fbo, expect, vp, std::thread::current().id()
+        );
+    });
+}
+
 /// Env-gated GL error tap (PI_GL_CHECK=1): logs pending errors with a call-site tag.
 /// Diagnostics only; drains the queue so it must stay off in production runs.
 pub(crate) fn check_err(tag: &str) {
@@ -518,13 +572,16 @@ pub(crate) fn bind_ubo(
             (Some(g), 0, 0) => {
                 gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(glow::NativeBuffer(nz(g.0))))
             }
-            (Some(g), off, sz) => gl.bind_buffer_range(
-                GL_UNIFORM_BUFFER,
-                index,
-                Some(glow::NativeBuffer(nz(g.0))),
-                off as i32,
-                sz as i32,
-            ),
+            (Some(g), off, sz) => {
+                let (a_off, a_sz) = ubo_range(off, sz);
+                gl.bind_buffer_range(
+                    GL_UNIFORM_BUFFER,
+                    index,
+                    Some(glow::NativeBuffer(nz(g.0))),
+                    a_off,
+                    a_sz,
+                )
+            }
             (None, _, _) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
         };
     });
@@ -770,6 +827,11 @@ pub(crate) fn set_sample_mask(m: &mut StateMirror, mask: u64) {
 // 3. 下发后镜像不动（镜像即期望）、水位更新为实际下发值；死名表在整发档末尾整面清空。
 pub(crate) fn flush_impl(m: &mut StateMirror) {
     with_gl(|gl| unsafe {
+        // 世代判据：他线程/他编码器上次下发过后，本镜像水位不能证明驱动态仍为己——整组强发。
+        if m.epoch_seen != crate::context_inner::state_epoch() {
+            m.water = Water::default();
+        }
+        let dead_pending = has_removed();
         let exp_active = m.active_texture_unit.unwrap_or(0);
         let rb_frame = frame_now();
         if m.readback_frame != Some(rb_frame) {
@@ -839,36 +901,67 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         crate::state_inner::check_err("f_readback");
         // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
-        if has_removed() {
+        if dead_pending {
             // 死名表非空：镜像可能仍指名被删对象——清水位=下轮整组强发。
             m.water = Water::default();
         }
         let prog_name = name_of(m.program);
-        if m.water.program != Some(prog_name) {
+        if dead_name(dead_pending, 0, prog_name) {
+            m.program = None;
+            m.water.program = Some(0);
+        } else if m.water.program != Some(prog_name) {
             apply_program(m);
             m.water.program = Some(prog_name);
             probe(1);
         }
         let vao_name = name_of(m.vao);
-        if m.water.vao != Some(vao_name) {
+        if dead_name(dead_pending, 1, vao_name) {
+            m.vao = None;
+            m.water.vao = Some(0);
+        } else if m.water.vao != Some(vao_name) {
             apply_vao(m);
             m.water.vao = Some(vao_name);
             probe(1);
         }
         let fbo_name = name_of(m.fbo_draw);
-        if m.water.fbo_draw != Some(fbo_name) {
+        if dead_name(dead_pending, 2, fbo_name) {
+            m.fbo_draw = None;
+            m.water.fbo_draw = Some(0);
+        } else if m.water.fbo_draw != Some(fbo_name) {
             apply_fbo(m);
             m.water.fbo_draw = Some(fbo_name);
             probe(1);
         }
         let unpack_name = name_of(m.pixel_unpack_buffer);
-        if m.water.unpack != Some(unpack_name) {
+        if dead_name(dead_pending, 4, unpack_name) {
+            m.pixel_unpack_buffer = None;
+            m.water.unpack = Some(0);
+        } else if m.water.unpack != Some(unpack_name) {
             apply_unpack(m);
             m.water.unpack = Some(unpack_name);
             probe(1);
         }
         let mut switched = false;
         for i in 0..BIND_SLOTS {
+            // 死名槽先剔（镜像不再指名已删对象；应用重设后按未知重发）。
+            if let Some((g, _, _)) = m.ubo_bindings[i] {
+                if dead_name(dead_pending, 4, g.0) {
+                    m.ubo_bindings[i] = None;
+                    m.water.ubo[i] = None;
+                }
+            }
+            if let Some((g, _)) = m.texture_bindings[i] {
+                if dead_name(dead_pending, 5, g.0) {
+                    m.texture_bindings[i] = None;
+                    m.water.tex[i] = None;
+                }
+            }
+            if let Some(g) = m.sampler_bindings[i] {
+                if dead_name(dead_pending, 6, g.0) {
+                    m.sampler_bindings[i] = None;
+                    m.water.sampler[i] = None;
+                }
+            }
             if let Some((g, off, sz)) = m.ubo_bindings[i] {
                 let t = (g.0, off, sz);
                 if m.water.ubo[i] != Some(t) {
@@ -879,12 +972,13 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                             Some(glow::NativeBuffer(nz(g.0))),
                         );
                     } else {
+                        let (a_off, a_sz) = ubo_range(off, sz);
                         gl.bind_buffer_range(
                             GL_UNIFORM_BUFFER,
                             i as u32,
                             Some(glow::NativeBuffer(nz(g.0))),
-                            off as i32,
-                            sz as i32,
+                            a_off,
+                            a_sz,
                         );
                     }
                     m.water.ubo[i] = Some(t);
@@ -1020,6 +1114,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             probe(1);
         }
         clear_removed();
+        m.epoch_seen = crate::context_inner::state_epoch_bump();
     });
 }
 

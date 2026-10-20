@@ -161,7 +161,7 @@ fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirro
 // 2. 颜色附件恰一 Some；视图活态；timestamp_writes/occlusion_query_set=Some 恒拒（查询面无对应物）。违约=断言。
 // 3. 目标：帧视图=默认帧缓冲；宿主视图=按配置键复用 FBO（色附件 mip0/层0；深度、MSAA、
 // 4. 守卫置位，返回借用编码器的 RenderPass。
-pub(crate) fn begin_impl<'p>(
+pub(crate) fn exec_begin_impl<'p>(
     e: &'p mut CommandEncoder,
     d: &RenderPassDescriptor<'_>,
 ) -> RenderPass<'p> {
@@ -233,6 +233,54 @@ pub(crate) fn begin_impl<'p>(
             );
         }
     }
+    // 清除掩码合成：color/depth/stencil 各槽按 load=Clear 参与同一次 glClear——
+    // 与目标绑定同处一个 GL 段（他线程不得插进「绑目标」与「清目标」之间改绑）。
+    let mut mask: u32 = 0;
+    let mut col: Option<crate::types::Color> = None;
+    if let Some(x) = ca {
+        if let crate::types::LoadOp::Clear(c) = x.ops.load {
+            mask |= GL_COLOR_BUFFER_BIT;
+            col = Some(c);
+        }
+    }
+    let mut dep: Option<f32> = None;
+    let mut ste: Option<u32> = None;
+    if let Some(x) = dsa {
+        if let Some(ops) = x.depth_ops.as_ref() {
+            if let crate::types::LoadOp::Clear(v) = ops.load {
+                mask |= GL_DEPTH_BUFFER_BIT;
+                dep = Some(v as f32);
+            }
+        }
+        if stencil_ok {
+            if let Some(ops) = x.stencil_ops.as_ref() {
+                if let crate::types::LoadOp::Clear(v) = ops.load {
+                    mask |= GL_STENCIL_BUFFER_BIT;
+                    ste = Some(v);
+                }
+            }
+        }
+    }
+    /// 同段清除体（目标已绑；由调用方在 GL 段内执行）。
+    let do_clear = |gl: &glow::Context| {
+        if mask == 0 {
+            return;
+        }
+        unsafe {
+            if let Some(c) = col {
+                gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
+            }
+            if let Some(v) = dep {
+                // 深度清除走核心入口 glClearDepth(f64)——glClearDepthf 为 ES/EXT 名，
+                // 桌面上下文经 wgl 取该指针不保证在场（实测静默丢，登记事故）。
+                gl.clear_depth_f64(v as f64);
+            }
+            if let Some(v) = ste {
+                gl.clear_stencil(v as i32);
+            }
+            gl.clear(mask);
+        }
+    };
     // 通道目标：双无宿主=默认帧缓冲；任一宿主=按（色×深×目标）配置键复用 FBO 行。
     let host = ctext.or(dtext);
     let fbo: Option<crate::objects::Reusable> = match host {
@@ -317,59 +365,31 @@ pub(crate) fn begin_impl<'p>(
                     "draw str-assert: 离屏 FBO 不完备（status={:#x}）",
                     st
                 );
+                do_clear(gl);
             });
             Some(item)
         }
     };
     if fbo.is_none() {
-        // 默认帧通道也同步水位；DRAW 目标与 flush 下发面对齐。
-        with_gl(|gl| unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) });
+        if std::env::var_os("PI_GL_CHECK").is_some() {
+            static COMPOSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COMPOSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let lbl = d.label.unwrap_or("<none>");
+            let ld = ca.map(|x| match x.ops.load {
+                crate::types::LoadOp::Clear(_) => "clear",
+                crate::types::LoadOp::Load => "load",
+            }).unwrap_or("no-color");
+            log::error!("compose n={} label={} color_load={} vp={:?} tid={:?}", n, lbl, ld, m_viewport(d), std::thread::current().id());
+        }
+        // 默认帧通道也同步水位；绑目标与清除同段（防他线程插改绑）。
+        with_gl(|gl| {
+            unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) };
+            do_clear(gl);
+        });
         let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
         crate::state_inner::set_draw_fbo(&mut mm, None);
     }
-    // 清除掩码合成：color/depth/stencil 各槽按 load=Clear 参与同一次 glClear（目标已绑）。
-    let mut mask: u32 = 0;
-    let mut col: Option<crate::types::Color> = None;
-    if let Some(x) = ca {
-        if let crate::types::LoadOp::Clear(c) = x.ops.load {
-            mask |= GL_COLOR_BUFFER_BIT;
-            col = Some(c);
-        }
-    }
-    let mut dep: Option<f32> = None;
-    let mut ste: Option<u32> = None;
-    if let Some(x) = dsa {
-        if let Some(ops) = x.depth_ops.as_ref() {
-            if let crate::types::LoadOp::Clear(v) = ops.load {
-                mask |= GL_DEPTH_BUFFER_BIT;
-                dep = Some(v as f32);
-            }
-        }
-        if stencil_ok {
-            if let Some(ops) = x.stencil_ops.as_ref() {
-                if let crate::types::LoadOp::Clear(v) = ops.load {
-                    mask |= GL_STENCIL_BUFFER_BIT;
-                    ste = Some(v);
-                }
-            }
-        }
-    }
-    if mask != 0 {
-        with_gl(|gl| unsafe {
-            if let Some(c) = col {
-                gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
-            }
-            if let Some(v) = dep {
-                // 深度清除走核心入口 glClearDepth(f64)——glClearDepthf 为 ES/EXT 名，
-                // 桌面上下文经 wgl 取该指针不保证在场（实测静默丢，登记事故）。
-                gl.clear_depth_f64(v as f64);
-            }
-            if let Some(v) = ste {
-                gl.clear_stencil(v as i32);
-            }
-            gl.clear(mask);
-        });
-    }
+
     // store=Discard 档：GL 单缓冲无丢弃语义，log 留痕后 noop（登记差异）。
     if let Some(x) = ca {
         if x.ops.store == crate::types::StoreOp::Discard {
@@ -388,27 +408,32 @@ pub(crate) fn begin_impl<'p>(
         _index_range: (0, 0),
         _vao: None,
         _slots: crate::binds::SlotTable::default(),
+        _replay: true,
         _fbo: fbo,
+        _hold_color: ctext.cloned(),
+        _hold_depth: dtext.cloned(),
         _resolve: resolve_pair,
     }
 }
 
 // 设计预期：死程序句柄=断言；管线字段改记，程序切换差异下发。
-pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
+/// 执行芯：按「部件」设管线（录制持行体与直用共用；不依赖 RenderPipeline 本体）。
+pub(crate) fn exec_set_pipeline_parts(
+    p: &mut RenderPass<'_>,
+    x: &crate::record::RetainedPipeline,
+) {
     crate::state_inner::check_err("set_pipeline");
-    let name = x._program.handle.expect("draw str-assert: 死程序句柄");
+    let name = x.program.handle.expect("draw str-assert: 死程序句柄");
     {
         let mut m = lock_state(p);
         state_inner::set_program(&mut m, name);
     }
-    p._vertex = x._vertex.clone();
-    p._topology = x._topology;
-    p._vao = Some(x._vao.handle.expect("draw str-assert: 死 VAO 句柄"));
-
-    // 深度态随管线切换下发（None 臂显式关测试保写掩码，防继承污染下一通道）。
+    p._vertex = x.vertex.clone();
+    p._topology = x.topology;
+    p._vao = Some(x.vao.handle.expect("draw str-assert: 死 VAO 句柄"));
     {
         let mut m = lock_state(p);
-        match x._depth_stencil.as_ref() {
+        match x.depth_stencil.as_ref() {
             Some(ds) => crate::state_inner::set_depth(
                 &mut m,
                 true,
@@ -423,12 +448,18 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
             ),
         }
     }
-    p._slots = x._slots.clone();
+    p._slots = x.slots.clone();
     p._pipe_set = true;
 }
 
-// 设计预期：set∈0-3 且偏移计数与声明一致；委托 binds.apply_layout。
-pub(crate) fn set_bind_group_impl(
+/// 直用形（形照上游 set_pipeline）：由部件形派生。
+pub(crate) fn exec_set_pipeline(p: &mut RenderPass<'_>, x: &RenderPipeline) {
+    let held = crate::record::RetainedPipeline::new(x);
+    exec_set_pipeline_parts(p, &held);
+}
+
+// 设计预期：set∈0-3 且偏移计数与声明一致；委托 binds.apply_layout。// 设计预期：set∈0-3 且偏移计数与声明一致；委托 binds.apply_layout。
+pub(crate) fn exec_set_bind_group(
     p: &mut RenderPass<'_>,
     s: u32,
     g: &BindGroup,
@@ -449,7 +480,7 @@ pub(crate) fn set_bind_group_impl(
 
 // 设计预期：句柄活态（形照 25.0.2：入参=BufferSlice，步长由管线布局权威、不再收调用方值——
 // 原「步长与布局不符」比对随形退役；片段边界在 buffer.slice() 构造期已验（entry_inner slice_bounds））。
-pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry::BufferSlice<'_>) {
+pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry::BufferSlice<'_>) {
     let name = sl
         .buffer
         ._h
@@ -502,7 +533,7 @@ pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
 }
 
 // 设计预期：句柄活态（形照 25.0.2：BufferSlice+格式）；记有效字节区间，draw_indexed 消费校验。
-pub(crate) fn set_index_impl(
+pub(crate) fn exec_set_index(
     p: &mut RenderPass<'_>,
     sl: &crate::entry::BufferSlice<'_>,
     f: IndexFormat,
@@ -525,7 +556,7 @@ pub(crate) fn set_index_impl(
 }
 
 // 设计预期：Y 翻换（缺目标高度→收窄存原始值，登记差异）；深度区间原样透传；差异才下发。
-pub(crate) fn set_viewport_impl(
+pub(crate) fn exec_set_viewport(
     p: &mut RenderPass<'_>,
     x: f32,
     y: f32,
@@ -540,19 +571,19 @@ pub(crate) fn set_viewport_impl(
 }
 
 // 设计预期：裁剪框同源换算（收窄存原始值，登记差异）；差异才下发。
-pub(crate) fn set_scissor_impl(p: &mut RenderPass<'_>, x: u32, y: u32, w: u32, h: u32) {
+pub(crate) fn exec_set_scissor(p: &mut RenderPass<'_>, x: u32, y: u32, w: u32, h: u32) {
     let mut m = lock_state(p);
     state_inner::set_scissor(&mut m, [x as i32, y as i32, w as i32, h as i32], true);
 }
 
 // 设计预期：参考值入镜像；差异才下发。
-pub(crate) fn set_stencil_impl(p: &mut RenderPass<'_>, v: u32) {
+pub(crate) fn exec_set_stencil(p: &mut RenderPass<'_>, v: u32) {
     let mut m = lock_state(p);
     state_inner::set_stencil_reference(&mut m, v);
 }
 
 // 设计预期：常量色入镜像、差异才下发。
-pub(crate) fn set_blend_impl(p: &mut RenderPass<'_>, c: Color) {
+pub(crate) fn exec_set_blend(p: &mut RenderPass<'_>, c: Color) {
     let mut m = lock_state(p);
     state_inner::set_blend_constant(&mut m, c);
 }
@@ -561,7 +592,7 @@ pub(crate) fn set_blend_impl(p: &mut RenderPass<'_>, c: Color) {
 // 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异），instance 区间起点须 0
 // （WebGL2 无 base_instance；上游恒传 0..N）；实例数 1 走非实例化快路。
 // 完备→立即发出数组绘制（first=start，count=end-start）。
-pub(crate) fn draw_impl(
+pub(crate) fn exec_draw(
     p: &mut RenderPass<'_>,
     v: std::ops::Range<u32>,
     ins: std::ops::Range<u32>,
@@ -577,26 +608,22 @@ pub(crate) fn draw_impl(
     );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
-    {
-        let mut m = lock_state(p);
-        state_inner::flush_impl(&mut m);
-    crate::state_inner::check_err("after_flush_m");
-    }
     let mode = topo(p._topology);
     let count = (v.end - v.start) as i32;
     let icount = (ins.end - ins.start) as i32;
+    // 状态锁先、with_gl 后（锁序同 flush），并让「下发+绘制」占同一 GL 段——
+    // 他线程无法插进两者之间改绑（多线程编码共驱动上下文的必需原子面）。
+    let mut m = lock_state(p);
     crate::crash_diag::op(&format!(
         "draw_arrays mode={mode:#x} first={} count={count} instances={icount} vao={:?} prog={:?}",
         v.start,
         p._vao,
-        p._enc
-            ._inner
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .program
+        m.program
     ));
+    crate::state_inner::check_fbo("draw", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
+        state_inner::flush_impl(&mut m);
+        crate::state_inner::check_err("after_flush_m");
         if icount == 1 {
             gl.draw_arrays(mode, v.start as i32, count);
         } else {
@@ -608,7 +635,7 @@ pub(crate) fn draw_impl(
 // 设计预期（形照 25.0.2 三参 Range 形）：base≠0=断言；instance 区间起点须 0（WebGL2 无 base_instance）；
 // 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异）；绘制区间须落在绑定片段 [start,end) 内
 // （越界=断言，取代旧绑定期 c-count 校验——口径随形改为 draw 期）；通过→立即发元素绘制。
-pub(crate) fn draw_idx_impl(
+pub(crate) fn exec_draw_idx(
     p: &mut RenderPass<'_>,
     ix: std::ops::Range<u32>,
     base: i32,
@@ -635,21 +662,20 @@ pub(crate) fn draw_idx_impl(
         st,
         en
     );
-    {
-        let mut m = lock_state(p);
-        state_inner::flush_impl(&mut m);
-    crate::state_inner::check_err("after_flush_m");
-    }
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let mode = topo(p._topology);
     let off = st + (ix.start as u64) * w;
     let count = (ix.end - ix.start) as i32;
     let icount = (ins.end - ins.start) as i32;
+    let mut m = lock_state(p);
     crate::crash_diag::op(&format!(
         "draw_elements mode={mode:#x} count={count} off={off} instances={icount} vao={:?} prog={:?}",
-        p._vao, p._enc._inner.state.lock().unwrap_or_else(|e| e.into_inner()).program
+        p._vao, m.program
     ));
+    crate::state_inner::check_fbo("draw_idx", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
+        state_inner::flush_impl(&mut m);
+        crate::state_inner::check_err("after_flush_m");
         if icount == 1 {
             gl.draw_elements(mode, count, idx_type(f), off as i32)
         } else {
@@ -659,7 +685,7 @@ pub(crate) fn draw_idx_impl(
 }
 
 // 设计预期：store 动作落定（Store/Discard）；释放编码器单通道守卫（此后绑定资源方可销毁）。
-pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
+pub(crate) fn exec_end_impl(p: &mut RenderPass<'_>) {
     crate::state_inner::check_err("end_pass");
     // MSAA resolve 中转：当前持行（多重采样面）readPixels=驱动滤波采样聚合（等价 resolve，
     // 登记差异：上游 blit 精确多采样解析、此处像素滤波——uniform-clear 场景同色），
@@ -902,6 +928,7 @@ pub(crate) mod tests {
         let mut enc = crate::entry::CommandEncoder {
             _opened_pass: false,
             _inner: dev._inner.clone(),
+            _commands: Vec::new(),
         };
         let mk = |label: &str, fmt: crate::types::TextureFormat| {
             crate::entry_inner::create_texture_impl(
@@ -955,6 +982,7 @@ pub(crate) mod tests {
             occlusion_query_set: None,
         };
         drop(enc.begin_render_pass(&desc));
+        crate::record::flush_encoder(&mut enc);
         // 双附件复用：test 直接按同键 ensure 再手动绑读（begin/end 已交还行=此处重建属同配置）。
         let item = {
             let mut cache = enc._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
@@ -1069,8 +1097,235 @@ pub(crate) mod tests {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let p = enc.begin_render_pass(&bad_desc);
             drop(p);
+            crate::record::flush_encoder(&mut enc);
         }));
         assert!(r.is_err(), "深度族挂色槽=ErrRttDepth 断言");
         assert!(!enc._opened_pass, "拒止不留半通道");
     }
+}
+
+/// 诊断用：默认帧通道视口（从颜色附件宿主尺寸推断，无宿主=0）。
+fn m_viewport(d: &RenderPassDescriptor<'_>) -> (u32, u32) {
+    d.color_attachments
+        .iter()
+        .find_map(|x| x.as_ref())
+        .and_then(|x| x.view._tex.as_ref())
+        .map(|t| (t._size.width, t._size.height))
+        .unwrap_or((0, 0))
+}
+// ===== 录制面（提交序命令缓冲）：只入表，回放在 Queue::submit（record 芯）。 =====
+
+/// 录制期描述符校验（与执行芯同口径的合同面：拒止发生在 begin 调用点，不留半通道）。
+fn validate_begin(d: &RenderPassDescriptor<'_>) {
+    assert!(
+        d.timestamp_writes.is_none() && d.occlusion_query_set.is_none(),
+        "draw str-assert: ErrQuery 时间戳/遮挡查询面无对应物（label={:?}）",
+        d.label
+    );
+    let some = d.color_attachments.iter().filter(|x| x.is_some()).count();
+    assert!(some <= 1, "draw str-assert: 颜色附件至多一个 Some（得 {some}）");
+    let ca = d.color_attachments.iter().find_map(|x| x.as_ref());
+    let dsa = d.depth_stencil_attachment.as_ref();
+    let ctext = ca.and_then(|x| x.view._tex.as_ref());
+    let dtext = dsa.and_then(|x| x.view._tex.as_ref());
+    if let Some(t) = ctext {
+        assert!(
+            !is_depth_format(t._format),
+            "draw str-assert: ErrRttDepth 深度族不可挂色附件槽（format={:?}）",
+            t._format
+        );
+    }
+    if let Some(rv) = ca.and_then(|x| x.resolve_target) {
+        let ms = ctext.expect("draw str-assert: resolve 附件宿主不可为帧视图");
+        assert!(
+            ms._samples == 4,
+            "draw str-assert: ErrResolveNoMS resolve 目的需 sample-4 附件（samples={}）",
+            ms._samples
+        );
+        let rtx = rv
+            ._tex
+            .as_ref()
+            .expect("draw str-assert: resolve 目的帧视图无宿主");
+        assert!(
+            rtx._samples == 1
+                && rtx._dim == crate::types::TextureDimension::D2
+                && rtx._layers == 1,
+            "draw str-assert: ErrResolveDst resolve 目的需单采样 D2 单层（samples={}）",
+            rtx._samples
+        );
+        assert!(
+            rtx._format == ms._format,
+            "draw str-assert: ErrResolveFmt resolve 目的与附件格式须一致"
+        );
+    }
+    if let Some(x) = dsa {
+        assert!(
+            x.view._tex.is_some(),
+            "draw str-assert: ErrRttDepth 深度槽不接受帧视图宿主（label={:?}）",
+            d.label
+        );
+    }
+}
+
+/// 开通道：录制期只校验单通道守卫并入表（附件合法性/清理发生在提交回放）。
+pub(crate) fn begin_impl<'p>(
+    e: &'p mut CommandEncoder,
+    d: &RenderPassDescriptor<'_>,
+) -> RenderPass<'p> {
+    assert!(!e._opened_pass, "draw str-assert: 嵌套 render pass");
+    validate_begin(d);
+    e._opened_pass = true;
+    let color = d
+        .color_attachments
+        .iter()
+        .find_map(|x| x.as_ref())
+        .map(|ca| crate::record::Attachment {
+            view: ca.view.clone(),
+            resolve: ca.resolve_target.cloned(),
+            ops: ca.ops,
+        });
+    let depth = d
+        .depth_stencil_attachment
+        .map(|dsa| crate::record::DepthAttachment {
+            view: dsa.view.clone(),
+            depth_ops: dsa.depth_ops,
+            stencil_ops: dsa.stencil_ops,
+        });
+    e._commands.push(crate::record::Command::Begin(crate::record::PassBegin {
+        label: d.label.map(str::to_string),
+        color,
+        depth,
+    }));
+    RenderPass {
+        _enc: e,
+        _vertex: Vec::new(),
+        _pipe_set: false,
+        _vertex_ready: false,
+        _index_ready: false,
+        _topology: crate::types::PrimitiveTopology::TriangleList,
+        _index_format: None,
+        _index_range: (0, 0),
+        _vao: None,
+        _slots: crate::binds::SlotTable::default(),
+        _fbo: None,
+        _hold_color: None,
+        _hold_depth: None,
+        _resolve: None,
+        _replay: false,
+    }
+}
+
+/// 关通道：入表并释放单通道守卫（资源交还在回放端）。
+pub(crate) fn end_impl(p: &mut RenderPass<'_>) {
+    p._enc._commands.push(crate::record::Command::End);
+    p._enc._opened_pass = false;
+}
+
+/// 录制：设管线（持行程序/VAO 复用计数）。
+pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
+    p._enc
+        ._commands
+        .push(crate::record::Command::SetPipeline(
+            crate::record::RetainedPipeline::new(x),
+        ));
+}
+
+/// 录制：设绑定组。
+pub(crate) fn set_bind_group_impl(
+    p: &mut RenderPass<'_>,
+    set: u32,
+    g: &BindGroup,
+    offsets: &[DynamicOffset],
+) {
+    p._enc._commands.push(crate::record::Command::SetBindGroup {
+        set,
+        group: crate::record::RetainedBindGroup {
+            entries: g._bound.clone(),
+        },
+        offsets: offsets.to_vec(),
+    });
+}
+
+/// 录制：设顶点缓冲槽。
+pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, slot: u32, s: &crate::entry::BufferSlice<'_>) {
+    p._enc._commands.push(crate::record::Command::SetVertex {
+        slot,
+        buffer: s.buffer.clone(),
+        offset: s.offset,
+        size: s.size.map(|z| z.get()),
+    });
+}
+
+/// 录制：设索引缓冲。
+pub(crate) fn set_index_impl(
+    p: &mut RenderPass<'_>,
+    s: &crate::entry::BufferSlice<'_>,
+    format: IndexFormat,
+) {
+    p._enc._commands.push(crate::record::Command::SetIndex {
+        buffer: s.buffer.clone(),
+        offset: s.offset,
+        size: s.size.map(|z| z.get()),
+        format,
+    });
+}
+
+/// 录制：视口。
+pub(crate) fn set_viewport_impl(
+    p: &mut RenderPass<'_>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    dn: f32,
+    up: f32,
+) {
+    p._enc
+        ._commands
+        .push(crate::record::Command::SetViewport { x, y, w, h, dn, up });
+}
+
+/// 录制：裁剪框。
+pub(crate) fn set_scissor_impl(p: &mut RenderPass<'_>, x: u32, y: u32, w: u32, h: u32) {
+    p._enc
+        ._commands
+        .push(crate::record::Command::SetScissor { x, y, w, h });
+}
+
+/// 录制：模板参考值。
+pub(crate) fn set_stencil_impl(p: &mut RenderPass<'_>, v: u32) {
+    p._enc._commands.push(crate::record::Command::SetStencilRef(v));
+}
+
+/// 录制：混合常量色。
+pub(crate) fn set_blend_impl(p: &mut RenderPass<'_>, c: Color) {
+    p._enc
+        ._commands
+        .push(crate::record::Command::SetBlendConstant(c));
+}
+
+/// 录制：数组绘制。
+pub(crate) fn draw_impl(
+    p: &mut RenderPass<'_>,
+    vertices: std::ops::Range<u32>,
+    instances: std::ops::Range<u32>,
+) {
+    p._enc._commands.push(crate::record::Command::Draw {
+        vertices,
+        instances,
+    });
+}
+
+/// 录制：索引绘制。
+pub(crate) fn draw_idx_impl(
+    p: &mut RenderPass<'_>,
+    indices: std::ops::Range<u32>,
+    base_vertex: i32,
+    instances: std::ops::Range<u32>,
+) {
+    p._enc._commands.push(crate::record::Command::DrawIndexed {
+        indices,
+        base_vertex,
+        instances,
+    });
 }

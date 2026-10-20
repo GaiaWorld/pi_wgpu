@@ -9,7 +9,7 @@
 //! 跨线程让出/重绑全通；该线程终止后重绑由地基断言拒绝（合同=附着创建线程须存活至进程末）。
 
 use std::cell::{Cell, UnsafeCell};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
@@ -107,6 +107,20 @@ thread_local! { static HELD: Cell<u32> = const { Cell::new(0) }; }
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// 等待唤醒的兜底轮询步长（防 notify 与登记竞态空转）。
 const POLL_STEP: Duration = Duration::from_millis(50);
+
+/// 状态下发世代：任一线程/编码器完成一次状态下发即自增；镜像水位跨世代作废
+/// （GL 上下文进程内共享，两个编码器各持镜像时，甲的水位不能证明乙未改过驱动态）。
+static STATE_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+/// 当前状态下发世代（flush 水位判据）。
+pub(crate) fn state_epoch() -> u64 {
+    STATE_EPOCH.load(Ordering::Acquire)
+}
+
+/// 标记一次状态下发完成，返回新世代。
+pub(crate) fn state_epoch_bump() -> u64 {
+    STATE_EPOCH.fetch_add(1, Ordering::AcqRel) + 1
+}
 
 /// 当前附着代号（锁外可读的失配判定基准；0=未初始化，首附着/首 bump 立基线 1）。
 pub(crate) fn generation_now() -> u32 {
@@ -650,6 +664,7 @@ mod tests {
         let mut enc = crate::entry::CommandEncoder {
             _opened_pass: false,
             _inner: dev._inner.clone(),
+            _commands: Vec::new(),
         };
         let view = crate::entry::TextureView {
             _tex: None,
@@ -756,6 +771,7 @@ mod tests {
         let mut enc = crate::entry::CommandEncoder {
             _opened_pass: false,
             _inner: dev._inner.clone(),
+            _commands: Vec::new(),
         };
         drop(enc.begin_render_pass(&desc));
         let buf = crate::entry_inner::create_buffer_impl(
@@ -901,6 +917,7 @@ mod tests {
         let mut enc = crate::entry::CommandEncoder {
             _opened_pass: false,
             _inner: dev._inner.clone(),
+            _commands: Vec::new(),
         };
         drop(enc.begin_render_pass(&desc));
         let src0 = crate::types::TexelCopyTextureInfo {

@@ -17,7 +17,7 @@ pub(crate) enum BindDomain {
 }
 
 /// 绑定组条目（应用期单位）：定位键+驱动名来源，兼作资源强引用（生命周期合同：资源先于组销毁=断言）。 @internal
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct BoundEntry {
     /// 布局声明号（与布局条目 (set,binding) 对表；槽查找键的一半，set 在应用点给定）。
     pub(crate) binding: u32,

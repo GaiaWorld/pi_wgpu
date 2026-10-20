@@ -271,11 +271,13 @@ pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopy
 //    组装块（bpr_eff stride，行隙零填）→交还 write_buffer 子写路。无 PBO/扩枚面（ES2 可达+同步保证）。
 // 3. 缓冲内容即刻可读（get_sub_data 同调用点后有效）——无 pending 态。
 pub(crate) fn copy_texture_to_buffer_impl(
-    _e: &mut crate::entry::CommandEncoder,
+    e: &mut crate::entry::CommandEncoder,
     src: TexelCopyTextureInfo<'_>,
     dst: crate::types::TexelCopyBufferInfo<'_>,
     size: Extent3d,
 ) {
+    // 拷贝是编码器命令：先冲掉本编码器已录制的通道，保「先绘制后读回」的同编码器顺序。
+    crate::record::flush_encoder(e);
     let tex = src.texture;
     let buf = dst.buffer;
     let tn = tex._h.name();
@@ -364,7 +366,7 @@ pub(crate) fn copy_texture_to_buffer_impl(
     let mut block: Vec<u8> = vec![0u8; total as usize];
     let mip: i32 = src.mip_level as i32;
     let item = {
-        let mut cache = _e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
+        let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
         crate::objects::ensure_reuse(
             crate::objects::ReuseKey::Fbo(crate::draw_inner::rtt_fbo_key(Some(tex), None)),
             &mut cache,
@@ -553,11 +555,13 @@ pub(crate) fn copy_buffer_to_texture_impl(
 // 设计预期（伪码·示意·非唯一实现）：纹→纹=CPU 中转两程（本机 blit 需 READ/DRAW 分绑目标枚举=ES 系
 // 空转面，中转零扩展依赖=最稳；性能差异登记）。门=双方活性/位/aspect/单层/同像素宽/非深度。
 pub(crate) fn copy_texture_to_texture_impl(
-    e: &crate::entry::CommandEncoder,
+    e: &mut crate::entry::CommandEncoder,
     src: TexelCopyTextureInfo<'_>,
     dst: TexelCopyTextureInfo<'_>,
     copy_size: Extent3d,
 ) {
+    // 编码器命令：先冲掉本编码器已录制的通道，保同编码器先绘制后拷贝。
+    crate::record::flush_encoder(e);
     let stx = src.texture;
     let dtx = dst.texture;
     assert!(stx._h.name().is_some(), "upload 断言: 源纹理死句柄");
@@ -728,6 +732,7 @@ pub(crate) mod tests {
         let mut enc = crate::entry::CommandEncoder {
             _opened_pass: false,
             _inner: dev._inner.clone(),
+            _commands: Vec::new(),
         };
         let tex = crate::entry_inner::create_texture_impl(
             &dev,

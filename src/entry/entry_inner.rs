@@ -1135,6 +1135,7 @@ pub(crate) fn create_encoder_impl(d: &Device, _c: &CommandEncoderDescriptor<'_>)
     CommandEncoder {
         _opened_pass: false,
         _inner: d._inner.clone(),
+        _commands: Vec::new(),
     }
 }
 
@@ -1152,8 +1153,10 @@ pub(crate) fn device_reset_state(d: &Device) {
     crate::state_inner::reset_all(&mut st);
 }
 
-pub(crate) fn encoder_finish(_e: CommandEncoder) -> CommandBuffer {
-    CommandBuffer
+pub(crate) fn encoder_finish(mut e: CommandEncoder) -> CommandBuffer {
+    CommandBuffer {
+        _commands: std::mem::take(&mut e._commands),
+    }
 }
 
 /// RangeBounds→字节区间解算（上游 check_buffer_bounds 同口径）：开界=到末尾；

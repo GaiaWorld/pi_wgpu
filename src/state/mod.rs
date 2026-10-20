@@ -67,6 +67,8 @@ pub(crate) struct StateMirror {
     /// 整发档已下发水位（优化件：非回读组「上次实际下发」的原语快照，差异才发；缺省=从未发=首轮全发）。
     /// 死名表非空或整面重置（reset_all）时归零=下轮强发一轮。值域与比较语义见 state 芯 Water 注释。 @internal
     pub(crate) water: crate::state_inner::Water,
+    /// 状态下发世代快照：与全局世代不符=他线程/他编码器改过驱动态，水位作废整组强发。
+    pub(crate) epoch_seen: u64,
     /// 可回读档帧门：上次执行驱动回读比对的帧号（None=从未）；与当前帧号不等时才重做回读。
     pub(crate) readback_frame: Option<u32>,
 }
