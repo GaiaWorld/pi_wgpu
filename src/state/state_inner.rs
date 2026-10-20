@@ -663,6 +663,8 @@ pub(crate) fn set_primitive(
         }
         gl.front_face(front_face_to_gl(front));
         gl.polygon_mode(GL_FRONT_AND_BACK, polygon_to_gl(polygon));
+        // 驱动新建上下文默认线宽≠1.0；管线固定功能切换时归一（防残留线态画面）。
+        gl.line_width(1.0);
     });
 }
 

@@ -574,6 +574,13 @@ impl App {
             cull_mode: Some(Face::Back),
             ..Default::default()
         };
+        // 光视与主视上下反置→同几何视图绕序相反：shadow 管线单独 Cw+关剔除（光视须见
+        // 双面）；主三通道仍 prim（Back+Ccw，仰视地面 CW 假象已消）。
+        let prim_shadow = PrimitiveState {
+            front_face: FrontFace::Cw,
+            cull_mode: None,
+            ..prim.clone()
+        };
 
         fn vpos3() -> VertexBufferLayout<'static> {
             VertexBufferLayout {
@@ -603,7 +610,7 @@ impl App {
             }),
             depth_stencil: Some(dss.clone()),
             multisample: MultisampleState::default(),
-            primitive: prim.clone(),
+            primitive: prim_shadow.clone(),
             multiview: None,
             cache: None,
         });

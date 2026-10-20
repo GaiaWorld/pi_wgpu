@@ -397,6 +397,7 @@ pub(crate) fn set_pipeline_impl(p: &mut RenderPass<'_>, x: &RenderPipeline) {
     p._vertex = x._vertex.clone();
     p._topology = x._topology;
     p._vao = Some(x._vao.handle.expect("draw str-assert: 死 VAO 句柄"));
+
     // 深度态随管线切换下发（None 臂显式关测试保写掩码，防继承污染下一通道）。
     {
         let mut m = lock_state(p);
