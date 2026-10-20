@@ -296,7 +296,15 @@ pub(crate) fn adapter_format_features(_a: &Adapter, f: TextureFormat) -> Texture
             | TextureFormat::Depth24PlusStencil8
             | TextureFormat::Depth32Float
     );
-    let allowed = if supported {
+    // 深度族=渲染/采样可用但 copy 路硬拒（readPixels DEPTH_COMPONENT 本机 0x502 实测定论，
+    // upload ErrCopyDepth）——能力面如实报 RENDER_ATTACHMENT only，不虚报 COPY_DST。
+    let depth_family = matches!(
+        f,
+        TextureFormat::Depth24PlusStencil8 | TextureFormat::Depth32Float
+    );
+    let allowed = if depth_family {
+        TextureUsages::RENDER_ATTACHMENT
+    } else if supported {
         TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT
     } else {
         TextureUsages::empty()
