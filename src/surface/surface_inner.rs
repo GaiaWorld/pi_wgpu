@@ -110,6 +110,7 @@ pub(crate) fn get_current_impl(
         _samples: 1,
         _format: c.format,
         _usage: c.usage,
+        _surface: true,
     };
     Ok(SurfaceTexture {
         texture,

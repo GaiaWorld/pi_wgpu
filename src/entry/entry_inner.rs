@@ -418,18 +418,65 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
     crate::context_inner::with_gl(|gl| unsafe {
         // 存储新鲜度：先清可能遗留的前序操作错误（如上传 RowPitch 非对齐），
         // 防粘进本纹理错误探测造成假「存储被拒」误诊。
-        while gl.get_error() != 0 {}
+        let mut stale_codes: Vec<u32> = Vec::new();
+        loop {
+            let code = gl.get_error() as u32;
+            if code == 0 {
+                break;
+            }
+            stale_codes.push(code);
+            if stale_codes.len() > 8 {
+                break;
+            }
+        }
         gl.bind_texture(target, Some(glow::NativeTexture(nz(name))));
+        let e_bind = gl.get_error() as u32;
+        if e_bind != 0 || !stale_codes.is_empty() {
+            log::error!(
+                "entry: 绑定/前序 err bind={:#x} stale={:?} name={} target={:#x}（label={:?}）",
+                e_bind, stale_codes, name.0, target, t.label
+            );
+        }
         match target {
             GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {
-                gl.tex_storage_3d(
-                    target,
-                    t.mip_level_count as i32,
-                    params.internal_format,
-                    t.size.width as i32,
-                    t.size.height as i32,
-                    layers as i32,
-                );
+                if crate::draw_inner::is_depth_format(t.format) {
+                    // 深度族数组/3D：texStorage3D 在本上下文对深度 internal 直接 0x502
+                    // （图集深度纹理实锤）——改经典 texImage3D 逐 mip 置存储（全代通用）。
+                    for lvl in 0..t.mip_level_count {
+                        gl.tex_image_3d(
+                            target,
+                            lvl as i32,
+                            params.internal_format as i32,
+                            (t.size.width >> lvl).max(1) as i32,
+                            (t.size.height >> lvl).max(1) as i32,
+                            layers as i32,
+                            0,
+                            params.format,
+                            params.pixel_type,
+                            None::<&[u8]>,
+                        );
+                    }
+                } else {
+                    gl.tex_storage_3d(
+                        target,
+                        t.mip_level_count as i32,
+                        params.internal_format,
+                        t.size.width as i32,
+                        t.size.height as i32,
+                        layers as i32,
+                    );
+                }
+                let serr = gl.get_error() as u32;
+                if serr != 0 {
+                    log::error!(
+                        "entry: 纹理存储被拒(数组) fmt={:?} ifmt={:#x} err={:#x} layers={}（label={:?}）",
+                        t.format,
+                        params.internal_format,
+                        serr,
+                        layers,
+                        t.label
+                    );
+                }
             }
             _ => {
                 if t.sample_count > 1 {
@@ -483,10 +530,17 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
                 let serr = gl.get_error() as u32;
                 if serr != 0 {
                     log::error!(
-                        "entry: 纹理存储被拒 fmt={:?} ifmt={:#x} err={:#x}（label={:?}）",
+                        "entry: 纹理存储被拒 fmt={:?} ifmt={:#x} err={:#x} target={:#x} {}x{} layers={} mips={} samples={} tid={:?}（label={:?}）",
                         t.format,
                         params.internal_format,
                         serr,
+                        target,
+                        t.size.width,
+                        t.size.height,
+                        layers,
+                        t.mip_level_count,
+                        t.sample_count,
+                        std::thread::current().id(),
                         t.label
                     );
                 }
@@ -509,6 +563,7 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         _samples: t.sample_count,
         _format: t.format,
         _usage: t.usage,
+        _surface: false,
     }
 }
 
@@ -543,6 +598,15 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
         "entry 断言: 视图维度与纹理维度不相容（field=dimension/dim_inferred, label={:?}）",
         d.label
     );
+    // Surface backbuffer: no GL texture object (placeholder name 0); view must stay a frame view
+    // (same shape as SurfaceTexture::view), otherwise the attachment gate reports a dead handle.
+    if tex._surface {
+        return TextureView {
+            _tex: None,
+            _target: 0,
+            _dim: dim,
+        };
+    }
     let target = match dim {
         VD::Cube => GL_TEXTURE_CUBE_MAP,
         VD::CubeArray => GL_TEXTURE_CUBE_MAP_ARRAY,

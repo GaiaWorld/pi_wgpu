@@ -196,6 +196,8 @@ pub struct Texture {
     pub(crate) _format: crate::types::TextureFormat,
     /// 创建期用途快照。
     pub(crate) _usage: crate::types::TextureUsages,
+    /// Surface backbuffer flag: placeholder handle (name 0), view becomes a frame view.
+    pub(crate) _surface: bool,
 }
 impl Texture {
     /// 整张缺省拷贝目标（上游同式：mip 0/原点/All）——write_texture/copy_texture 消费。 @public

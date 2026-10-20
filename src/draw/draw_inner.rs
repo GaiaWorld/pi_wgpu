@@ -208,6 +208,10 @@ pub(crate) fn begin_impl<'p>(
     if let Some(t) = dtext {
         host_gate(t, "depth");
     }
+    // Packed-stencil capability of the depth attachment (non-packed => stencil ops unusable).
+    let stencil_ok: bool = dtext
+        .map(|t| is_packed_stencil(t._format))
+        .unwrap_or(false);
     // 附件宿主合法性：dsa 视图缺宿主（帧视图挂深度槽）或 color 槽挂深度族=拒止。
     if let Some(x) = dsa {
         assert!(
@@ -215,20 +219,15 @@ pub(crate) fn begin_impl<'p>(
             "draw str-assert: ErrRttDepth 深度槽不接受帧视图宿主（label={:?}）",
             d.label
         );
-        assert!(
-            !(dsa.is_some()
-                && dsa.unwrap().stencil_ops.is_some()
-                && !is_packed_stencil(
-                    dsa.unwrap()
-                        .view
-                        ._tex
-                        .as_ref()
-                        .map(|t| t._format)
-                        .unwrap_or(crate::types::TextureFormat::Rgba8Unorm)
-                )),
-            "draw str-assert: ErrStencilFormat 模板槽需打包深度格式（label={:?}）",
-            d.label
-        );
+        // ErrStencilFormat: stencil ops on a non-packed depth format has no GL slot.
+        // Degrade (log + ignore stencil) instead of aborting the frame; clear path below
+        // also gates on stencil_ok so no GL_STENCIL clear hits a depth-only attachment.
+        if dsa.unwrap().stencil_ops.is_some() && !stencil_ok && warn_once(d.label) {
+            log::error!(
+                "draw: ErrStencilFormat 模板槽需打包深度格式（降级=忽略模板，label={:?}）",
+                d.label
+            );
+        }
     }
     // 通道目标：双无宿主=默认帧缓冲；任一宿主=按（色×深×目标）配置键复用 FBO 行。
     let host = ctext.or(dtext);
@@ -341,10 +340,12 @@ pub(crate) fn begin_impl<'p>(
                 dep = Some(v as f32);
             }
         }
-        if let Some(ops) = x.stencil_ops.as_ref() {
-            if let crate::types::LoadOp::Clear(v) = ops.load {
-                mask |= GL_STENCIL_BUFFER_BIT;
-                ste = Some(v);
+        if stencil_ok {
+            if let Some(ops) = x.stencil_ops.as_ref() {
+                if let crate::types::LoadOp::Clear(v) = ops.load {
+                    mask |= GL_STENCIL_BUFFER_BIT;
+                    ste = Some(v);
+                }
             }
         }
     }
@@ -779,8 +780,30 @@ pub(crate) fn rtt_fbo_key(
     k
 }
 
+/// Per-label once-gate for noisy degrade logs (avoids per-frame spam).
+fn warn_once(label: Option<&str>) -> bool {
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    let m = SEEN.get_or_init(|| Mutex::new(Vec::new()));
+    let mut g = m.lock().unwrap_or_else(|e| e.into_inner());
+    let key = label.unwrap_or("<none>").to_string();
+    if g.iter().any(|k| k == &key) {
+        false
+    } else {
+        g.push(key);
+        true
+    }
+}
+
 /// 附件宿主四前置门 + 槽系族校验（depth_lane=深度槽须深度族；色槽反之）。
 pub(crate) fn host_gate(t: &crate::entry::Texture, lane: &str) {
+    if t._h.name().is_none() {
+        log::error!(
+            "draw: 附件死句柄 lane={} dim={:?} {}x{} layers={} samples={} fmt={:?} usage={:?} gen={} tid={:?}",
+            lane, t._dim, t._size.width, t._size.height, t._layers, t._samples, t._format, t._usage,
+            t._h.generation(), std::thread::current().id()
+        );
+    }
     assert!(
         t._h.name().is_some(),
         "draw str-assert: 附件宿主纹理死句柄（{lane}）"
