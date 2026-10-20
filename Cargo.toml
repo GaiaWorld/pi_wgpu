@@ -2,7 +2,7 @@
 # 依赖版本策略：开发期 path 钉定；官方挂接批切 registry 发布版
 [package]
 name = "pi_wgpu"
-version = "0.4.0"
+version = "0.3.7"
 edition = "2021"
 description = "WebGPU compatible subset on GL/GLES/WebGL2 - rebuilt skeleton (design: pi-wgpu-rebuild)"
 license = "MIT OR Apache-2.0"
@@ -11,6 +11,8 @@ license = "MIT OR Apache-2.0"
 default = ["gl"]
 gl = []
 single_thread = []
+# 宽松上传（默认关）：接受 bytes_per_row 非 4 倍数，行补齐拷贝后发驱动（ES2 不可行路径拒止保留）。
+loose_upload = []
 geterror = []
 webgl_context = []
 webgl = []
@@ -50,3 +52,4 @@ windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas", "ImageBitmap", "Window", "Navigator"] }
 js-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] } # wasm js 后端

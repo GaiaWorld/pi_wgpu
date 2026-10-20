@@ -416,6 +416,9 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         t.size.width, t.size.height, t.mip_level_count, t.format, params.internal_format, t.sample_count
     ));
     crate::context_inner::with_gl(|gl| unsafe {
+        // 存储新鲜度：先清可能遗留的前序操作错误（如上传 RowPitch 非对齐），
+        // 防粘进本纹理错误探测造成假「存储被拒」误诊。
+        while gl.get_error() != 0 {}
         gl.bind_texture(target, Some(glow::NativeTexture(nz(name))));
         match target {
             GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {

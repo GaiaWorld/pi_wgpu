@@ -18,6 +18,8 @@ const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_TEXTURE0: u32 = 0x84C0;
 /// GL_UNPACK_ROW_LENGTH（以像素计）。
 const GL_UNPACK_ROW_LENGTH: u32 = 0x0CF2;
+/// GL_UNPACK_ALIGNMENT（行尾对齐；1=紧排，令任意行距成立=wgpu 行距语义直译）。
+const GL_UNPACK_ALIGNMENT: u32 = 0x0CF5;
 /// GL_UNPACK_IMAGE_HEIGHT。
 const GL_UNPACK_IMAGE_HEIGHT: u32 = 0x806E;
 
@@ -48,7 +50,7 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
         );
         bad = true;
     }
-    if bad && cfg!(debug_assertions) {
+    if bad {
         return;
     }
     let Some(nn) = NonZeroU32::new(name.0) else {
@@ -91,7 +93,14 @@ pub(crate) fn write_texture_impl(
         bad = true;
     }
     if let Some(bpr) = l.bytes_per_row {
-        if bpr % 256 != 0 {
+        // 默认=wgpu 契约（256 对齐）硬校验；loose_upload=放宽为「行距容得下一整行」，
+        // 非 4 倍数行走紧凑重排（GL UNPACK_ALIGNMENT=4 硬规则）。
+        let row_ok = if cfg!(feature = "loose_upload") {
+            bpr as u64 >= (e.width as u64 * (p.block_bytes.max(1) as u64))
+        } else {
+            bpr % 256 == 0
+        };
+        if !row_ok {
             log::error!("upload {:?} bpr={}", UploadErr::RowPitch, bpr);
             bad = true;
         }
@@ -105,7 +114,7 @@ pub(crate) fn write_texture_impl(
         );
         bad = true;
     }
-    if bad && cfg!(debug_assertions) {
+    if bad {
         return;
     }
     let src: &[u8] = if off <= d.len() { &d[off..] } else { &[] };
@@ -127,6 +136,8 @@ pub(crate) fn write_texture_impl(
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
         gl.bind_texture(target, Some(glow::NativeTexture(nn)));
+        // 紧排：wgpu 行距=字节精确，不按 4 对齐补隙（默认 4 会把非对齐行读斜）。
+        gl.pixel_store_i32(GL_UNPACK_ALIGNMENT, 1);
         match lay.bytes_per_row {
             Some(bpr) => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, (bpr as u64 / bpp) as i32),
             None => gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0),
@@ -240,6 +251,11 @@ pub(crate) fn write_js_impl(
 
 // 设计预期（伪码·示意·不可验证）：
 // 1. 纯参数换算：256 语义行距→驱动粒度（含缺省行的推定），只算不查——不读驱动、不校验、无状态。
+/// 取区守门：起点/长度越界=空窗（拒止门已 log，此处绝不过切=无 panic 路）。
+fn send_guard(b: &[u8], off: usize) -> &[u8] {
+    b.get(off..b.len()).unwrap_or(&[])
+}
+
 pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopyBufferLayout {
     TexelCopyBufferLayout {
         offset: l.offset,
