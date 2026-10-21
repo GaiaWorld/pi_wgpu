@@ -1905,28 +1905,34 @@ pub(crate) mod tests {
             height: FACE_W,
             depth_or_array_layers: 1,
         };
-        for face in 0..6u32 {
-            let v = (20 + face * 40) as u8;
-            let mut data = vec![0u8; (FACE_W * FACE_W * 4) as usize];
-            for px in data.chunks_mut(4) {
+        // 一次写 6 面（引擎环境图的实际形态）：源块逐面 20/60/100/140/180/220。
+        let mut data = vec![0u8; 6 * (FACE_W * FACE_W * 4) as usize];
+        for face in 0..6usize {
+            let v = (20 + face as u32 * 40) as u8;
+            let base = face * (FACE_W * FACE_W * 4) as usize;
+            for px in data[base..base + (FACE_W * FACE_W * 4) as usize].chunks_mut(4) {
                 px[0] = v;
                 px[1] = 0;
                 px[2] = 0;
                 px[3] = 255;
             }
-            crate::upload_inner::write_texture_impl(
-                &q,
-                &TexelCopyTextureInfo {
-                    texture: &cube,
-                    mip_level: 0,
-                    origin: Origin3d { x: 0, y: 0, z: face },
-                    aspect: TextureAspect::All,
-                },
-                &data,
-                &layout,
-                face_ext,
-            );
         }
+        crate::upload_inner::write_texture_impl(
+            &q,
+            &TexelCopyTextureInfo {
+                texture: &cube,
+                mip_level: 0,
+                origin: Origin3d { x: 0, y: 0, z: 0 },
+                aspect: TextureAspect::All,
+            },
+            &data,
+            &layout,
+            Extent3d {
+                width: FACE_W,
+                height: FACE_W,
+                depth_or_array_layers: 6,
+            },
+        );
         let v = cube.create_view(&TextureViewDescriptor::default());
         assert_eq!(v._dim, TextureViewDimension::Cube, "6 层正方形默认视图=Cube");
         assert_eq!(v._target, CUBE, "视图目标覆盖为 CUBE_MAP");

@@ -79,7 +79,7 @@ const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
 const GL_TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
 
 /// 写入矩形/面号/层数的对照校验（纯判定；创建期快照=唯一真相，不触 GL）。
-/// 面族语义：CUBE_MAP 一次一面（面号 ∈ [0,6)），2D/2D_MS 不带层，其余按层数累计。
+/// 面族语义：CUBE_MAP 可一次给多面（面号区间须落在 [0,6)），2D/2D_MS 不带层，其余按层数累计。
 pub(crate) fn write_range_err(
     t: &crate::entry::Texture,
     dst: &TexelCopyTextureInfo<'_>,
@@ -103,7 +103,7 @@ pub(crate) fn write_range_err(
     let d = e.depth_or_array_layers as u64;
     match t._target {
         GL_TEXTURE_CUBE_MAP => {
-            if d != 1 || oz + d > 6 {
+            if oz + d > 6 {
                 return Some(UploadErr::LayerRange);
             }
         }
@@ -227,18 +227,30 @@ pub(crate) fn write_texture_impl(
                 );
             }
             GL_TEXTURE_CUBE_MAP => {
-                let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z;
-                gl.tex_sub_image_2d(
-                    face,
-                    t.mip_level as i32,
-                    t.origin.x as i32,
-                    t.origin.y as i32,
-                    e.width as i32,
-                    e.height as i32,
-                    p.format,
-                    p.pixel_type,
-                    glow::PixelUnpackData::Slice(src),
-                );
+                // GL 只接受「一面一次」：本层吸收多面写请求，按面切源块逐面下发
+                // （源块每面步长 = bytes_per_row × rows_per_image；引擎按 6 面一次调用）。
+                let bpr_src = lay
+                    .bytes_per_row
+                    .map(|b| b as u64)
+                    .unwrap_or(e.width as u64 * bpp);
+                let rpi_src = lay.rows_per_image.map(|r| r as u64).unwrap_or(e.height as u64);
+                let face_stride = bpr_src * rpi_src;
+                for f in 0..e.depth_or_array_layers {
+                    let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z + f;
+                    let off = f as usize * face_stride as usize;
+                    let part: &[u8] = if off < src.len() { &src[off..] } else { &[] };
+                    gl.tex_sub_image_2d(
+                        face,
+                        t.mip_level as i32,
+                        t.origin.x as i32,
+                        t.origin.y as i32,
+                        e.width as i32,
+                        e.height as i32,
+                        p.format,
+                        p.pixel_type,
+                        glow::PixelUnpackData::Slice(part),
+                    );
+                }
             }
             _ => {
                 gl.tex_sub_image_2d(
@@ -1056,9 +1068,14 @@ mod range_tests {
             "面号越界=拒"
         );
         assert_eq!(
-            write_range_err(&c, &dst(&c, 0, 0), ext(64, 64, 2)),
+            write_range_err(&c, &dst(&c, 0, 0), ext(64, 64, 6)),
+            None,
+            "6 面一次给=合法（写路径按面循环）"
+        );
+        assert_eq!(
+            write_range_err(&c, &dst(&c, 5, 0), ext(64, 64, 2)),
             Some(UploadErr::LayerRange),
-            "一次写多面=拒"
+            "面号区间越过 6=拒"
         );
         assert_eq!(
             write_range_err(&c, &dst(&c, 0, 0), ext(65, 64, 1)),
