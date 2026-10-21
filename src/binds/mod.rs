@@ -35,14 +35,17 @@ pub(crate) struct BoundEntry {
     pub(crate) target: u32,
 }
 
-/// 槽表：UBO 与纹理单元各 16 个定长槽；值=占槽条目的 (set,binding) 打包键（set<<16|binding），索引即 GL 绑定点号/单元号。
+/// 槽表：UBO 绑定点 / 纹理单元 / 采样器单元三段定长槽（宽=BIND_SLOTS）；值=占槽条目的 (set,binding)
+/// 打包键（set<<16|binding），**索引即 GL 绑定点号/单元号**（紧凑编号，不再叠加 set 基址）。
+/// 三族编号互相独立：GL 的「单元」同时容纳纹理与采样器对象，故同一单元号可各持其一，采样器不挤占纹理单元。
 /// 不变量：满槽或越界引用=断言——不存在「静默丢绑定」路径。
 /// 归属：分配结果与「创建它的那份布局」绑定——管线持有自身那份（出码期与绘制期同源），
 /// 设备级槽表只作「最近一次分配」的查询面（未设管线即绑定时的唯一可依信息来源）。 @internal
 #[derive(Debug, Clone)]
 pub(crate) struct SlotTable {
-    pub(crate) ubo: [Option<u32>; 16],
-    pub(crate) sampler: [Option<u32>; 16],
+    pub(crate) ubo: [Option<u32>; crate::state::BIND_SLOTS],
+    pub(crate) tex: [Option<u32>; crate::state::BIND_SLOTS],
+    pub(crate) smp: [Option<u32>; crate::state::BIND_SLOTS],
     /// 「纹理键 → 采样器键」配对表（出码期自 IR 收集）：GLSL 组合采样器下，采样器对象
     /// 必须绑在**配对纹理**的单元上，故应用期按本表改道；无配对者（如存储图像）走自身槽。
     pub(crate) alias: Vec<((u32, u32), (u32, u32))>,
@@ -50,8 +53,9 @@ pub(crate) struct SlotTable {
 impl Default for SlotTable {
     fn default() -> Self {
         Self {
-            ubo: [None; 16],
-            sampler: [None; 16],
+            ubo: [None; crate::state::BIND_SLOTS],
+            tex: [None; crate::state::BIND_SLOTS],
+            smp: [None; crate::state::BIND_SLOTS],
             alias: Vec::new(),
         }
     }
@@ -102,7 +106,7 @@ pub(crate) fn unit_of(table: &SlotTable, set: u32, binding: u32) -> Option<u32> 
 pub(crate) struct BlockBinding {
     /// 程序侧 uniform block 索引（get_active_uniform_block_name 枚举所得）。
     pub(crate) index: u32,
-    /// 该块要绑到的 GL 绑定点（与 apply_impl 的 bind_base 同源）。
+    /// 该块要绑到的 GL 绑定点（= `block_binding` 查得的槽号，与 apply_impl 同源）。
     pub(crate) binding: u32,
 }
 

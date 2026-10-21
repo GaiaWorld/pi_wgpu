@@ -311,9 +311,12 @@ pub(crate) fn emit_stage_impl(
     for (_h, gv) in ir.module.global_variables.iter() {
         if let Some(rb) = gv.binding {
             let key = pack(rb.group, rb.binding);
+            // 三族分表：取样器按类型判（Handle 域纹理/取样器同域，靠 TypeInner 区分）。
+            let is_sampler = matches!(ir.module.types[gv.ty].inner, naga::TypeInner::Sampler { .. });
             let seg = match gv.space {
                 AddressSpace::Uniform => &slots.ubo,
-                _ => &slots.sampler,
+                _ if is_sampler => &slots.smp,
+                _ => &slots.tex,
             };
             let slot = seg.iter().position(|x| *x == Some(key)).ok_or_else(|| {
                 log::error!(

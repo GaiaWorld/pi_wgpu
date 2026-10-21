@@ -36,7 +36,7 @@ sampler_targets(refl):
 
 unit_of(table, set, binding):
   输入前提: table 为创建它的管线那份
-  主流程: 扫描 domain_array(table, Texture) 求 pack(set,binding) 命中下标 i → bind_base(set, i)
+  主流程: 扫描 domain_array(table, Texture) 求 pack(set,binding) 命中下标 i → 单元 = i（紧凑编号，无 set 基址）
   分支: 扫描无命中 → None（不得走 lookup_slot——其未命中即断言）
   失败/降级: None 上递，由调用方决定记不记码
   后置状态: 不改 table

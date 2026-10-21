@@ -1744,7 +1744,7 @@ pub(crate) mod tests {
         let mut table = crate::binds::SlotTable::default();
         crate::binds::alloc_slots(&layout, &mut table);
         let binding_point = crate::binds::block_binding(&table, 2, 0).expect("set2/bind0 应在 UBO 槽表");
-        assert_eq!(binding_point, 8, "set 步长 4：set2 槽0 → 绑定点 8");
+        assert_eq!(binding_point, 0, "紧凑编号：本布局唯一 UBO 落 0 号绑定点（无 set 基址跳号）");
 
         let vs: String = [
             "#version 300 es",

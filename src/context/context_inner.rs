@@ -550,8 +550,8 @@ mod tests {
         // —— B6 binds 合验（alloc 产物表驱动 apply→镜像下发闭环）——
         let mut table = crate::binds::SlotTable::default();
         table.ubo[0] = Some((0u32 << 16) | 0);
-        table.sampler[0] = Some((0u32 << 16) | 1);
-        table.sampler[1] = Some((0u32 << 16) | 2);
+        table.tex[0] = Some((0u32 << 16) | 1);
+        table.smp[0] = Some((0u32 << 16) | 2);
         let rp = crate::entry::RenderPipeline {
             _program: crate::objects::ensure_reuse(
                 crate::objects::ReuseKey::Program(0xB6_0000_01),
@@ -620,9 +620,9 @@ mod tests {
             "纹理落单元 0（槽表定位，目标=GL_TEXTURE_2D）"
         );
         assert_eq!(
-            m2.sampler_bindings[1],
+            m2.sampler_bindings[0],
             Some(crate::objects::GlHandle(smp_name)),
-            "采样器落单元 1（槽表定位）"
+            "采样器独立编号 → 单元0（与纹理同号、GL 单元双槽各持其一）"
         );
         m2.flush_if_changed();
         let dead_h = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);

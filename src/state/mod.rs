@@ -3,7 +3,10 @@
 //! 隐藏决定=镜像字段集与比较粒度。契约权威文本住本面注释；本面全部 @internal。
 use crate::objects::GlHandle;
 /// 镜像分组数=绑定槽上限（同步点：binds 壳的槽宽合同放宽时**须同改本常量与 binds 壳**——两处字面量各有注释互指）。 @internal
-pub(crate) const BIND_SLOTS: usize = 16;
+/// 取值=24：三族（UBO 绑定点 / 纹理单元 / 采样器单元）共用本表，上限取三者最小者——GLES 3.0 对
+/// MAX_UNIFORM_BUFFER_BINDINGS 的保底值即 24（纹理/采样器保底 32，更宽）。按 `bind_base = set*4+slot`
+/// 折算=可用 set 0..5；上传专用单元 =24 需合并单元数 ≥25（保底 32，成立）。超本值不再放宽（驱动已无点可用）。
+pub(crate) const BIND_SLOTS: usize = 24;
 /// 镜像快照：驱动侧可缓存副作用的字段逐组记录（字段集=L7 解冻展齐：draw set_* 全族+binds 槽表+upload 组）。
 /// 不变量：字段值=**镜像期望态**；下发后驱动按 GL 命令队列最终执行（同步错误探测面不存在，成功以驱动队列为准——
 /// 错误可见性归 upload 探针与 lost 面，本模块不自证成功、不谎报回读）。比较策略=全字段逐组比对
