@@ -805,6 +805,7 @@ mod tests {
                 depth_or_array_layers: 1,
             },
         );
+        crate::record::flush_encoder(&mut enc);
         let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
         let near = |v: u8, x: f64| -> bool { ((v as f64) - x).abs() <= 3.0 };
         // 本机上下文多采样读/blit 全拒（0x500 实测定论）：resolve=能力面降级路径
@@ -960,6 +961,7 @@ mod tests {
             },
             ext,
         );
+        crate::record::flush_encoder(&mut enc);
         let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
         let near = |v: u8, x: f64| -> bool { ((v as f64) - x).abs() <= 2.0 };
         let mut rows: u32 = 0;

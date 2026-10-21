@@ -543,7 +543,7 @@ impl CommandEncoder {
         destination: crate::types::TexelCopyTextureInfo<'_>,
         copy_size: crate::types::Extent3d,
     ) {
-        crate::upload_inner::copy_buffer_to_texture_impl(source, destination, copy_size)
+        crate::upload_inner::copy_buffer_to_texture_impl(self, source, destination, copy_size)
     }
     /// 纹→纹（形照 25.0.2 双方 TexelCopyTextureInfo + Extent3d）。本层=CPU 中转两程（登记差异：
     /// 上游走设备 blit；本机 blit 目标枚举属 ES 系空转面，中转语义零扩展依赖=最稳，性能换正确）。

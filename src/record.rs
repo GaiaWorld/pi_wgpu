@@ -83,6 +83,28 @@ pub(crate) struct RetainedBindGroup {
     pub(crate) entries: Vec<BoundEntry>,
 }
 
+/// 纹理侧拷贝录制形（持宿主强引用，命令存活期内纹理不被删）。 @internal
+#[derive(Debug)]
+pub(crate) struct CopyTex {
+    /// 宿主纹理。
+    pub(crate) texture: crate::entry::Texture,
+    /// mip 层。
+    pub(crate) mip_level: u32,
+    /// 起始纹素。
+    pub(crate) origin: crate::types::Origin3d,
+    /// 宽高面选择。
+    pub(crate) aspect: crate::types::TextureAspect,
+}
+
+/// 缓冲侧拷贝录制形。 @internal
+#[derive(Debug)]
+pub(crate) struct CopyBuf {
+    /// 目标/源缓冲。
+    pub(crate) buffer: Buffer,
+    /// 缓冲侧布局（偏移/行步幅/每图行数）。
+    pub(crate) layout: crate::types::TexelCopyBufferLayout,
+}
+
 /// 单条录制命令。 @internal
 #[derive(Debug)]
 pub(crate) enum Command {
@@ -160,6 +182,33 @@ pub(crate) enum Command {
         /// 实例区间。
         instances: std::ops::Range<u32>,
     },
+    /// 纹理到缓冲读回（编码器命令，随提交序执行）。
+    CopyT2B {
+        /// 源纹理位。
+        src: CopyTex,
+        /// 目的缓冲位。
+        dst: CopyBuf,
+        /// 拷贝尺寸。
+        size: crate::types::Extent3d,
+    },
+    /// 缓冲到纹理上传（编码器命令，随提交序执行）。
+    CopyB2T {
+        /// 源缓冲位。
+        src: CopyBuf,
+        /// 目的纹理位。
+        dst: CopyTex,
+        /// 拷贝尺寸。
+        size: crate::types::Extent3d,
+    },
+    /// 纹理到纹理拷贝（编码器命令，随提交序执行）。
+    CopyT2T {
+        /// 源纹理位。
+        src: CopyTex,
+        /// 目的纹理位。
+        dst: CopyTex,
+        /// 拷贝尺寸。
+        size: crate::types::Extent3d,
+    },
     /// 索引绘制。
     DrawIndexed {
         /// 索引区间。
@@ -198,10 +247,19 @@ fn replay_commands(inner: &pi_share::Share<crate::entry::DeviceInner>, cmds: &[C
         _inner: inner.clone(),
         _commands: Vec::new(),
     };
-    let mut it = cmds.iter();
+    let mut it = cmds.iter().peekable();
     while let Some(cmd) = it.next() {
         match cmd {
             Command::Begin(b) => exec_pass(&mut enc, b, &mut it),
+            Command::CopyT2B { src, dst, size } => {
+                crate::upload_inner::exec_copy_texture_to_buffer(&mut enc, tex_of(src), buf_of(dst), *size)
+            }
+            Command::CopyB2T { src, dst, size } => {
+                crate::upload_inner::exec_copy_buffer_to_texture(buf_of(src), tex_of(dst), *size)
+            }
+            Command::CopyT2T { src, dst, size } => {
+                crate::upload_inner::exec_copy_texture_to_texture(&mut enc, tex_of(src), tex_of(dst), *size)
+            }
             _ => panic!("record 断言: 通道外命令（提交序被破坏）"),
         }
     }
@@ -211,7 +269,7 @@ fn replay_commands(inner: &pi_share::Share<crate::entry::DeviceInner>, cmds: &[C
 fn exec_pass<'a, I: Iterator<Item = &'a Command>>(
     enc: &mut CommandEncoder,
     b: &PassBegin,
-    it: &mut I,
+    it: &mut std::iter::Peekable<I>,
 ) {
     let ca = b.color.as_ref().map(|a| crate::types::RenderPassColorAttachment {
         view: &a.view,
@@ -232,11 +290,19 @@ fn exec_pass<'a, I: Iterator<Item = &'a Command>>(
         occlusion_query_set: None,
     };
     let mut pass = crate::draw_inner::exec_begin_impl(enc, &desc);
+    let _ = &pass;
     loop {
-        match it.next() {
+        match it.peek() {
             None => break,
-            Some(Command::End) => break,
-            Some(c) => exec_one(&mut pass, c),
+            Some(Command::End) => {
+                it.next();
+                break;
+            }
+            Some(Command::CopyT2B { .. } | Command::CopyB2T { .. } | Command::CopyT2T { .. }) => break,
+            Some(_) => {
+                let c = it.next().expect("peeked 必有");
+                exec_one(&mut pass, c);
+            }
         }
     }
 }
@@ -244,9 +310,6 @@ fn exec_pass<'a, I: Iterator<Item = &'a Command>>(
 /// 单条命令执行（通道内）。
 fn exec_one(p: &mut crate::draw::RenderPass<'_>, c: &Command) {
     match c {
-        Command::SetPipeline(_) => crate::state_inner::check_err("c_pipeline"),
-        Command::SetBindGroup { .. } => crate::state_inner::check_err("c_bind"),
-        _ => {}
         Command::SetPipeline(pl) => crate::draw_inner::exec_set_pipeline_parts(p, pl),
         Command::SetBindGroup {
             set,
@@ -305,5 +368,27 @@ fn exec_one(p: &mut crate::draw::RenderPass<'_>, c: &Command) {
             instances,
         } => crate::draw_inner::exec_draw_idx(p, indices.clone(), *base_vertex, instances.clone()),
         Command::Begin(_) | Command::End => panic!("record 断言: 通道嵌套"),
+        Command::CopyT2B { .. } | Command::CopyB2T { .. } | Command::CopyT2T { .. } => {
+            panic!("record 断言: 通道内不得有拷贝命令")
+        }
+    }
+}
+
+
+/// 由录制形还原纹理借用位。
+fn tex_of(c: &CopyTex) -> crate::types::TexelCopyTextureInfo<'_> {
+    crate::types::TexelCopyTextureInfo {
+        texture: &c.texture,
+        mip_level: c.mip_level,
+        origin: c.origin,
+        aspect: c.aspect,
+    }
+}
+
+/// 由录制形还原缓冲借用位。
+fn buf_of(c: &CopyBuf) -> crate::types::TexelCopyBufferInfo<'_> {
+    crate::types::TexelCopyBufferInfo {
+        buffer: &c.buffer,
+        layout: c.layout,
     }
 }

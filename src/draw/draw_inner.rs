@@ -371,16 +371,6 @@ pub(crate) fn exec_begin_impl<'p>(
         }
     };
     if fbo.is_none() {
-        if std::env::var_os("PI_GL_CHECK").is_some() {
-            static COMPOSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let n = COMPOSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            let lbl = d.label.unwrap_or("<none>");
-            let ld = ca.map(|x| match x.ops.load {
-                crate::types::LoadOp::Clear(_) => "clear",
-                crate::types::LoadOp::Load => "load",
-            }).unwrap_or("no-color");
-            log::error!("compose n={} label={} color_load={} vp={:?} tid={:?}", n, lbl, ld, m_viewport(d), std::thread::current().id());
-        }
         // 默认帧通道也同步水位；绑目标与清除同段（防他线程插改绑）。
         with_gl(|gl| {
             unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) };
@@ -1102,16 +1092,6 @@ pub(crate) mod tests {
         assert!(r.is_err(), "深度族挂色槽=ErrRttDepth 断言");
         assert!(!enc._opened_pass, "拒止不留半通道");
     }
-}
-
-/// 诊断用：默认帧通道视口（从颜色附件宿主尺寸推断，无宿主=0）。
-fn m_viewport(d: &RenderPassDescriptor<'_>) -> (u32, u32) {
-    d.color_attachments
-        .iter()
-        .find_map(|x| x.as_ref())
-        .and_then(|x| x.view._tex.as_ref())
-        .map(|t| (t._size.width, t._size.height))
-        .unwrap_or((0, 0))
 }
 // ===== 录制面（提交序命令缓冲）：只入表，回放在 Queue::submit（record 芯）。 =====
 

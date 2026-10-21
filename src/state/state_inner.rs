@@ -907,8 +907,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let prog_name = name_of(m.program);
         if dead_name(dead_pending, 0, prog_name) {
-            m.program = None;
-            m.water.program = Some(0);
+            m.water.program = Some(prog_name);
         } else if m.water.program != Some(prog_name) {
             apply_program(m);
             m.water.program = Some(prog_name);
@@ -916,8 +915,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let vao_name = name_of(m.vao);
         if dead_name(dead_pending, 1, vao_name) {
-            m.vao = None;
-            m.water.vao = Some(0);
+            m.water.vao = Some(vao_name);
         } else if m.water.vao != Some(vao_name) {
             apply_vao(m);
             m.water.vao = Some(vao_name);
@@ -925,8 +923,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let fbo_name = name_of(m.fbo_draw);
         if dead_name(dead_pending, 2, fbo_name) {
-            m.fbo_draw = None;
-            m.water.fbo_draw = Some(0);
+            m.water.fbo_draw = Some(fbo_name);
         } else if m.water.fbo_draw != Some(fbo_name) {
             apply_fbo(m);
             m.water.fbo_draw = Some(fbo_name);
@@ -934,8 +931,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let unpack_name = name_of(m.pixel_unpack_buffer);
         if dead_name(dead_pending, 4, unpack_name) {
-            m.pixel_unpack_buffer = None;
-            m.water.unpack = Some(0);
+            m.water.unpack = Some(unpack_name);
         } else if m.water.unpack != Some(unpack_name) {
             apply_unpack(m);
             m.water.unpack = Some(unpack_name);
@@ -943,28 +939,22 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let mut switched = false;
         for i in 0..BIND_SLOTS {
-            // 死名槽先剔（镜像不再指名已删对象；应用重设后按未知重发）。
-            if let Some((g, _, _)) = m.ubo_bindings[i] {
-                if dead_name(dead_pending, 4, g.0) {
-                    m.ubo_bindings[i] = None;
-                    m.water.ubo[i] = None;
-                }
+            // 死名槽本轮跳过下发（不触驱动报错），镜像意图保留：延后执行下无人重设。
+            let ubo_dead = matches!(m.ubo_bindings[i], Some((g, _, _)) if dead_name(dead_pending, 4, g.0));
+            let tex_dead = matches!(m.texture_bindings[i], Some((g, _)) if dead_name(dead_pending, 5, g.0));
+            let smp_dead = matches!(m.sampler_bindings[i], Some(g) if dead_name(dead_pending, 6, g.0));
+            if ubo_dead {
+                m.water.ubo[i] = m.ubo_bindings[i].map(|(g, o, z)| (g.0, o, z));
             }
-            if let Some((g, _)) = m.texture_bindings[i] {
-                if dead_name(dead_pending, 5, g.0) {
-                    m.texture_bindings[i] = None;
-                    m.water.tex[i] = None;
-                }
+            if tex_dead {
+                m.water.tex[i] = Some(m.texture_bindings[i].map(|(g, tg)| (g.0, tg)));
             }
-            if let Some(g) = m.sampler_bindings[i] {
-                if dead_name(dead_pending, 6, g.0) {
-                    m.sampler_bindings[i] = None;
-                    m.water.sampler[i] = None;
-                }
+            if smp_dead {
+                m.water.sampler[i] = Some(m.sampler_bindings[i].map(|g| g.0));
             }
             if let Some((g, off, sz)) = m.ubo_bindings[i] {
                 let t = (g.0, off, sz);
-                if m.water.ubo[i] != Some(t) {
+                if !ubo_dead && m.water.ubo[i] != Some(t) {
                     if off == 0 && sz == 0 {
                         gl.bind_buffer_base(
                             GL_UNIFORM_BUFFER,
@@ -985,9 +975,9 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                     probe(1);
                 }
             }
-        crate::state_inner::check_err("f_ubo");
+            crate::state_inner::check_err("f_ubo");
             let tex_t = m.texture_bindings[i].map(|(g, tg)| (g.0, tg));
-            if m.water.tex[i] != Some(tex_t) {
+            if !tex_dead && m.water.tex[i] != Some(tex_t) {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
                 switched = true;
                 match tex_t {
@@ -997,9 +987,9 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 m.water.tex[i] = Some(tex_t);
                 probe(1);
             }
-        crate::state_inner::check_err("f_tex");
+            crate::state_inner::check_err("f_tex");
             let smp_t = m.sampler_bindings[i].map(|g| g.0);
-            if m.water.sampler[i] != Some(smp_t) {
+            if !smp_dead && m.water.sampler[i] != Some(smp_t) {
                 match smp_t {
                     Some(n) => gl.bind_sampler(i as u32, Some(glow::NativeSampler(nz(n)))),
                     None => gl.bind_sampler(i as u32, None),

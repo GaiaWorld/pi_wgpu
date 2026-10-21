@@ -1008,10 +1008,22 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
     // 槽表=本管线专属（create 期定格并随管线下发）：设备级槽表只作「最近一次分配」的查询面，
     // 若绘制期读它，则「后建的任何管线」都会把当前管线的编号覆盖掉=绑定错配。故此处既写设备级
     // （兼容未设管线路径/探针）、也把同一份拷进管线，出码与查槽全走管线自带那份，天然同源。
-    let own_slots = {
+    let mut own_slots = {
         let mut slots = d._inner.slots.lock().unwrap_or_else(|e| e.into_inner());
         binds::alloc_slots(p.layout.expect("ErrNoLayout 已前置断言"), &mut slots);
         slots.clone()
+    };
+    // 配对表随管线定格（出码期自 IR 收集，与应用期同源）。
+    own_slots.alias = {
+        let mut v = crate::shader::sampler_pairs(&p.vertex.module._compiled);
+        if let Some(f) = p.fragment.as_ref() {
+            for pr in crate::shader::sampler_pairs(&f.module._compiled) {
+                if !v.contains(&pr) {
+                    v.push(pr);
+                }
+            }
+        }
+        v
     };
     let (vs, fs) = {
         let slots = &own_slots;

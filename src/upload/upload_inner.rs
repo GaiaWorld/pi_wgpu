@@ -270,14 +270,12 @@ pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopy
 // 2. 通路：色宿键 FBO 重挂 target mip→逐行 readPixels（行翻=纹理顶行 0 语义对齐上游；GL 原行 0=底）
 //    组装块（bpr_eff stride，行隙零填）→交还 write_buffer 子写路。无 PBO/扩枚面（ES2 可达+同步保证）。
 // 3. 缓冲内容即刻可读（get_sub_data 同调用点后有效）——无 pending 态。
-pub(crate) fn copy_texture_to_buffer_impl(
+pub(crate) fn exec_copy_texture_to_buffer(
     e: &mut crate::entry::CommandEncoder,
     src: TexelCopyTextureInfo<'_>,
     dst: crate::types::TexelCopyBufferInfo<'_>,
     size: Extent3d,
 ) {
-    // 拷贝是编码器命令：先冲掉本编码器已录制的通道，保「先绘制后读回」的同编码器顺序。
-    crate::record::flush_encoder(e);
     let tex = src.texture;
     let buf = dst.buffer;
     let tn = tex._h.name();
@@ -442,7 +440,7 @@ pub(crate) fn get_sub_data_impl(
 }
 
 // 设计预期（伪码·示意·非唯一实现）：缓冲→纹理=上传的布局化对偶（bpr 步幅+行翻）；同步即时。
-pub(crate) fn copy_buffer_to_texture_impl(
+pub(crate) fn exec_copy_buffer_to_texture(
     src: crate::types::TexelCopyBufferInfo<'_>,
     dst: TexelCopyTextureInfo<'_>,
     copy_size: Extent3d,
@@ -554,14 +552,12 @@ pub(crate) fn copy_buffer_to_texture_impl(
 
 // 设计预期（伪码·示意·非唯一实现）：纹→纹=CPU 中转两程（本机 blit 需 READ/DRAW 分绑目标枚举=ES 系
 // 空转面，中转零扩展依赖=最稳；性能差异登记）。门=双方活性/位/aspect/单层/同像素宽/非深度。
-pub(crate) fn copy_texture_to_texture_impl(
+pub(crate) fn exec_copy_texture_to_texture(
     e: &mut crate::entry::CommandEncoder,
     src: TexelCopyTextureInfo<'_>,
     dst: TexelCopyTextureInfo<'_>,
     copy_size: Extent3d,
 ) {
-    // 编码器命令：先冲掉本编码器已录制的通道，保同编码器先绘制后拷贝。
-    crate::record::flush_encoder(e);
     let stx = src.texture;
     let dtx = dst.texture;
     assert!(stx._h.name().is_some(), "upload 断言: 源纹理死句柄");
@@ -803,6 +799,7 @@ pub(crate) mod tests {
             depth_or_array_layers: 1,
         };
         enc.copy_texture_to_buffer(src, dst, ext);
+        crate::record::flush_encoder(&mut enc);
         // bpr 缺省=上游 256 对齐行距补齐（4×RGBA8=16B 有效 + 240B 零填）×4 行=1024B。
         let got = buf.get_sub_data(0, crate::types::BufferSize::new(1024).expect("1024"));
         let mut rows: usize = 0;
@@ -837,6 +834,7 @@ pub(crate) mod tests {
                 },
             };
             enc.copy_texture_to_buffer(src, dstbad, ext);
+            crate::record::flush_encoder(&mut enc);
         }));
         assert!(bad.is_err(), "越界写入块=ErrCopyOut 断言");
     }
@@ -870,5 +868,67 @@ pub(crate) mod tests {
             _usage: crate::types::BufferUsages::COPY_DST,
         };
         write_buffer_impl(&q, &b, 0, &[0u8; 4]);
+    }
+}
+
+// ===== 拷贝录制面：入命令表，随提交序回放（上游拷贝即编码器命令）。 =====
+
+/// 录制：纹理到缓冲读回。
+pub(crate) fn copy_texture_to_buffer_impl(
+    e: &mut crate::entry::CommandEncoder,
+    src: TexelCopyTextureInfo<'_>,
+    dst: crate::types::TexelCopyBufferInfo<'_>,
+    size: Extent3d,
+) {
+    e._commands.push(crate::record::Command::CopyT2B {
+        src: tex_rec(src),
+        dst: buf_rec(dst),
+        size,
+    });
+}
+
+/// 录制：缓冲到纹理上传。
+pub(crate) fn copy_buffer_to_texture_impl(
+    e: &mut crate::entry::CommandEncoder,
+    src: crate::types::TexelCopyBufferInfo<'_>,
+    dst: TexelCopyTextureInfo<'_>,
+    copy_size: Extent3d,
+) {
+    e._commands.push(crate::record::Command::CopyB2T {
+        src: buf_rec(src),
+        dst: tex_rec(dst),
+        size: copy_size,
+    });
+}
+
+/// 录制：纹理到纹理拷贝。
+pub(crate) fn copy_texture_to_texture_impl(
+    e: &mut crate::entry::CommandEncoder,
+    src: TexelCopyTextureInfo<'_>,
+    dst: TexelCopyTextureInfo<'_>,
+    copy_size: Extent3d,
+) {
+    e._commands.push(crate::record::Command::CopyT2T {
+        src: tex_rec(src),
+        dst: tex_rec(dst),
+        size: copy_size,
+    });
+}
+
+/// 借用位还原制形。
+fn tex_rec(t: TexelCopyTextureInfo<'_>) -> crate::record::CopyTex {
+    crate::record::CopyTex {
+        texture: t.texture.clone(),
+        mip_level: t.mip_level,
+        origin: t.origin,
+        aspect: t.aspect,
+    }
+}
+
+/// 缓冲借用位还原制形。
+fn buf_rec(b: crate::types::TexelCopyBufferInfo<'_>) -> crate::record::CopyBuf {
+    crate::record::CopyBuf {
+        buffer: b.buffer.clone(),
+        layout: b.layout,
     }
 }

@@ -148,15 +148,7 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. 桌面/安卓：swap_buffers（换帧+同步）；Web：空操作。
 // 2. 换帧报错不回传错误值（租约已消耗）：记 log::error!(码)，由下一次 get_current 以 Lost/Outdated 暴露。
-/// 换帧计数器（诊断）：与默认帧通道开启次数对照可诊「一帧多换」。
-static PRESENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 pub(crate) fn present_impl(_t: SurfaceTexture) {
-    if std::env::var_os("PI_GL_CHECK").is_some() {
-        let n = PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        log::error!("swap n={} tid={:?} t={}", n, std::thread::current().id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
-    }
     crate::state_inner::check_err("present");
     if let Err(e) = crate::context_inner::surface_swap() {
         log::error!("surface {:?}", e);

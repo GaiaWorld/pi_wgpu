@@ -97,6 +97,10 @@ pub(crate) fn reflection_register(
 /// 按 (stage,entry_point) 从产物出码一份 GLSL ES 3.0 文本（glsl-out；binding_map 按当前布局槽表定位）。
 /// entry_point=None=该 stage 唯一入口自动选；缺失或歧义=Err(NoEntry)。
 /// 未命中入口=Err(NoEntry)；槽缺=Err(SlotMissing)；出码失败=Err(Emit)。 @internal
+/// 取「纹理↔采样器」配对表（GLSL 组合采样器同源判定；供槽表携带）。 @internal
+pub(crate) fn sampler_pairs(b: &CompiledEs300) -> Vec<((u32, u32), (u32, u32))> {
+    crate::shader_inner::sampler_pairs_impl(b)
+}
 pub(crate) fn emit_stage(
     blob: &CompiledEs300,
     stage: naga::ShaderStage,

@@ -238,6 +238,53 @@ fn pick_entry<'m>(
     }
 }
 
+/// 解析表达式句柄背后的全局变量（含 Access/Load 链）。
+fn resolve_gv(
+    f: &naga::Function,
+    e: naga::Handle<naga::Expression>,
+) -> Option<naga::Handle<naga::GlobalVariable>> {
+    let mut cur = e;
+    for _ in 0..8 {
+        match f.expressions[cur] {
+            naga::Expression::GlobalVariable(h) => return Some(h),
+            naga::Expression::Access { base, .. } | naga::Expression::AccessIndex { base, .. } => cur = base,
+            naga::Expression::Load { pointer } => cur = pointer,
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// 取全局变量的 (group,binding) 键。
+fn bind_key(m: &naga::Module, h: naga::Handle<naga::GlobalVariable>) -> Option<(u32, u32)> {
+    m.global_variables[h].binding.map(|rb| (rb.group, rb.binding))
+}
+
+/// 设计预期：GLSL（ES3.0 无分离纹理/采样器）把每个 `texture_2d`+`sampler` 合成一个
+/// `sampler2D`，其单元号取**纹理**条目的槽（与 naga GLSL 后端同源）；故采样器对象必须绑到
+/// 配对纹理的单元，否则该单元无采样器对象→用纹理默认状态（NEAREST_MIPMAP_LINEAR）→单级纹理
+/// 不完整→采样恒黑。本函数从 IR 的 `ImageSample` 收集 (纹理键 → 采样器键) 配对表。
+pub(crate) fn sampler_pairs_impl(b: &CompiledEs300) -> Vec<((u32, u32), (u32, u32))> {
+    let mut out: Vec<((u32, u32), (u32, u32))> = Vec::new();
+    for ir in b.modules.iter() {
+        for (_fh, f) in ir.module.functions.iter() {
+            for (_eh, e) in f.expressions.iter() {
+                if let naga::Expression::ImageSample { image, sampler, .. } = e {
+                    let tk = resolve_gv(f, *image).and_then(|h| bind_key(&ir.module, h));
+                    let sk = resolve_gv(f, *sampler).and_then(|h| bind_key(&ir.module, h));
+                    if let (Some(t), Some(s)) = (tk, sk) {
+                        let pair = (t, s);
+                        if !out.contains(&pair) {
+                            out.push(pair);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn emit_stage_impl(
     b: &CompiledEs300,
     stage: naga::ShaderStage,

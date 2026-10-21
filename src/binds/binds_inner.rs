@@ -77,7 +77,11 @@ pub(crate) fn alloc_impl(layout: &PipelineLayout, table: &mut SlotTable) {
             }
         }
     }
-    *table = SlotTable { ubo, sampler: unit };
+    *table = SlotTable {
+        ubo,
+        sampler: unit,
+        alias: Vec::new(),
+    };
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
@@ -132,7 +136,19 @@ pub(crate) fn apply_impl(
                 bind_texture(state, bind_base(set, slot), e.target, Some(name));
             }
             BindDomain::Sampler => {
-                bind_sampler(state, bind_base(set, slot), Some(name));
+                // 组合采样器：采样器对象绑到配对纹理的单元（无配对则占自身槽）。
+                let unit = match table
+                    .alias
+                    .iter()
+                    .find(|(_, sk)| *sk == (set, e.binding))
+                {
+                    Some((tk, _)) => {
+                        let ts = lookup_slot(table, BindDomain::Texture, tk.0, tk.1);
+                        bind_base(tk.0, ts)
+                    }
+                    None => bind_base(set, slot),
+                };
+                bind_sampler(state, unit, Some(name));
             }
         }
     }

@@ -43,12 +43,16 @@ pub(crate) struct BoundEntry {
 pub(crate) struct SlotTable {
     pub(crate) ubo: [Option<u32>; 16],
     pub(crate) sampler: [Option<u32>; 16],
+    /// 「纹理键 → 采样器键」配对表（出码期自 IR 收集）：GLSL 组合采样器下，采样器对象
+    /// 必须绑在**配对纹理**的单元上，故应用期按本表改道；无配对者（如存储图像）走自身槽。
+    pub(crate) alias: Vec<((u32, u32), (u32, u32))>,
 }
 impl Default for SlotTable {
     fn default() -> Self {
         Self {
             ubo: [None; 16],
             sampler: [None; 16],
+            alias: Vec::new(),
         }
     }
 }
