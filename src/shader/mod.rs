@@ -109,3 +109,8 @@ pub(crate) fn emit_stage(
 ) -> Result<String, ShaderErr> {
     crate::shader_inner::emit_stage_impl(blob, stage, entry_point, slots)
 }
+/// 取「会长成 GLSL 组合采样入口」的 (group,binding) 集（供程序侧指位定位）。
+/// 纯函数，不失败；空表=该程序无采样入口。无副作用、幂等。 @internal
+pub(crate) fn sampler_targets(refl: &ReflectionTable) -> Vec<(u32, u32)> {
+    crate::shader_inner::sampler_targets_impl(refl)
+}

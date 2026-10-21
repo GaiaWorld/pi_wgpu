@@ -77,3 +77,20 @@ pub(crate) fn apply_layout(
 pub(crate) fn consume_dynamic_offsets(group: &BindGroup, offsets: &mut &[DynamicOffset]) {
     crate::binds_inner::consume_impl(group, offsets)
 }
+
+/// 采样入口指位对（设计：sampler-unit-assign）：驱动侧 uniform 位置 × 该入口要读的 GL 纹理单元。
+/// 不变量：`location >= 0`（-1 表查位失败，不入表）；`unit < BIND_SLOTS`。空表是合法态
+/// （无采样入口的管线），不代表未初始化。 @internal
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SamplerUniform {
+    /// 驱动侧 uniform 位置（指位表定格期查得）。
+    pub(crate) location: i32,
+    /// 该采样入口要读的纹理单元号。
+    pub(crate) unit: u32,
+}
+
+/// 查某纹理域绑定在本槽表占用的 GL 单元号。未命中=`None`（**不断言**——供指位期容错）。
+/// 失败后状态：不改槽表、不触 GL。幂等纯查询。 @internal
+pub(crate) fn unit_of(table: &SlotTable, set: u32, binding: u32) -> Option<u32> {
+    crate::binds_inner::unit_of(table, set, binding)
+}

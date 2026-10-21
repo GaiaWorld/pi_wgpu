@@ -481,3 +481,11 @@ mod tests {
         );
     }
 }
+// 设计预期（伪码·示意·非唯一实现）：设计：sampler-unit-assign 切片 1。
+// 取 refl.entries 里 kind==BindingKind::Texture 的 (group,binding) → 去重 → 升序。
+// 依据：naga GLSL 后端对 Sampler 全局直接 continue 不出码（back/glsl/mod.rs:964），
+// 合并后的 sampler2D 即纹理全局，名字取纹理侧 (group,binding)。
+/// 采样入口候选集（契约见 `shader::sampler_targets` 壳注释）。 @internal
+pub(crate) fn sampler_targets_impl(_refl: &ReflectionTable) -> Vec<(u32, u32)> {
+    unimplemented!("sampler-unit-assign 切片 1")
+}

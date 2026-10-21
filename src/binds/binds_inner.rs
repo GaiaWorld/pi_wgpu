@@ -40,6 +40,14 @@ fn lookup_slot(t: &SlotTable, d: BindDomain, set: u32, binding: u32) -> u32 {
     panic!("binds 断言: 槽缺 (set={set},binding={binding}) 域={d:?}（布局与组不对表）");
 }
 
+// 设计预期（伪码·示意·非唯一实现）：设计：sampler-unit-assign 切片 2。
+// 线性扫描 domain_array(t, Texture) 求 pack(set,binding) 命中下标 i → bind_base(set, i)；
+// 未命中 → None。**不得复用 lookup_slot**：其未命中即断言，本处合同要求可容错。
+/// 查纹理域绑定占用单元（非断言版；契约见 `binds::unit_of` 壳注释）。 @internal
+pub(crate) fn unit_of(_t: &SlotTable, _set: u32, _binding: u32) -> Option<u32> {
+    unimplemented!("sampler-unit-assign 切片 2")
+}
+
 // 设计预期（伪码·示意·非唯一实现）：
 // 1. 遍历布局成员（set=序位）逐条目按域归类：Uniform→ubo 段；Texture/Sampler→单元段。
 // 2. 逐域紧凑编号（0..）：编号即 GL 绑定点/单元号；超 16=断言（报满的域），中途失败不半写。
