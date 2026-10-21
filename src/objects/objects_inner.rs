@@ -107,6 +107,8 @@ fn gen_by_key(key: ReuseKey) -> GlHandle {
                     .get(),
             }
         };
+        // 名可被驱动回收再用：新建即权威「此名为活对象」，销去死名登记（否则守卫永久吞下发）。
+        crate::state_inner::forget_removed(kind_num_reuse(key), name);
         GlHandle(name)
     })
 }
@@ -272,6 +274,7 @@ pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
             }
         }
     });
+    crate::state_inner::forget_removed(kind_num_direct(kind), name);
     DirectHandle {
         inner: Share::new(DirectHandleState {
             kind,
