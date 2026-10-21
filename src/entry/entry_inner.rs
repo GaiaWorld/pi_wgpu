@@ -583,17 +583,25 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
     let dim = d.dimension.unwrap_or_else(|| match tex._dim {
         TextureDimension::D1 => VD::D1,
         TextureDimension::D3 => VD::D3,
-        TextureDimension::D2 => match tex._layers {
-            1 => VD::D2,
-            6 => VD::Cube,
-            _ => VD::D2Array,
-        },
+        // cube 形态只认创建期目标（仅正方形/单采样/6 的倍数才落到 CUBE_MAP 目标）；
+        // 非正方形 6 层是 2D_ARRAY，默认视图须按数组给，否则绑到 CUBE 目标=驱动 0x502。
+        TextureDimension::D2 => {
+            if tex._layers == 1 {
+                VD::D2
+            } else if tex._target == GL_TEXTURE_CUBE_MAP {
+                VD::Cube
+            } else if tex._target == GL_TEXTURE_CUBE_MAP_ARRAY {
+                VD::CubeArray
+            } else {
+                VD::D2Array
+            }
+        }
     });
     let ok = match (tex._dim, dim) {
         (TextureDimension::D1, VD::D1) => true,
         (TextureDimension::D2, VD::D2 | VD::D2Array) => true,
-        (TextureDimension::D2, VD::Cube) => tex._layers == 6,
-        (TextureDimension::D2, VD::CubeArray) => tex._layers % 6 == 0,
+        (TextureDimension::D2, VD::Cube) => tex._target == GL_TEXTURE_CUBE_MAP,
+        (TextureDimension::D2, VD::CubeArray) => tex._target == GL_TEXTURE_CUBE_MAP_ARRAY,
         (TextureDimension::D3, VD::D3) => true,
         _ => false,
     };
@@ -1837,5 +1845,187 @@ pub(crate) mod tests {
         assert_eq!(px[1], [0, 255, 0, 255], "实例1 取第1格（绿）");
         assert_eq!(px[2], [0, 0, 255, 255], "实例2 取第2格（蓝）");
         assert_eq!(px[3], [255, 255, 0, 255], "实例3 取第3格（黄）");
+    }
+
+    /// 立方体真 GL：6 面各上一色 → 逐面挂 FBO 回读中心像素=该面色（验面寻址/目标/上传）；
+    /// 越界面号（z=6）与「一次写多面」须被预校验拒且不触 GL；非正方形 6 层的默认视图=数组。
+    pub(crate) fn gl_cube_check() {
+        use crate::types::{
+            Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+            TextureViewDescriptor, TextureViewDimension,
+        };
+        const FB: u32 = 0x8D40;
+        const COLOR0: u32 = 0x8CE0;
+        const RGBA: u32 = 0x1908;
+        const UBYTE: u32 = 0x1401;
+        const CUBE: u32 = 0x8513;
+        const CUBE_POS_X: u32 = 0x8515;
+        const ARRAY: u32 = 0x8C1A;
+        const FACE_W: u32 = 64;
+
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+            error_state: std::sync::Mutex::new(crate::error_inner::ErrorState::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let q = crate::entry::Queue { _dev: None };
+        let mk = |w: u32, h: u32, layers: u32| {
+            super::create_texture_impl(
+                &dev,
+                &TextureDescriptor {
+                    label: Some("cube-probe"),
+                    size: Extent3d {
+                        width: w,
+                        height: h,
+                        depth_or_array_layers: layers,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba8Unorm,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+            )
+        };
+        let cube = mk(FACE_W, FACE_W, 6);
+        assert_eq!(cube._target, CUBE, "正方形 6 层应落 CUBE_MAP 目标");
+        let layout = TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(FACE_W * 4),
+            rows_per_image: Some(FACE_W),
+        };
+        let face_ext = Extent3d {
+            width: FACE_W,
+            height: FACE_W,
+            depth_or_array_layers: 1,
+        };
+        for face in 0..6u32 {
+            let v = (20 + face * 40) as u8;
+            let mut data = vec![0u8; (FACE_W * FACE_W * 4) as usize];
+            for px in data.chunks_mut(4) {
+                px[0] = v;
+                px[1] = 0;
+                px[2] = 0;
+                px[3] = 255;
+            }
+            crate::upload_inner::write_texture_impl(
+                &q,
+                &TexelCopyTextureInfo {
+                    texture: &cube,
+                    mip_level: 0,
+                    origin: Origin3d { x: 0, y: 0, z: face },
+                    aspect: TextureAspect::All,
+                },
+                &data,
+                &layout,
+                face_ext,
+            );
+        }
+        let v = cube.create_view(&TextureViewDescriptor::default());
+        assert_eq!(v._dim, TextureViewDimension::Cube, "6 层正方形默认视图=Cube");
+        assert_eq!(v._target, CUBE, "视图目标覆盖为 CUBE_MAP");
+
+        let tex_name = cube._h.name().expect("cube 名").0;
+        let fb = crate::context_inner::with_gl(|gl| unsafe {
+            gl.create_framebuffer().expect("FBO")
+        });
+        for face in 0..6u32 {
+            let got: [u8; 4] = crate::context_inner::with_gl(|gl| unsafe {
+                while gl.get_error() != 0 {}
+                gl.bind_framebuffer(FB, Some(fb));
+                gl.framebuffer_texture_2d(
+                    FB,
+                    COLOR0,
+                    CUBE_POS_X + face,
+                    Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(tex_name)))),
+                    0,
+                );
+                assert_eq!(
+                    gl.check_framebuffer_status(FB),
+                    0x8CD5,
+                    "面 {face} 挂 FBO 应完整"
+                );
+                let mut out = [0u8; 4];
+                gl.read_pixels(
+                    (FACE_W / 2) as i32,
+                    (FACE_W / 2) as i32,
+                    1,
+                    1,
+                    RGBA,
+                    UBYTE,
+                    glow::PixelPackData::Slice(&mut out),
+                );
+                gl.bind_framebuffer(FB, None);
+                out
+            });
+            assert_eq!(
+                got[0],
+                (20 + face * 40) as u8,
+                "面 {face} 回读=该面颜色（面寻址正确）"
+            );
+            assert_eq!(got[3], 255, "面 {face} alpha");
+        }
+
+        // 越界面号：预校验拒绝，不触 GL、不改面 5。
+        let bad = vec![255u8; (FACE_W * FACE_W * 4) as usize];
+        crate::context_inner::with_gl(|gl| unsafe {
+            while gl.get_error() != 0 {}
+        });
+        crate::upload_inner::write_texture_impl(
+            &q,
+            &TexelCopyTextureInfo {
+                texture: &cube,
+                mip_level: 0,
+                origin: Origin3d { x: 0, y: 0, z: 6 },
+                aspect: TextureAspect::All,
+            },
+            &bad,
+            &layout,
+            face_ext,
+        );
+        let e = crate::context_inner::with_gl(|gl| unsafe { gl.get_error() });
+        assert_eq!(e, 0, "越界面号应在下发前被拒（无 GL 错误）");
+        let got5: [u8; 4] = crate::context_inner::with_gl(|gl| unsafe {
+            while gl.get_error() != 0 {}
+            gl.bind_framebuffer(FB, Some(fb));
+            gl.framebuffer_texture_2d(
+                FB,
+                COLOR0,
+                CUBE_POS_X + 5,
+                Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(tex_name)))),
+                0,
+            );
+            let mut out = [0u8; 4];
+            gl.read_pixels(
+                (FACE_W / 2) as i32,
+                (FACE_W / 2) as i32,
+                1,
+                1,
+                RGBA,
+                UBYTE,
+                glow::PixelPackData::Slice(&mut out),
+            );
+            gl.bind_framebuffer(FB, None);
+            out
+        });
+        assert_eq!(got5[0], 220, "面 5 未被越界写入改写");
+        crate::context_inner::with_gl(|gl| unsafe { gl.delete_framebuffer(fb) });
+
+        // 非正方形 6 层：创建目标=2D_ARRAY，默认视图按数组给（不冒充 cube）。
+        let arr = mk(64, 32, 6);
+        assert_eq!(arr._target, ARRAY, "非正方形 6 层落 2D_ARRAY");
+        let av = arr.create_view(&TextureViewDescriptor::default());
+        assert_eq!(
+            av._dim,
+            TextureViewDimension::D2Array,
+            "默认视图按数组给（非 cube）"
+        );
+        assert_eq!(av._target, ARRAY);
     }
 }

@@ -16,6 +16,8 @@ pub(crate) enum UploadErr {
     RowPitch,
     /// 写入范围越出资源/数据边界。
     OutOfRange,
+    /// 层/面号越界，或面族（2D/CUBE_MAP）一次写了多面。
+    LayerRange,
     /// 传入值非位图（Web 专有面）。
     NotBitmap,
     /// 非主线程调用（Web 专有面）。
@@ -32,7 +34,7 @@ impl Queue {
     /// 写纹理（形照 25.0.2：目标按值 TexelCopyTextureInfo、布局按值 TexelCopyBufferLayout）：
     /// 偏移须 4 字节倍数、bytes_per_row 给定时须 256 倍数；Some(0)/缺省=行宽自动。
     /// 违约处理两档同 write_buffer（log::error!(UploadErr)；debug 不下发/release 留痕+下发）。
-    /// 写入矩形超界=由驱动拒绝（release 档兜底；Texture 不持尺寸、本库不预校验——登记差异）。 @public
+    /// 写入矩形/面号/层数按创建期快照预校验（越界=UploadErr，不下发）；矩形越界或面族多面一次写=拒。 @public
     pub fn write_texture(
         &self,
         texture: TexelCopyTextureInfo<'_>,

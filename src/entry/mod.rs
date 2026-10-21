@@ -215,7 +215,7 @@ impl Texture {
         }
     }
     /// 建纹理视图（唯一 @public 视图入口，形制=25.0.2 九字段）：dimension/format/usage/count
-    /// None=按宿主纹理取默认（维度依纹理维/层数推定）；维度相容（Cube/CubeArray 需层数%6==0）；
+    /// None=按宿主纹理取默认（维度依纹理维/目标/层数推定）；维度相容（Cube/CubeArray 需宿主创建目标为 CUBE_MAP/CUBE_MAP_ARRAY——非正方形 6 层不是 cube）；
     /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。
     /// 本层「取整张」：base/count 切片暂不生效（越界接表归实现批）。 @public
     pub fn create_view(&self, desc: &TextureViewDescriptor<'_>) -> TextureView {

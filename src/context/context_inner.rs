@@ -708,6 +708,7 @@ mod tests {
         crate::entry_inner::tests::gl_two_stage_collect_check();
         crate::entry_inner::tests::gl_sampler_unit_check();
         crate::entry_inner::tests::gl_ubo_array_check();
+        crate::entry_inner::tests::gl_cube_check();
         let_go_impl();
     }
 

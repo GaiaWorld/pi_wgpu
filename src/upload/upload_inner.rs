@@ -75,6 +75,51 @@ const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
 const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
 const GL_TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
+/// GL_TEXTURE_2D_MULTISAMPLE：多重采样 2D 目标（0x9100）。
+const GL_TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
+
+/// 写入矩形/面号/层数的对照校验（纯判定；创建期快照=唯一真相，不触 GL）。
+/// 面族语义：CUBE_MAP 一次一面（面号 ∈ [0,6)），2D/2D_MS 不带层，其余按层数累计。
+pub(crate) fn write_range_err(
+    t: &crate::entry::Texture,
+    dst: &TexelCopyTextureInfo<'_>,
+    e: Extent3d,
+) -> Option<UploadErr> {
+    if dst.mip_level >= t._mip {
+        return Some(UploadErr::OutOfRange);
+    }
+    if e.width == 0 || e.height == 0 || e.depth_or_array_layers == 0 {
+        return Some(UploadErr::OutOfRange);
+    }
+    let lvl = dst.mip_level;
+    let mw = (t._size.width >> lvl).max(1) as u64;
+    let mh = (t._size.height >> lvl).max(1) as u64;
+    let ox = dst.origin.x as u64;
+    let oy = dst.origin.y as u64;
+    if ox + e.width as u64 > mw || oy + e.height as u64 > mh {
+        return Some(UploadErr::OutOfRange);
+    }
+    let oz = dst.origin.z as u64;
+    let d = e.depth_or_array_layers as u64;
+    match t._target {
+        GL_TEXTURE_CUBE_MAP => {
+            if d != 1 || oz + d > 6 {
+                return Some(UploadErr::LayerRange);
+            }
+        }
+        GL_TEXTURE_2D | GL_TEXTURE_2D_MULTISAMPLE => {
+            if d != 1 || oz != 0 {
+                return Some(UploadErr::LayerRange);
+            }
+        }
+        _ => {
+            if oz + d > t._layers as u64 {
+                return Some(UploadErr::LayerRange);
+            }
+        }
+    }
+    None
+}
 
 pub(crate) fn write_texture_impl(
     q: &Queue,
@@ -87,6 +132,24 @@ pub(crate) fn write_texture_impl(
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
     };
+    if let Some(code) = write_range_err(t.texture, t, e) {
+        log::error!(
+            "upload {:?} mip={} origin=({},{},{}) extent={}x{}x{} target={:#x} size={:?} layers={} mips={}",
+            code,
+            t.mip_level,
+            t.origin.x,
+            t.origin.y,
+            t.origin.z,
+            e.width,
+            e.height,
+            e.depth_or_array_layers,
+            t.texture._target,
+            t.texture._size,
+            t.texture._layers,
+            t.texture._mip
+        );
+        return;
+    }
     let p = &t.texture.params;
     let mut bad = false;
     if l.offset % 4 != 0 {
@@ -930,5 +993,98 @@ fn buf_rec(b: crate::types::TexelCopyBufferInfo<'_>) -> crate::record::CopyBuf {
     crate::record::CopyBuf {
         buffer: b.buffer.clone(),
         layout: b.layout,
+    }
+}
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    use crate::entry::Texture;
+    use crate::objects::{DirectHandle, DirectKind};
+    use crate::types::{Origin3d, TextureAspect, TextureDimension, TextureFormat, TextureUsages};
+
+    /// 纹理夹具：形制字段足够范围判定（句柄=占位，不触 GL）。
+    fn tex(target: u32, layers: u32, w: u32, h: u32, mip: u32) -> Texture {
+        Texture {
+            _h: DirectHandle::placeholder(DirectKind::Texture, 1),
+            params: crate::formats::GlParams {
+                internal_format: 0x8058,
+                format: 0x1908,
+                pixel_type: 0x1401,
+                block: (1, 1),
+                block_bytes: 4,
+            },
+            _target: target,
+            _dim: TextureDimension::D2,
+            _layers: layers,
+            _size: Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: layers,
+            },
+            _mip: mip,
+            _samples: 1,
+            _format: TextureFormat::Rgba8Unorm,
+            _usage: TextureUsages::COPY_DST,
+            _surface: false,
+        }
+    }
+    fn dst(t: &Texture, z: u32, mip: u32) -> TexelCopyTextureInfo<'_> {
+        TexelCopyTextureInfo {
+            texture: t,
+            mip_level: mip,
+            origin: Origin3d { x: 0, y: 0, z },
+            aspect: TextureAspect::All,
+        }
+    }
+    fn ext(w: u32, h: u32, d: u32) -> Extent3d {
+        Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: d,
+        }
+    }
+
+    /// 范围/面族预校验：面号上限、面族一次一面、矩形与 mip 越界、单层 2D 禁层。
+    #[test]
+    fn write_range_guards_test() {
+        let c = tex(GL_TEXTURE_CUBE_MAP, 6, 64, 64, 1);
+        assert_eq!(write_range_err(&c, &dst(&c, 0, 0), ext(64, 64, 1)), None);
+        assert_eq!(write_range_err(&c, &dst(&c, 5, 0), ext(64, 64, 1)), None);
+        assert_eq!(
+            write_range_err(&c, &dst(&c, 6, 0), ext(64, 64, 1)),
+            Some(UploadErr::LayerRange),
+            "面号越界=拒"
+        );
+        assert_eq!(
+            write_range_err(&c, &dst(&c, 0, 0), ext(64, 64, 2)),
+            Some(UploadErr::LayerRange),
+            "一次写多面=拒"
+        );
+        assert_eq!(
+            write_range_err(&c, &dst(&c, 0, 0), ext(65, 64, 1)),
+            Some(UploadErr::OutOfRange),
+            "宽越界=拒"
+        );
+        assert_eq!(
+            write_range_err(&c, &dst(&c, 0, 1), ext(64, 64, 1)),
+            Some(UploadErr::OutOfRange),
+            "mip 越界=拒"
+        );
+
+        let a = tex(GL_TEXTURE_2D_ARRAY, 6, 64, 32, 2);
+        assert_eq!(write_range_err(&a, &dst(&a, 4, 0), ext(64, 32, 2)), None);
+        assert_eq!(
+            write_range_err(&a, &dst(&a, 5, 0), ext(64, 32, 2)),
+            Some(UploadErr::LayerRange),
+            "层号越界=拒"
+        );
+
+        let d2 = tex(GL_TEXTURE_2D, 1, 64, 64, 1);
+        assert_eq!(write_range_err(&d2, &dst(&d2, 0, 0), ext(64, 64, 1)), None);
+        assert_eq!(
+            write_range_err(&d2, &dst(&d2, 1, 0), ext(64, 64, 1)),
+            Some(UploadErr::LayerRange),
+            "单层 2D 带层=拒"
+        );
     }
 }

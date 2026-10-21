@@ -34,6 +34,9 @@ pub(crate) const CAP_FLOAT_LINEAR: u64 = 1 << 6;
 pub(crate) const CAP_FLOAT_RENDER: u64 = 1 << 7;
 /// 形态标记位：GLES/WebGL2=true——版本对保持纯读数，形态规则差异只在本芯判定、不泄入投影。
 pub(crate) const CAP_EMBEDDED: u64 = 1 << 8;
+/// 半浮点（16F）颜色附件可渲染能力：ES3 需 EXT_color_buffer_half_float（或更强的浮点扩展）；
+/// 桌面 GL3.0 起 RGBA16F 核心可渲染=不置位也不影响（formats 门控只对 ES 形态生效）。
+pub(crate) const CAP_RENDER_HALF: u64 = 1 << 9;
 
 /// —— 官方 Features 位值（对齐本地 wgpu fork 的 webgpu 组低 u64 域=本壳 Features 唯一投影域；全表对账后续批次）——
 /// DEPTH32FLOAT_STENCIL8：官方位 1<<1。
@@ -268,6 +271,10 @@ pub(crate) fn probe_impl() -> Caps {
             "webgl_color_buffer_float",
         ]) {
             family |= CAP_FLOAT_RENDER;
+            // 浮点附件扩展同时覆盖 16F（WebGL2 的 EXT_color_buffer_float 即含半浮点）。
+            family |= CAP_RENDER_HALF;
+        } else if has(&["ext_color_buffer_half_float"]) {
+            family |= CAP_RENDER_HALF;
         }
         let vendor = unsafe { gl.get_parameter_string(GL_VENDOR_PARAM) }.to_ascii_lowercase();
         let renderer = unsafe { gl.get_parameter_string(GL_RENDERER_PARAM) }.to_ascii_lowercase();

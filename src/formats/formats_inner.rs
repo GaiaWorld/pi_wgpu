@@ -5,7 +5,7 @@
 
 use glow::HasContext;
 
-use crate::caps_inner::{latest_caps, CAP_FLOAT_RENDER};
+use crate::caps_inner::{latest_caps, CAP_FLOAT_RENDER, CAP_RENDER_HALF};
 use crate::context_inner::with_gl;
 use crate::formats::GlParams;
 use crate::types::{Extent3d, TextureDescriptor, TextureFormat};
@@ -213,9 +213,13 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
             );
         }
         TextureFormat::Rgba16Float => {
-            if caps.version < (3, 0) && (caps.family & CAP_FLOAT_RENDER) == 0 {
+            // ES3 core 的 RGBA16F 仅可采样：作颜色附件须 EXT_color_buffer_half_float / 浮点扩展。
+            let render = desc
+                .usage
+                .contains(crate::types::TextureUsages::RENDER_ATTACHMENT);
+            if render && caps.es && (caps.family & (CAP_FLOAT_RENDER | CAP_RENDER_HALF)) == 0 {
                 panic!(
-                    "formats 断言: 无浮点渲染确证，拒 {f:?}（label={:?}）",
+                    "formats 断言: ES 无半浮点颜色附件确证，拒 {f:?} 作渲染目标（label={:?}）",
                     desc.label
                 );
             }
@@ -286,7 +290,7 @@ pub(crate) fn mip_impl(extent: Extent3d, levels: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::caps_inner::inject_latest;
+    use crate::caps_inner::{inject_latest, CAP_FLOAT_RENDER, CAP_RENDER_HALF};
     use crate::types::{TextureDimension, TextureUsages};
 
     /// 组一个仅够门控读数的描述符（label 进断言消息）。
@@ -388,6 +392,30 @@ mod tests {
             std::panic::catch_unwind(|| params_impl(&d, TextureFormat::Bgra8UnormSrgb)).is_err()
         );
         assert!(params_impl(&d, TextureFormat::Rgba8Unorm).internal_format == GL_RGBA8);
+    }
+
+    /// RGBA16F 作颜色附件：ES 形态无 half-float 扩展=拒；有 EXT_color_buffer_half_float 或浮点扩展=放行；
+    /// 仅作采样（TEXTURE_BINDING）=不受门控。
+    #[test]
+    fn rgba16f_render_gate_es_test() {
+        let mut rt = desc("gles-rt");
+        rt.usage = TextureUsages::RENDER_ATTACHMENT;
+        let mut tex_only = desc("gles-tex");
+        tex_only.usage = TextureUsages::TEXTURE_BINDING;
+
+        inject_latest(0, (3, 2), true);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| params_impl(&rt, TextureFormat::Rgba16Float)))
+                .is_err(),
+            "ES 无扩展时 RGBA16F 不可作渲染目标"
+        );
+        let _ = params_impl(&tex_only, TextureFormat::Rgba16Float);
+
+        inject_latest(CAP_RENDER_HALF, (3, 2), true);
+        let _ = params_impl(&rt, TextureFormat::Rgba16Float);
+
+        inject_latest(CAP_FLOAT_RENDER, (3, 2), true);
+        let _ = params_impl(&rt, TextureFormat::Rgba16Float);
     }
 
     /// mip：levels<=1 恒空操作、零尺寸断言、层数选择目标（后两者需附着——GL 侧由合验用例覆盖）。
