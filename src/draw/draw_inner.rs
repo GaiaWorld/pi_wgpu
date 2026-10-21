@@ -216,6 +216,8 @@ pub(crate) fn exec_begin_impl<'p>(
     let stencil_ok: bool = dtext
         .map(|t| is_packed_stencil(t._format))
         .unwrap_or(false);
+    // 深度格式名（降级留痕用）：上层普遍无条件给 stencil_ops，纯深度格式下属预期组合。
+    let dfmt = dtext.map(|t| t._format);
     // 附件宿主合法性：dsa 视图缺宿主（帧视图挂深度槽）或 color 槽挂深度族=拒止。
     if let Some(x) = dsa {
         assert!(
@@ -226,9 +228,10 @@ pub(crate) fn exec_begin_impl<'p>(
         // ErrStencilFormat: stencil ops on a non-packed depth format has no GL slot.
         // Degrade (log + ignore stencil) instead of aborting the frame; clear path below
         // also gates on stencil_ok so no GL_STENCIL clear hits a depth-only attachment.
+        // 预期组合（上层恒给 stencil_ops + 纯深度格式）：忽略模板并留痕，不按错误刷屏。
         if dsa.unwrap().stencil_ops.is_some() && !stencil_ok && warn_once(d.label) {
-            log::error!(
-                "draw: ErrStencilFormat 模板槽需打包深度格式（降级=忽略模板，label={:?}）",
+            log::warn!(
+                "draw: ErrStencilFormat 深度格式无模板面（降级=忽略模板，format={dfmt:?} label={:?}）",
                 d.label
             );
         }
