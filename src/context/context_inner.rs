@@ -707,6 +707,7 @@ mod tests {
         // —— 采样入口指位（设计：sampler-unit-assign）合验：collect 双阶段 + 端到端采样回读 ——
         crate::entry_inner::tests::gl_two_stage_collect_check();
         crate::entry_inner::tests::gl_sampler_unit_check();
+        crate::entry_inner::tests::gl_ubo_array_check();
         let_go_impl();
     }
 

@@ -1704,4 +1704,138 @@ pub(crate) mod tests {
         });
         assert_eq!(px, [255, 0, 255, 255], "回读中心=源色：采样器读到的正是指位单元");
     }
+
+    /// 块内数值 uniform 数组（批渲形态）：一个 UBO 块持 4 个材质色，4 个实例各按
+    /// gl_InstanceID 取自己那格 → 同一次绘制回读 4 列=4 种颜色。
+    /// 同时覆盖：绑定点非 0（set2→8）、子区间绑定、std140 数组步进。
+    pub(crate) fn gl_ubo_array_check() {
+        use glow::HasContext;
+        const FB: u32 = 0x8D40;
+        const COLOR0: u32 = 0x8CE0;
+        const RGBA8: i32 = 0x8058;
+        const RGBA: u32 = 0x1908;
+        const UBYTE: u32 = 0x1401;
+        const TRI_STRIP: u32 = 0x0005;
+        const COLOR_BIT: u32 = 0x4000;
+        const UNIFORM_BUFFER: u32 = 0x8A11;
+        const STATIC_DRAW: u32 = 0x88E4;
+        const TEX2D: u32 = 0x0DE1;
+        const TEX0: u32 = 0x84C0;
+        const NEAREST: i32 = 0x2600;
+        const MINF: u32 = 0x2801;
+        let layout = crate::entry::PipelineLayout {
+            _bgls: vec![
+                crate::entry::BindGroupLayout { _entries: Vec::new() },
+                crate::entry::BindGroupLayout { _entries: Vec::new() },
+                crate::entry::BindGroupLayout {
+                    _entries: vec![crate::types::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: crate::types::ShaderStages::VERTEX,
+                        count: None,
+                        ty: crate::types::BindingType::Buffer {
+                            ty: crate::types::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                    }],
+                },
+            ],
+        };
+        let mut table = crate::binds::SlotTable::default();
+        crate::binds::alloc_slots(&layout, &mut table);
+        let binding_point = crate::binds::block_binding(&table, 2, 0).expect("set2/bind0 应在 UBO 槽表");
+        assert_eq!(binding_point, 8, "set 步长 4：set2 槽0 → 绑定点 8");
+
+        let vs: String = [
+            "#version 300 es",
+            "uniform MatParams { vec4 colors[4]; } mp;",
+            "out vec4 v;",
+            "void main() {",
+            "    float cx = (float(gl_InstanceID) + 0.5) / 4.0;",
+            "    vec2 p = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));",
+            "    gl_Position = vec4((p.x - 0.5) * 0.24 + cx * 2.0 - 1.0, (p.y - 0.5) * 1.6, 0.0, 1.0);",
+            "    v = mp.colors[gl_InstanceID];",
+            "}",
+        ]
+        .join("\n");
+        let fs: String = [
+            "#version 300 es",
+            "precision highp float;",
+            "in vec4 v;",
+            "out vec4 o;",
+            "void main() { o = v; }",
+        ]
+        .join("\n");
+        let mut cache = crate::objects::HandleCache::default();
+        let prog = crate::objects::ensure_reuse(
+            crate::objects::ReuseKey::Program(0x53_0000_07),
+            &mut cache,
+        );
+        let name = prog.handle.expect("程序句柄");
+        super::link_program(name, &vs, Some(&fs));
+
+        let px: Vec<[u8; 4]> = crate::context_inner::with_gl(|gl| unsafe {
+            while gl.get_error() != 0 {}
+            gl.bind_buffer(0x88EC, None);
+            gl.bind_buffer(0x88EB, None);
+            gl.disable(0x0C11);
+            gl.disable(0x0B71);
+            gl.disable(0x0BE2);
+            gl.disable(0x0B44);
+            gl.disable(0x8C89);
+            gl.color_mask(true, true, true, true);
+            // 材质数据：4 个实例各自一格
+            // 4 个 vec4 = 16 个 f32（std140 步长 16 字节），按实例索引各取一格。
+            let vals: [f32; 16] = [
+                1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0,
+            ];
+            let data: Vec<u8> = vals.iter().flat_map(|v| v.to_ne_bytes()).collect();
+            let ubuf = gl.create_buffer().expect("UBO");
+            gl.bind_buffer(UNIFORM_BUFFER, Some(ubuf));
+            gl.buffer_data_u8_slice(UNIFORM_BUFFER, &data, STATIC_DRAW);
+            gl.bind_buffer_range(UNIFORM_BUFFER, binding_point, Some(ubuf), 0, 64);
+            let prog_gl = glow::NativeProgram(super::nz(name));
+            gl.use_program(Some(prog_gl));
+            let block = gl
+                .get_uniform_block_index(prog_gl, "MatParams")
+                .expect("MatParams 块应存在");
+            gl.uniform_block_binding(prog_gl, block, binding_point);
+
+            // 4×4 目标
+            let rt = gl.create_texture().expect("目标纹理");
+            gl.active_texture(TEX0 + 15);
+            gl.bind_texture(TEX2D, Some(rt));
+            gl.tex_image_2d(TEX2D, 0, RGBA8, 4, 4, 0, RGBA, UBYTE, None);
+            gl.tex_parameter_i32(TEX2D, MINF, NEAREST);
+            let fb = gl.create_framebuffer().expect("FBO");
+            gl.bind_framebuffer(FB, Some(fb));
+            gl.framebuffer_texture_2d(FB, COLOR0, TEX2D, Some(rt), 0);
+            assert_eq!(gl.check_framebuffer_status(FB), 0x8CD5, "FBO 应完整");
+            gl.viewport(0, 0, 4, 4);
+            gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            gl.clear(COLOR_BIT);
+
+            let vao = gl.create_vertex_array().expect("VAO");
+            gl.bind_vertex_array(Some(vao));
+            gl.draw_arrays_instanced(TRI_STRIP, 0, 4, 4);
+            let mut out: Vec<[u8; 4]> = Vec::new();
+            for x in 0..4 {
+                let mut one = [0u8; 4];
+                gl.read_pixels(x, 2, 1, 1, RGBA, UBYTE, glow::PixelPackData::Slice(&mut one));
+                out.push(one);
+            }
+            gl.bind_framebuffer(FB, None);
+            gl.bind_vertex_array(None);
+            gl.delete_vertex_array(vao);
+            gl.delete_framebuffer(fb);
+            gl.delete_texture(rt);
+            gl.delete_buffer(ubuf);
+            out
+        });
+        assert_eq!(px.len(), 4);
+        assert_eq!(px[0], [255, 0, 0, 255], "实例0 取数组第0格（红）");
+        assert_eq!(px[1], [0, 255, 0, 255], "实例1 取第1格（绿）");
+        assert_eq!(px[2], [0, 0, 255, 255], "实例2 取第2格（蓝）");
+        assert_eq!(px[3], [255, 255, 0, 255], "实例3 取第3格（黄）");
+    }
 }
