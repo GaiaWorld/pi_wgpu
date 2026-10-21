@@ -2028,4 +2028,116 @@ pub(crate) mod tests {
         );
         assert_eq!(av._target, ARRAY);
     }
+
+    /// RG16F（BRDF LUT 常规形态）真 GL：创建/半浮点上传/颜色附件/回读全链；桌面 GL3 核心可渲染。
+    pub(crate) fn gl_rg16f_check() {
+        use crate::types::{
+            Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
+            TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+        };
+        const FB: u32 = 0x8D40;
+        const COLOR0: u32 = 0x8CE0;
+        const RGBA: u32 = 0x1908;
+        const FLOAT: u32 = 0x1406;
+        const TEX2D: u32 = 0x0DE1;
+        const W: u32 = 64;
+
+        let di = crate::entry::DeviceInner {
+            state: std::sync::Mutex::new(crate::state::StateMirror::default()),
+            cache: std::sync::Mutex::new(crate::objects::HandleCache::default()),
+            slots: std::sync::Mutex::new(crate::binds::SlotTable::default()),
+            error_state: std::sync::Mutex::new(crate::error_inner::ErrorState::default()),
+        };
+        let dev = crate::entry::Device {
+            _inner: pi_share::Share::new(di),
+        };
+        let q = crate::entry::Queue { _dev: None };
+        let t = super::create_texture_impl(
+            &dev,
+            &TextureDescriptor {
+                label: Some("rg16f-probe"),
+                size: Extent3d {
+                    width: W,
+                    height: W,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rg16Float,
+                usage: TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_DST
+                    | TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            },
+        );
+        // 每像素 half(1.0, 0.5)：R=0x3C00 G=0x3800（小端字节序）。
+        let mut data = vec![0u8; (W * W * 4) as usize];
+        for px in data.chunks_mut(4) {
+            px[0] = 0x00;
+            px[1] = 0x3C;
+            px[2] = 0x00;
+            px[3] = 0x38;
+        }
+        crate::upload_inner::write_texture_impl(
+            &q,
+            &TexelCopyTextureInfo {
+                texture: &t,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &data,
+            &TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(W * 4),
+                rows_per_image: Some(W),
+            },
+            Extent3d {
+                width: W,
+                height: W,
+                depth_or_array_layers: 1,
+            },
+        );
+        let name = t._h.name().expect("rg16f 名").0;
+        let (raw, status, err) = crate::context_inner::with_gl(|gl| unsafe {
+            while gl.get_error() != 0 {}
+            let fb = gl.create_framebuffer().expect("FBO");
+            gl.bind_framebuffer(FB, Some(fb));
+            gl.framebuffer_texture_2d(
+                FB,
+                COLOR0,
+                TEX2D,
+                Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(name)))),
+                0,
+            );
+            let st = gl.check_framebuffer_status(FB);
+            let mut out = [0u8; 16];
+            gl.read_pixels(
+                (W / 2) as i32,
+                (W / 2) as i32,
+                1,
+                1,
+                RGBA,
+                FLOAT,
+                glow::PixelPackData::Slice(&mut out),
+            );
+            let e = gl.get_error();
+            gl.bind_framebuffer(FB, None);
+            gl.delete_framebuffer(fb);
+            (out, st, e)
+        });
+        assert_eq!(status, 0x8CD5, "RG16F 挂 COLOR0 应 FBO 完整（桌面 GL3 核心可渲染）");
+        assert_eq!(err, 0, "RG16F 回读不应有 GL 错误");
+        let f = [
+            f32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]),
+            f32::from_ne_bytes([raw[4], raw[5], raw[6], raw[7]]),
+            f32::from_ne_bytes([raw[8], raw[9], raw[10], raw[11]]),
+            f32::from_ne_bytes([raw[12], raw[13], raw[14], raw[15]]),
+        ];
+        assert!(
+            (f[0] - 1.0).abs() < 1e-6 && (f[1] - 0.5).abs() < 1e-6,
+            "回读=上传的半浮点值 (got {f:?})"
+        );
+    }
 }
