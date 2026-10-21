@@ -255,6 +255,15 @@ fn resolve_gv(
     None
 }
 
+/// 从产物收集反射条目（与 register_impl 同收集面，不做布局对表）。 @internal
+pub(crate) fn reflection_of_impl(b: &CompiledEs300) -> Result<ReflectionTable, ShaderErr> {
+    let mut entries: Vec<RefEntry> = Vec::new();
+    for ir in b.modules.iter() {
+        collect_entries(&ir.module, &mut entries)?;
+    }
+    Ok(ReflectionTable { entries })
+}
+
 /// 取全局变量的 (group,binding) 键。
 fn bind_key(m: &naga::Module, h: naga::Handle<naga::GlobalVariable>) -> Option<(u32, u32)> {
     m.global_variables[h].binding.map(|rb| (rb.group, rb.binding))
@@ -480,12 +489,49 @@ mod tests {
             "缺/多绑定=Err"
         );
     }
+
+    /// 采样入口候选集：只取纹理类、重复去重、空反射=空表。
+    #[test]
+    fn sampler_targets_texture_only_test() {
+        use crate::shader::{BindingKind, RefEntry, ReflectionTable};
+        let mk = |g: u32, b: u32, k: BindingKind| RefEntry {
+            group: g,
+            binding: b,
+            kind: k,
+            name: String::new(),
+        };
+        let refl = ReflectionTable {
+            entries: vec![
+                mk(0, 1, BindingKind::Sampler),
+                mk(1, 0, BindingKind::UniformBuffer),
+                mk(0, 2, BindingKind::Texture),
+                mk(0, 2, BindingKind::Texture),
+            ],
+        };
+        assert_eq!(
+            sampler_targets_impl(&refl),
+            vec![(0, 2)],
+            "只取纹理类且去重（采样器条目本身不出码）"
+        );
+        assert!(
+            sampler_targets_impl(&ReflectionTable::default()).is_empty(),
+            "空反射=空表"
+        );
+    }
 }
 // 设计预期（伪码·示意·非唯一实现）：设计：sampler-unit-assign 切片 1。
 // 取 refl.entries 里 kind==BindingKind::Texture 的 (group,binding) → 去重 → 升序。
 // 依据：naga GLSL 后端对 Sampler 全局直接 continue 不出码（back/glsl/mod.rs:964），
 // 合并后的 sampler2D 即纹理全局，名字取纹理侧 (group,binding)。
 /// 采样入口候选集（契约见 `shader::sampler_targets` 壳注释）。 @internal
-pub(crate) fn sampler_targets_impl(_refl: &ReflectionTable) -> Vec<(u32, u32)> {
-    unimplemented!("sampler-unit-assign 切片 1")
+pub(crate) fn sampler_targets_impl(refl: &ReflectionTable) -> Vec<(u32, u32)> {
+    let mut out: Vec<(u32, u32)> = refl
+        .entries
+        .iter()
+        .filter(|e: &&RefEntry| e.kind == BindingKind::Texture)
+        .map(|e: &RefEntry| (e.group, e.binding))
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
 }

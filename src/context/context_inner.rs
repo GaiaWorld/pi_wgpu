@@ -566,6 +566,8 @@ mod tests {
             _depth_stencil: None,
             _primitive: crate::types::PrimitiveState::default(),
             _slots: crate::binds::SlotTable::default(),
+            _sampler_uniforms: Vec::new(),
+            _block_bindings: Vec::new(),
         };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
@@ -702,6 +704,9 @@ mod tests {
         gl_sampler_probe();
         gl_blit_copy_probe();
         gl_msaa_probe();
+        // —— 采样入口指位（设计：sampler-unit-assign）合验：collect 双阶段 + 端到端采样回读 ——
+        crate::entry_inner::tests::gl_two_stage_collect_check();
+        crate::entry_inner::tests::gl_sampler_unit_check();
         let_go_impl();
     }
 

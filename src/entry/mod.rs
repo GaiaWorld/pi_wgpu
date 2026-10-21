@@ -312,6 +312,12 @@ pub struct RenderPipeline {
     /// 本管线布局的槽分配结果（创建期定格）：出码期的绑定号与绘制期查槽必须同源——
     /// 设备级槽表会被后续建管线整体覆盖，故管线自持一份；set_pipeline 时拷入通道。 @internal
     pub(crate) _slots: crate::binds::SlotTable,
+    /// 采样入口指位表（创建期定格；设计：sampler-unit-assign）：程序真换后逐条 glUniform1i 的
+    /// (uniform location, 纹理单元)。与 `_slots` 同生命周期，空表=本管线无采样入口。 @internal
+    pub(crate) _sampler_uniforms: Vec<crate::binds::SamplerUniform>,
+    /// UBO 块指位表（创建期定格）：程序真换后逐条 glUniformBlockBinding 的 (块索引, 绑定点)。
+    /// 与 `_sampler_uniforms` 同为程序态同批下发；空表=本管线无 UBO 块。 @internal
+    pub(crate) _block_bindings: Vec<crate::binds::BlockBinding>,
 }
 /// 管线持行（录制命令用）：程序/VAO 复用计数各 +1、布局与定态值拷贝。
 /// 生命周期：由 record 芯的持行体在命令销毁时成对 release。 @internal
@@ -326,6 +332,8 @@ impl RenderPipeline {
             _depth_stencil: self._depth_stencil.clone(),
             _primitive: self._primitive.clone(),
             _slots: self._slots.clone(),
+            _sampler_uniforms: self._sampler_uniforms.clone(),
+            _block_bindings: self._block_bindings.clone(),
         }
     }
 }

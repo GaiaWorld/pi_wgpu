@@ -44,8 +44,25 @@ fn lookup_slot(t: &SlotTable, d: BindDomain, set: u32, binding: u32) -> u32 {
 // 线性扫描 domain_array(t, Texture) 求 pack(set,binding) 命中下标 i → bind_base(set, i)；
 // 未命中 → None。**不得复用 lookup_slot**：其未命中即断言，本处合同要求可容错。
 /// 查纹理域绑定占用单元（非断言版；契约见 `binds::unit_of` 壳注释）。 @internal
-pub(crate) fn unit_of(_t: &SlotTable, _set: u32, _binding: u32) -> Option<u32> {
-    unimplemented!("sampler-unit-assign 切片 2")
+pub(crate) fn unit_of(t: &SlotTable, set: u32, binding: u32) -> Option<u32> {
+    let key = pack(set, binding);
+    for (i, v) in domain_array(t, BindDomain::Texture).iter().enumerate() {
+        if *v == Some(key) {
+            return Some(bind_base(set, i as u32));
+        }
+    }
+    None
+}
+
+/// 查 UBO 域绑定占用绑定点（非断言版；契约见 `binds::block_binding` 壳注释）。 @internal
+pub(crate) fn block_binding(t: &SlotTable, set: u32, binding: u32) -> Option<u32> {
+    let key = pack(set, binding);
+    for (i, v) in t.ubo.iter().enumerate() {
+        if *v == Some(key) {
+            return Some(bind_base(set, i as u32));
+        }
+    }
+    None
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
@@ -123,6 +140,7 @@ pub(crate) fn apply_impl(
     let mut di = 0usize;
     for e in group._bound.iter() {
         let slot = lookup_slot(table, e.domain, set, e.binding);
+
         let name = e
             .handle
             .name()
@@ -294,5 +312,25 @@ mod tests {
         }));
         assert!(r.is_err(), "不符应断言");
         assert_eq!(offs2.len(), before, "不符不消耗任何份额");
+    }
+
+    /// unit_of：与 apply_impl 同一算式（set*4+槽号）；不同次序各得自己单元；未命中=None 不断言。
+    #[test]
+    fn unit_of_matches_bind_unit_test() {
+        let layout = PipelineLayout {
+            _bgls: vec![bgl(vec![uni(0), tex(5)]), bgl(vec![tex(7)])],
+        };
+        let mut t = SlotTable::default();
+        alloc_impl(&layout, &mut t);
+        // 槽号是跨 set 的全局紧凑编号（alloc_impl 逐域 0.. 递增），基址再按 set 叠加。
+        assert_eq!(unit_of(&t, 0, 5), Some(0), "set0 纹理占全局槽0 → 单元0");
+        assert_eq!(
+            unit_of(&t, 1, 7),
+            Some(bind_base(1, 1)),
+            "set1 纹理占全局槽1 → 与 apply_impl 同式叠加 set 基址"
+        );
+        assert_eq!(bind_base(1, 1), 5, "每 set 步长 4 + 槽号 1");
+        assert_eq!(unit_of(&t, 9, 9), None, "未命中返回 None（不断言）");
+        assert_eq!(unit_of(&t, 0, 0), None, "UBO 不在纹理域");
     }
 }

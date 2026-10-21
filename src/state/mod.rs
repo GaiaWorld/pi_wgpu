@@ -12,6 +12,11 @@ pub(crate) const BIND_SLOTS: usize = 16;
 pub(crate) struct StateMirror {
     /// 程序组：当前 useProgram 名（None=从未设）。
     pub(crate) program: Option<GlHandle>,
+    /// 采样入口指位表：当前管线的 (uniform location, 纹理单元)（程序态，随程序水位差异成对下发；
+    /// 设计：sampler-unit-assign）。空表=无采样入口（对不采样的管线零影响）。
+    pub(crate) sampler_uniforms: Vec<crate::binds::SamplerUniform>,
+    /// UBO 块指位表：当前管线要求程序块绑到的绑定点（与采样入口指位同组下发）。
+    pub(crate) block_bindings: Vec<crate::binds::BlockBinding>,
     /// 属性组：当前 VAO 绑定名（顶点属性与 ELEMENT_ARRAY 均被 VAO 吸收，不再单记）。
     pub(crate) vao: Option<GlHandle>,
     /// 目标组：当前 DRAW framebuffer 绑定名（pass begin/end 经本组）。

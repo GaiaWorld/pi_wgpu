@@ -94,3 +94,20 @@ pub(crate) struct SamplerUniform {
 pub(crate) fn unit_of(table: &SlotTable, set: u32, binding: u32) -> Option<u32> {
     crate::binds_inner::unit_of(table, set, binding)
 }
+
+/// UBO 块指位对（设计：sampler-unit-assign 延伸）：程序侧 uniform block 索引 × 该块在本槽表占的
+/// GL 绑定点。ES300 无法在着色器里写 `binding=`，故块绑定必须经 glUniformBlockBinding 程序态下发。
+/// 不变量：块索引由创建期同名查询定格；绑定点 ∈ [0, BIND_SLOTS)。空表=本程序无 UBO 块。 @internal
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BlockBinding {
+    /// 程序侧 uniform block 索引（get_active_uniform_block_name 枚举所得）。
+    pub(crate) index: u32,
+    /// 该块要绑到的 GL 绑定点（与 apply_impl 的 bind_base 同源）。
+    pub(crate) binding: u32,
+}
+
+/// 查某 UBO 域绑定在本槽表占用的 GL 绑定点。未命中=`None`（**不断言**——供指位期容错）。
+/// 失败后状态：不改槽表、不触 GL。幂等纯查询。 @internal
+pub(crate) fn block_binding(table: &SlotTable, set: u32, binding: u32) -> Option<u32> {
+    crate::binds_inner::block_binding(table, set, binding)
+}

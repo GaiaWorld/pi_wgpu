@@ -1067,6 +1067,74 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         }
         prog
     };
+    // 采样入口指位表（设计：sampler-unit-assign）：候选=反射里的纹理类绑定（naga 对 ES300
+    // 不下 sampler 全局，合并后的 sampler2D 即纹理全局）；位置查询要触 GL，故在创建期一次收齐，
+    // 切换期只发整数。表随管线定格，切换时经镜像与水位成对下发。
+    let sampler_uniforms = {
+        // 反射源自产物 IR 现取（模块 `_refl` 只在测试里填过；生产路径以 IR 为准）。
+        let mut targets: Vec<(u32, u32)> = Vec::new();
+        for blob in core::iter::once(&p.vertex.module._compiled)
+            .chain(p.fragment.as_ref().map(|f| &f.module._compiled))
+        {
+            match shader::reflection_of(blob) {
+                Ok(refl) => {
+                    for t in shader::sampler_targets(&refl) {
+                        if !targets.contains(&t) {
+                            targets.push(t);
+                        }
+                    }
+                }
+                Err(e) => log::error!("shader {e:?}: 反射收集失败（采样指位降级为空表）"),
+            }
+        }
+        targets.sort_unstable();
+        targets.dedup();
+        collect_sampler_uniforms(
+            prog.handle.expect("entry 断言: 新程序无句柄"),
+            &own_slots,
+            &targets,
+        )
+    };
+    // IR 侧「类型名+阶段 → (set,binding)」：GL 块名由类型名派生（registry naga 命名），
+    // 用它把块索引反查回绑定点。
+    let mut ir_keys: Vec<(String, (u32, u32))> = Vec::new();
+    for (blob, tag) in core::iter::once((&p.vertex.module._compiled, "Vertex"))
+        .chain(p.fragment.as_ref().map(|f| (&f.module._compiled, "Fragment")))
+    {
+        for ir in blob.modules.iter() {
+            // 复算 naga Namer 的类型名：匿名类型走 "type"/"type_N" 序号（与出码同名）。
+            let mut ty_names: Vec<(naga::Handle<naga::Type>, String)> = Vec::new();
+            let mut anon: u32 = 0;
+            for (h, ty) in ir.module.types.iter() {
+                let nm = match &ty.name {
+                    Some(n) => n.clone(),
+                    None => {
+                        let s = if anon == 0 {
+                            String::from("type")
+                        } else {
+                            format!("type_{anon}")
+                        };
+                        anon += 1;
+                        s
+                    }
+                };
+                ty_names.push((h, nm));
+            }
+            for (_h, gv) in ir.module.global_variables.iter() {
+                if gv.space != naga::AddressSpace::Uniform {
+                    continue;
+                }
+                let Some(rb) = gv.binding else { continue };
+                let Some((_, tn)) = ty_names.iter().find(|(h, _)| *h == gv.ty) else {
+                    continue;
+                };
+                ir_keys.push((format!("{tn}_{tag}"), (rb.group, rb.binding)));
+            }
+        }
+    }
+    // UBO 块指位：ES300 无 `binding=` 限定符，块绑定必须由程序态指定（否则全部停在 0 号）。
+    let block_bindings =
+        collect_block_bindings(prog.handle.expect("entry 断言: 新程序无句柄"), &own_slots, &ir_keys);
     let vertex: Vec<crate::draw::VertexLayout> = p
         .vertex
         .buffers
@@ -1092,7 +1160,106 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         _depth_stencil: p.depth_stencil.clone(),
         _primitive: p.primitive.clone(),
         _slots: own_slots,
+        _sampler_uniforms: sampler_uniforms,
+        _block_bindings: block_bindings,
     }
+}
+
+/// 资源类全局名解析：naga 出码名为 `_group_{G}_binding_{B}_{stage}`（stage 后缀因阶段而异，
+/// 同一绑定在 VS/FS 各出一条），故解析取前两段、容忍后缀；非资源类名= None。
+fn parse_group_binding(name: &str) -> Option<(u32, u32)> {
+    let rest = name.strip_prefix("_group_")?;
+    let (g, rest) = rest.split_once("_binding_")?;
+    let b = rest.split_once('_').map(|(head, _)| head).unwrap_or(rest);
+    Some((g.parse().ok()?, b.parse().ok()?))
+}
+
+/// 采样入口 → 驱动侧指位表（设计：sampler-unit-assign 切片 3；契约见该设计 07-design/api.md）。
+/// 只收 targets 命中的名字，按**名字**逐条入表（不按 (group,binding) 去重：VS/FS 同采一图
+/// 是两条 uniform、两个 location、同一 unit）；单条不可得记短码后跳过，整体不失败。
+fn collect_sampler_uniforms(
+    program: GlHandle,
+    table: &crate::binds::SlotTable,
+    targets: &[(u32, u32)],
+) -> Vec<crate::binds::SamplerUniform> {
+    if targets.is_empty() {
+        return Vec::new();
+    }
+
+    crate::context_inner::with_gl(|gl| unsafe {
+        let prog = glow::NativeProgram(nz(program));
+        let n = gl.get_active_uniforms(prog);
+        let mut out: Vec<crate::binds::SamplerUniform> = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let Some(au) = gl.get_active_uniform(prog, i) else {
+                continue;
+            };
+            let Some((g, b)) = parse_group_binding(&au.name) else {
+                continue;
+            };
+            if !targets.contains(&(g, b)) {
+                continue;
+            }
+            let Some(unit) = crate::binds::unit_of(table, g, b) else {
+                log::error!("SamplerUnitMissing set={g} binding={b}");
+                continue;
+            };
+            let Some(loc) = gl.get_uniform_location(prog, &au.name) else {
+                continue;
+            };
+
+            out.push(crate::binds::SamplerUniform {
+                location: loc.0 as i32,
+                unit,
+            });
+        }
+        out
+    })
+}
+
+/// UBO 块 → 驱动侧块指位表：按出码期带回的「(set,binding) → 产物名」名表逐个向程序查块索引，
+/// 绑定点取本管线槽表（与 apply_impl 同源）。ES300 无 `binding=`，块绑定只能经此程序态指定，
+/// 否则所有块停在 0 号绑定点（set>0 的材质块读到垃圾）。整体不失败。
+fn collect_block_bindings(
+    program: GlHandle,
+    table: &crate::binds::SlotTable,
+    ir_keys: &[(String, (u32, u32))],
+) -> Vec<crate::binds::BlockBinding> {
+    crate::context_inner::with_gl(|gl| unsafe {
+        let prog = glow::NativeProgram(nz(program));
+        let mut out: Vec<crate::binds::BlockBinding> = Vec::new();
+        for i in 0..64u32 {
+            let name = gl.get_active_uniform_block_name(prog, i);
+            if name.is_empty() {
+                break;
+            }
+            // 两种名形：`_group_G_binding_B_<stage>`（本地 naga）或 `<类型名>_block_<id><Stage>`
+            // （registry naga）。后者按「类型名 + 阶段」回查 IR 的 (set,binding)。
+            let key = parse_group_binding(&name).or_else(|| {
+                let at = name.rfind("_block_")?;
+                let prefix = &name[..at];
+                let tail = &name[at + 7..];
+                let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+                let stage = &tail[digits.len()..];
+                let want = format!("{prefix}_{stage}");
+                ir_keys
+                    .iter()
+                    .find(|(k, _)| *k == want)
+                    .map(|(_, v)| *v)
+            });
+            let Some((g, b)) = key else {
+                log::error!("BlockBindingUnparsed index={i} name={name}");
+                continue;
+            };
+            let Some(binding) = crate::binds::block_binding(table, g, b) else {
+                log::error!("BlockBindingMissing set={g} binding={b} name={name}");
+                continue;
+            };
+
+            out.push(crate::binds::BlockBinding { index: i, binding });
+        }
+        out
+    })
 }
 
 /// 把 GLSL ES 3.0 源编译+链接进给定程序对象（仅新程序路径；复用命中不重链）。
@@ -1299,5 +1466,242 @@ impl crate::entry::DeviceInner {
     ) -> R {
         let mut st = self.error_state.lock().unwrap_or_else(|x| x.into_inner());
         f(&mut st)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::parse_group_binding;
+    use glow::HasContext;
+
+    /// 资源名解析：带/不带 stage 后缀均可；非资源名= None（collect 的静默跳过路径）。
+    #[test]
+    fn parse_group_binding_test() {
+        assert_eq!(parse_group_binding("_group_0_binding_1_fragment"), Some((0, 1)));
+        assert_eq!(parse_group_binding("_group_2_binding_13_vertex"), Some((2, 13)));
+        assert_eq!(parse_group_binding("_group_0_binding_3"), Some((0, 3)), "无后缀也接受");
+        assert_eq!(parse_group_binding("color"), None, "普通 uniform 不进表");
+        assert_eq!(parse_group_binding("_group_x_binding_1_vertex"), None, "非数字=跳过");
+        assert_eq!(parse_group_binding("_push_constant_binding_vertex"), None);
+    }
+
+    /// 切片 3 真 GL（由全链夹具调用；本进程只允许一次 attach，勿另立 #[test]）：VS/FS 同采一图 →
+    /// 两条 location、同一 unit（关 L9 关键坑 1 与 L0 待验证动态面）。
+    pub(crate) fn gl_two_stage_collect_check() {
+        use crate::types::{
+            BindGroupLayoutEntry, BindingType, SamplerBindingType, ShaderStages, TextureSampleType,
+            TextureViewDimension,
+        };
+        // 布局：set0 = 纹理 binding0 + 采样器 binding1（纹理占单元 0）。
+        let layout = crate::entry::PipelineLayout {
+            _bgls: vec![crate::entry::BindGroupLayout {
+                _entries: vec![
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        count: None,
+                        ty: BindingType::Texture {
+                            sample_type: TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        count: None,
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    },
+                ],
+            }],
+        };
+        let mut table = crate::binds::SlotTable::default();
+        crate::binds::alloc_slots(&layout, &mut table);
+        let targets = vec![(0u32, 0u32)];
+        let mut cache = crate::objects::HandleCache::default();
+        let prog =
+            crate::objects::ensure_reuse(crate::objects::ReuseKey::Program(0x53_0000_01), &mut cache);
+        let name = prog.handle.expect("新程序应有句柄");
+        let vs_src: String = [
+            "#version 300 es",
+            "in vec2 a_uv;",
+            "uniform sampler2D _group_0_binding_0_vertex;",
+            "void main() {",
+            "    vec4 t = textureLod(_group_0_binding_0_vertex, a_uv, 0.0);",
+            "    gl_Position = vec4(a_uv + t.xy * 0.001, 0.0, 1.0);",
+            "}",
+        ]
+        .join("\n");
+        let fs_src: String = [
+            "#version 300 es",
+            "precision highp float;",
+            "uniform sampler2D _group_0_binding_0_fragment;",
+            "out vec4 o;",
+            "void main() { o = texture(_group_0_binding_0_fragment, vec2(0.5)); }",
+        ]
+        .join("\n");
+        super::link_program(name, &vs_src, Some(&fs_src));
+        let got = super::collect_sampler_uniforms(name, &table, &targets);
+        let unit = crate::binds::unit_of(&table, 0, 0).expect("纹理在槽表");
+        assert_eq!(got.len(), 2, "VS/FS 各一条（不按 (group,binding) 去重）");
+        assert!(
+            got.iter().all(|u: &crate::binds::SamplerUniform| u.unit == unit),
+            "同一 (g,b) 的两条 uniform 指向同一单元"
+        );
+        assert!(got
+            .iter()
+            .all(|u: &crate::binds::SamplerUniform| u.location >= 0));
+        assert_ne!(got[0].location, got[1].location, "两阶段各得自己的位置");
+    }
+
+    /// 切片 5 真 GL 端到端（由全链夹具调用）：指位（collect 产物）经 `StateMirror` 水位真实下发后，
+    /// 采样确实读到目标单元——1×1 洋红纹理 + 全屏三角，回读中心=源色（容差 0）。
+    pub(crate) fn gl_sampler_unit_check() {
+        use crate::binds::{alloc_slots, SlotTable};
+        use crate::types::{
+            BindGroupLayoutEntry, BindingType, SamplerBindingType, ShaderStages, TextureSampleType,
+            TextureViewDimension,
+        };
+        const TEX0: u32 = 0x84C0;
+        const TEX2D: u32 = 0x0DE1;
+        const RGBA8: i32 = 0x8058;
+        const RGBA: u32 = 0x1908;
+        const UBYTE: u32 = 0x1401;
+        const NEAREST: i32 = 0x2600;
+        const MINF: u32 = 0x2801;
+        const MAGF: u32 = 0x2800;
+        const WRAPS: u32 = 0x2802;
+        const WRAPT: u32 = 0x2803;
+        const CLAMP: i32 = 0x812F;
+        const FB: u32 = 0x8D40;
+        const COLOR0: u32 = 0x8CE0;
+        const TRIANGLES: u32 = 0x0004;
+        const COLOR_BIT: u32 = 0x4000;
+
+        let layout = crate::entry::PipelineLayout {
+            _bgls: vec![crate::entry::BindGroupLayout {
+                _entries: vec![
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::FRAGMENT,
+                        count: None,
+                        ty: BindingType::Texture {
+                            sample_type: TextureSampleType::Float { filterable: true },
+                            view_dimension: TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::FRAGMENT,
+                        count: None,
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    },
+                ],
+            }],
+        };
+        let mut table = SlotTable::default();
+        alloc_slots(&layout, &mut table);
+        let unit = crate::binds::unit_of(&table, 0, 0).expect("纹理应在槽表");
+
+        let mut cache = crate::objects::HandleCache::default();
+        let prog = crate::objects::ensure_reuse(
+            crate::objects::ReuseKey::Program(0x53_0000_05),
+            &mut cache,
+        );
+        let name = prog.handle.expect("程序句柄");
+        let vs_src: String = [
+            "#version 300 es",
+            "void main() {",
+            "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));",
+            "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);",
+            "}",
+        ]
+        .join("\n");
+        let fs_src: String = [
+            "#version 300 es",
+            "precision highp float;",
+            "uniform sampler2D _group_0_binding_0_fragment;",
+            "out vec4 o;",
+            "void main() { o = texture(_group_0_binding_0_fragment, vec2(0.5)); }",
+        ]
+        .join("\n");
+        super::link_program(name, &vs_src, Some(&fs_src));
+
+        let got = super::collect_sampler_uniforms(name, &table, &[(0u32, 0u32)]);
+        assert_eq!(got.len(), 1, "本程序单一采样入口");
+        assert_eq!(got[0].unit, unit, "collect 的单元=槽表算出的单元");
+
+        // 先走镜像水位下发（flush 会按空镜像把 16 单元解绑，早于手工绑定执行才不互相冲掉），
+        // 再备资源：期望态进镜像 → 程序真换 → useProgram + 全量指位。
+        // 与产品同路径：期望态进镜像 → 水位差异下发 useProgram + 全量指位。
+        let mut m = crate::state::StateMirror::default();
+        m.program = Some(crate::objects::GlHandle(name.0));
+        m.sampler_uniforms = got.clone();
+        m.flush_if_changed();
+        assert_eq!(m.water.program, Some(name.0), "程序水位推进=useProgram+指位已发");
+
+        // 资源准备（源纹理与采样器落在目标单元；渲染目标另占末端单元，免覆盖源）。
+        let (tex, smp, rt, fb, vao) = crate::context_inner::with_gl(|gl| unsafe {
+            let tex = gl.create_texture().expect("源纹理");
+            let smp = gl.create_sampler().expect("采样器");
+            let rt = gl.create_texture().expect("渲染目标");
+            let fb = gl.create_framebuffer().expect("FBO");
+            let vao = gl.create_vertex_array().expect("VAO");
+            // 前序上传探针可能遗留 PBO/对齐态：不复位会让 texImage2D 从缓冲取数（上传静默变黑）。
+            while gl.get_error() != 0 {}
+            gl.bind_buffer(0x88EC, None); // PIXEL_UNPACK_BUFFER
+            gl.bind_buffer(0x88EB, None); // PIXEL_PACK_BUFFER
+            gl.pixel_store_i32(0x0CF5, 1); // UNPACK_ALIGNMENT
+            gl.active_texture(TEX0 + 15);
+            gl.bind_texture(TEX2D, Some(rt));
+            gl.tex_image_2d(TEX2D, 0, RGBA8, 1, 1, 0, RGBA, UBYTE, None);
+            gl.tex_parameter_i32(TEX2D, MINF, NEAREST);
+            gl.active_texture(TEX0 + unit);
+            gl.bind_texture(TEX2D, Some(tex));
+            gl.tex_image_2d(TEX2D, 0, RGBA8, 1, 1, 0, RGBA, UBYTE, Some(&[255, 0, 255, 255]));
+            gl.tex_parameter_i32(TEX2D, MINF, NEAREST);
+            gl.tex_parameter_i32(TEX2D, MAGF, NEAREST);
+            gl.sampler_parameter_i32(smp, MINF, NEAREST);
+            gl.sampler_parameter_i32(smp, MAGF, NEAREST);
+            gl.sampler_parameter_i32(smp, WRAPS, CLAMP);
+            gl.sampler_parameter_i32(smp, WRAPT, CLAMP);
+            gl.bind_sampler(unit, Some(smp));
+            gl.bind_framebuffer(FB, Some(fb));
+            gl.framebuffer_texture_2d(FB, COLOR0, TEX2D, Some(rt), 0);
+            let e = gl.get_error();
+            assert_eq!(e, 0, "纹理/FBO 准备期驱动 error {e:#x}");
+            (tex, smp, rt, fb, vao)
+        });
+
+        let px: [u8; 4] = crate::context_inner::with_gl(|gl| unsafe {
+            // 探针自带状态复位：前序探针留下的裁剪/掩码/丢弃态会吞掉绘制。
+            gl.disable(0x0C11); // SCISSOR_TEST
+            gl.disable(0x0B71); // DEPTH_TEST
+            gl.disable(0x0BE2); // BLEND
+            gl.disable(0x0B44); // CULL_FACE
+            gl.disable(0x8C89); // RASTERIZER_DISCARD
+            gl.color_mask(true, true, true, true);
+            gl.use_program(Some(glow::NativeProgram(super::nz(name))));
+            gl.bind_framebuffer(FB, Some(fb));
+            assert_eq!(gl.check_framebuffer_status(FB), 0x8CD5, "FBO 应完整");
+            gl.viewport(0, 0, 1, 1);
+            gl.clear_color(0.0, 1.0, 0.0, 1.0); // 绿清屏：与源色洋红区分「没画到」与「采到黑」
+            gl.clear(COLOR_BIT);
+            gl.bind_vertex_array(Some(vao));
+            gl.draw_arrays(TRIANGLES, 0, 3);
+            let mut out = [0u8; 4];
+            gl.read_pixels(0, 0, 1, 1, RGBA, UBYTE, glow::PixelPackData::Slice(&mut out));
+            gl.bind_framebuffer(FB, None);
+            gl.bind_vertex_array(None);
+            gl.bind_sampler(unit, None);
+            gl.delete_vertex_array(vao);
+            gl.delete_framebuffer(fb);
+            gl.delete_texture(rt);
+            gl.delete_texture(tex);
+            gl.delete_sampler(smp);
+            out
+        });
+        assert_eq!(px, [255, 0, 255, 255], "回读中心=源色：采样器读到的正是指位单元");
     }
 }

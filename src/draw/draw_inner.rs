@@ -417,6 +417,9 @@ pub(crate) fn exec_set_pipeline_parts(
     {
         let mut m = lock_state(p);
         state_inner::set_program(&mut m, name);
+        // 指位表随管线写入镜像期望态（只改镜像，不触 GL；下发归 flush 程序组）。
+        m.sampler_uniforms = x.sampler_uniforms.clone();
+        m.block_bindings = x.block_bindings.clone();
     }
     p._vertex = x.vertex.clone();
     p._topology = x.topology;
@@ -610,6 +613,7 @@ pub(crate) fn exec_draw(
         p._vao,
         m.program
     ));
+
     crate::state_inner::check_fbo("draw", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
         state_inner::flush_impl(&mut m);

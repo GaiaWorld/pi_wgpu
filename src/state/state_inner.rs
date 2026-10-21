@@ -403,6 +403,37 @@ fn apply_program(m: &StateMirror) {
     });
 }
 
+/// UBO 块指位下发（设计：sampler-unit-assign 延伸）。程序态组：与 useProgram 同段成对下发；
+/// ES300 无法在着色器写 `binding=`，块绑定只能这样指定，否则块停在 0 号绑定点。
+fn apply_block_bindings(m: &StateMirror, program: GlHandle) {
+    if m.block_bindings.is_empty() {
+        return;
+    }
+    with_gl(|gl| unsafe {
+        let prog = glow::NativeProgram(nz(program.0));
+        for b in m.block_bindings.iter() {
+            gl.uniform_block_binding(prog, b.index, b.binding);
+        }
+    });
+}
+
+/// 采样入口指位下发（设计：sampler-unit-assign）。程序态组：只随 flush 的程序水位差异成对下发，
+/// 与 use_program 同 GL 段；无失败分支（入表前提=活程序 + 位置已查得），不设重试。
+fn apply_sampler_units(m: &StateMirror) {
+    if m.sampler_uniforms.is_empty() {
+        return;
+    }
+    with_gl(|gl| unsafe {
+        for u in m.sampler_uniforms.iter() {
+            // 位置按驱动句柄原样回填（创建期自 get_uniform_location 取，u32 与 i32 往返无损）。
+            gl.uniform_1_i32(
+                Some(&glow::NativeUniformLocation(u.location as u32)),
+                u.unit as i32,
+            );
+        }
+    });
+}
+
 /// 属性组下发。
 fn apply_vao(m: &StateMirror) {
     with_gl(|gl| unsafe {
@@ -910,6 +941,11 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             m.water.program = Some(prog_name);
         } else if m.water.program != Some(prog_name) {
             apply_program(m);
+            // 程序真换 → 指示采样入口读哪个单元、UBO 块绑到哪个绑定点（与 use_program 同段成对）。
+            if let Some(p) = m.program {
+                apply_block_bindings(m, p);
+            }
+            apply_sampler_units(m);
             m.water.program = Some(prog_name);
             probe(1);
         }

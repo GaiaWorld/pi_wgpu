@@ -114,3 +114,9 @@ pub(crate) fn emit_stage(
 pub(crate) fn sampler_targets(refl: &ReflectionTable) -> Vec<(u32, u32)> {
     crate::shader_inner::sampler_targets_impl(refl)
 }
+/// 从转译产物直接收集反射条目（同登记面，但**不与布局对表**——管线创建期求采样入口候选用）。
+/// 失败面：产物含不受支持的 Handle 类型=Err(UnsupportedBinding)；诊断原文走 log::error!。
+/// 失败后状态：不写任何模块字段（本操作只产出局部表）。 @internal
+pub(crate) fn reflection_of(blob: &CompiledEs300) -> Result<ReflectionTable, ShaderErr> {
+    crate::shader_inner::reflection_of_impl(blob)
+}

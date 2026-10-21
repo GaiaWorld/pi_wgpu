@@ -56,6 +56,10 @@ pub(crate) struct RetainedPipeline {
     pub(crate) depth_stencil: Option<crate::types::DepthStencilState>,
     /// 槽分配。
     pub(crate) slots: crate::binds::SlotTable,
+    /// 采样入口指位表（与 `slots` 同源定格；延后执行回放时仍须知道指到哪）。
+    pub(crate) sampler_uniforms: Vec<crate::binds::SamplerUniform>,
+    /// UBO 块指位表（与 `sampler_uniforms` 同批定格下发）。
+    pub(crate) block_bindings: Vec<crate::binds::BlockBinding>,
 }
 impl RetainedPipeline {
     /// 从管线取持行（程序/VAO 计数各 +1）。 @internal
@@ -67,6 +71,8 @@ impl RetainedPipeline {
             topology: p._topology,
             depth_stencil: p._depth_stencil.clone(),
             slots: p._slots.clone(),
+            sampler_uniforms: p._sampler_uniforms.clone(),
+            block_bindings: p._block_bindings.clone(),
         }
     }
 }
@@ -226,6 +232,7 @@ pub(crate) fn flush_encoder(e: &mut CommandEncoder) {
     if cmds.is_empty() {
         return;
     }
+
     replay_commands(&e._inner, &cmds);
 }
 
@@ -235,6 +242,7 @@ pub(crate) fn submit_impl(q: &Queue, buffers: &[CommandBuffer]) {
     let Some(dev) = q._dev.as_ref() else {
         return;
     };
+
     for cb in buffers {
         replay_commands(&dev._inner, &cb._commands);
     }
