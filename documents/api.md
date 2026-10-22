@@ -186,6 +186,7 @@ util::parse_backends_from_comma_list(s); // wasm→GL
 ### 8.5 仓内示例的约定状态
 
 - `examples/shadow_cube`：已按本章迁移（投影 z∈[0,1]、阴影 UV、合成 UV）。
+- `examples/alpha_blend`：按本章约定编写；含离屏读回三点混合数值对账（红 0.5 叠白=[255,128,128]，再叠蓝=[128,64,192]）。
 - `examples/rtt_probe`：`quad.vert` 与 `off.frag` 仍为旧 GL 约定（三色带上下与注释相反），属历史示例，勿作写法参照。
 - `examples/textured_quad`：顶点属性 UV 仍为旧 GL 约定；因渐变为水平方向而不可见。
 - 结论：旧示例只用于验证链路通断；产品代码一律以 8.1–8.3 为准。
