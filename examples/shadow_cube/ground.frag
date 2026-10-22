@@ -12,8 +12,10 @@ layout(location = 1) in vec4 v_light;
 layout(location = 0) out vec4 o_color;
 float shadow_at(vec4 light_clip) {
     vec3 ndc = light_clip.xyz / max(light_clip.w, 0.0001);
-    vec2 uv = ndc.xy * 0.5 + 0.5;
-    float d = ndc.z * 0.5 + 0.5;
+    // ADJUST_COORDINATE_SPACE 后：v_light 的 ndc.z 已是 [0,1]；阴影图行 0=顶，
+    // 而 varyings 不受顶点翻转影响，故 V 需按 WebGPU 顶原点手翻。
+    vec2 uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    float d = ndc.z;
     float texel = params.x;
     float bias = params.y;
     float s = 0.0;

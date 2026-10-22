@@ -53,11 +53,12 @@ fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) -> M4 {
         0.0,
         0.0,
         0.0,
-        (far + near) / (near - far),
+        // WebGPU 约定：z 落 [0,1]（ADJUST 会再映到 GL 的 [-1,1]）。
+        (far + near) / (2.0 * (near - far)) - 0.5,
         -1.0,
         0.0,
         0.0,
-        2.0 * far * near / (near - far),
+        far * near / (near - far),
         0.0,
     ]
 }
@@ -74,11 +75,12 @@ fn ortho(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> M4 {
         0.0,
         0.0,
         0.0,
-        -2.0 / (f - n),
+        // WebGPU 约定：z 落 [0,1]。
+        -1.0 / (f - n),
         0.0,
         -(r + l) / (r - l),
         -(t + b) / (t - b),
-        -(f + n) / (f - n),
+        -n / (f - n),
         1.0,
     ]
 }

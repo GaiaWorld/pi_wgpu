@@ -155,6 +155,6 @@ single_thread feature：锁与搬运整体退化为空实现（零开销）
 - [requirements.md](requirements.md) — 功能需求 FR-N/NFR/验收矩阵（真相源）
 - [module-design.md](module-design.md) — 源码分层、模块职责、对象生命周期与依赖
 - [design.md](design.md) — 设计论证笔记（绑定模型 / 槽复用 / 多线程）
-- [api.md](api.md) — 导出接口全表 + 与 wgpu-rs 差异汇总（迁移必读）
+- [api.md](api.md) — 导出接口全表 + 与 wgpu-rs 差异汇总（迁移必读）+ §8 着色器与坐标约定（产品端必读）
 - [exported-api.md](exported-api.md) — 全部 pub 导出符号清单（v0.3.7 自动扫描）
 - ../README.md — 快速开始、平台支持矩阵、§2.0x 支持度

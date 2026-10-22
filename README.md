@@ -60,7 +60,7 @@ adb install target/debug/apk/examples/triangle.apk # 在powershell中执行
 - [功能需求](documents/requirements.md) - 库定位、功能需求与验收范围
 - [模块设计](documents/module-design.md) - 源码分层、模块职责与关键机制
 - [设计笔记](documents/design.md) - 架构设计论证与实现细节
-- [API参考](documents/api.md) - 完整接口文档（含与 wgpu 差异汇总）
+ - [API参考](documents/api.md) - 完整接口文档（含与 wgpu 差异汇总、着色器与坐标约定（产品端必读）§8）
 - [导出接口清单](documents/exported-api.md) - 全部 `pub` 导出符号条目（v0.3.7 自动扫描）
 - [迁移指南](documents/migration.md) - 从wgpu-rs迁移指南
 

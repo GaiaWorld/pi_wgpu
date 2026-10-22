@@ -131,8 +131,8 @@ util::parse_backends_from_comma_list(s); // wasm→GL
 | Adapter::request_device | 双参（trace_path）→ 统一经 `PiWgpuAdapter`，见 §5.1。 |
 | Queue::submit | 空实现：录制即执行，无法在 submit 前校验/回滚。 |
 | write_buffer 注释 | 「下次 submit 前排队」的表述在本实现中不成立（即时下发）。 |
-| Buffer map 族 | 整体缺失 → GPU→CPU 数据无法读回。 |
-| copy_* 传输族 | 整体缺失 → 资源转换须自行经 CPU 或 RT 采样。 |
+| Buffer map 族（map_async/get_mapped_range） | 缺失；GPU→CPU 读回走 `copy_texture_to_buffer` + `Buffer::get_sub_data`（同步读，有意差异，见 §8.1）。 |
+| copy_* 传输族 | 已实现 texture→buffer / buffer→texture / texture→texture（行序同 wgpu，不翻转）；其余变体缺失。 |
 | Compute/QuerySet/Indirect/Bundle/Spirv/push constants | 缺失（需求方需降级或放弃对应特性）。 |
 | 多颜色目标 / 多重采样 | begin_render_pass 仅单目标（MSAA 内部经 blit resolve 支持离屏）。 |
 | surface.configure 时序 | **强制前置条件**（Web 平台无跨 surface context；见 §4）。 |
@@ -140,3 +140,52 @@ util::parse_backends_from_comma_list(s); // wasm→GL
 | Surface::get_capabilities | README §2.07 标记 ×，当前代码已有实现（返回格式/模式能力；configure 校验依据）—— 属文档滞后项。 |
 | 生命周期 | §5.6「被 BindGroup 握住」「draw 之后才可销毁」两条硬规则。 |
 | 线程 | 录制非多线程安全；资源多线程创建需要锁（single_thread 省略）。 |
+
+## 8. 着色器与坐标约定（产品端必读）
+
+本章规定「产品端如何写」：**只写一套 WebGPU 语义的着色器与数据，坐标差异全部由后端翻译到 GL**。
+与 §7 的差异清单互补——§7 讲接口缺什么，本章讲语义该怎么给。
+
+### 8.1 契约与落地位置
+
+| 环节 | 后端行为 | 实现位置 |
+|---|---|---|
+| 顶点输出 | 后端在 `gl_Position` 末尾翻 Y，并把 z 从 [0,1] 映到 GL 的 [-1,1] | `src/shader/shader_inner.rs:337`（`ADJUST_COORDINATE_SPACE`） |
+| 正面绕序 | 按 wgpu 语义声明 `FrontFace::Ccw/Cw`，后端反向后下发（Y 翻使窗口绕序镜像） | `src/state/state_inner.rs:264` |
+| 上传行序 | `write_texture` 数据第 0 行 → 纹理行 0（图像顶行） | `src/upload/upload_inner.rs` |
+| 读回行序 | `copy_texture_to_buffer` 首行 = 纹理行 0，不翻转 | `src/upload/upload_inner.rs:471` |
+| 上屏 | `surface` 帧 view 为离屏纹理，`present` 做一次翻转 blit | `src/surface/surface_inner.rs:218` |
+
+### 8.2 产品必须遵守的 shader 语义
+
+1. **投影矩阵输出 z∈[0,1]**（WebGPU 约定）。SwiftShader/GL 风格的 `(f+n)/(n-f)`、`2fn/(n-f)` 会把 z 送出范围，后端再映只会得到 [-3,1]；请使用 `pi_scene_math` 的 `perspective_lh` / `orthographic_lh`（已含 `half_z_range`）。
+2. **纹理坐标 v=0 表示图像顶行**。由 NDC 反推 UV 用 `vec2(x*0.5+0.5, 0.5-y*0.5)`；顶点属性 UV 按「顶=0」摆放。不要写 GL 习惯的 `0.5+0.5y`。
+3. **深度/阴影比较直接用 NDC z**（已是 [0,1]），不要再 `z*0.5+0.5`；深度附件清除值 1.0、比较函数按 wgpu 语义给。
+4. **纹理上传按图像行序写入**（第 0 行=顶行），不要为 GL 预翻；压缩纹理/DDS 同理按 wgpu 的层与行列语义给 `origin`。
+5. **不手翻顶点 y**：矩阵、`look_at`、NDC 都按 y 向上给；若自行取反会与后端翻转叠加成倒置。
+6. **视口/剪刀按 wgpu 语义给**（y 从帧缓冲顶部算）。本后端与 wgpu-hal GL 一致地原样下发，全屏视口无差异；偏置/分屏视口需自测。
+7. **单颜色目标**限定见 §7；MSAA 仅离屏经 blit resolve 支持；`copy_*` 三形在场，CPU 读回走 `copy_texture_to_buffer` + `get_sub_data`（同步读），map_async 映射族仍缺失。
+8. **着色语言**：优先 WGSL（唯一可跨后端移植的源）；GLSL 450 经 naga 前端按 WebGPU 语义解释，属便利入口，不承诺与原生 GL 语义一致。
+
+### 8.3 后端未适配的已知差异（产品需规避）
+
+| 差异 | 影响 | 规避建议 |
+|---|---|---|
+| `@builtin(position)` / `gl_FragCoord` 仍为 GL 底原点 | 屏幕空间特效（描边、SSAO、边缘检测）上下反 | 改用 varying 传 uv；或对 position.y 自行 `1-y` 处理。wgpu-hal GL 后端同样存在此缺口 |
+| flat 插值取末顶点（GLES 无 `glProvokingVertex`），WebGPU 规定首顶点 | flat varying / 顶点色可能不一致 | 不依赖诱发顶点，或每顶点复制同值 |
+| 立方体贴图面内轴向未用真 GL 用例钉死 | 天空盒/IBL 可能出现面内旋转或镜像 | 接入时用 6 面可辨识图样比对 wgpu 参考实现 |
+| 视口/剪刀 y 原样下发 | 偏置视口 Y 方向与 wgpu 语义不符 | 限全屏视口，或自测校正 |
+
+### 8.4 接入自检清单
+
+1. 画一个上下不对称的图形（如左上红、右下蓝），确认窗口内**正立**。
+2. 渲到离屏 RT 后读回（`copy_texture_to_buffer`），确认**首行 = 视觉顶**。
+3. 阴影/深度比较使用 `ndc.z` 直接比对，确认无漏光/错位。
+4. 若 shader 使用 `gl_FragCoord`/`position`，确认特效未上下翻转（见 8.3）。
+
+### 8.5 仓内示例的约定状态
+
+- `examples/shadow_cube`：已按本章迁移（投影 z∈[0,1]、阴影 UV、合成 UV）。
+- `examples/rtt_probe`：`quad.vert` 与 `off.frag` 仍为旧 GL 约定（三色带上下与注释相反），属历史示例，勿作写法参照。
+- `examples/textured_quad`：顶点属性 UV 仍为旧 GL 约定；因渐变为水平方向而不可见。
+- 结论：旧示例只用于验证链路通断；产品代码一律以 8.1–8.3 为准。
