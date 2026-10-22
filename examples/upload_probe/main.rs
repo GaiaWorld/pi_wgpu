@@ -60,11 +60,10 @@ fn probe(device: &Device, queue: &Queue) {
         [bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]
     };
     println!("UP p(0,0)={:?} p(8,8)={:?} p(4,2)={:?}", px(0, 0), px(8, 8), px(4, 2));
-    // 读侧已知行翻转（copy_texture_to_buffer 设计：纹理顶行 0 语义 vs GL 底行 0），
-    // 判据按翻转对位；核对目的=行距处理是否错位（错位会表现为斜切，非整行对调）。
-    let ok = px(0, 0) == [0, 64, 128, 255]
-        && px(8, 8) == [64, 0, 128, 255]
-        && px(4, 2) == [32, 48, 128, 255];
+    // 行序原样（ADJUST 后纹理存储已是顶行 0 方向，copy 不再翻转）：读写同坐标应相等。
+    let ok = px(0, 0) == [0, 0, 128, 255]
+        && px(8, 8) == [64, 64, 128, 255]
+        && px(4, 2) == [32, 16, 128, 255];
     println!("UP-VERDICT={}", if ok { "PASS" } else { "FAIL" });
 
     // 第二例：R8Unorm 9 宽 bpr=9（非 4 倍数）——验 UNPACK_ALIGNMENT=1 紧排路。
@@ -110,8 +109,8 @@ fn probe(device: &Device, queue: &Queue) {
     let b2 = buf2.get_sub_data(0, sz2);
     let r8 = |x: u32, y: u32| -> u8 { b2[(y * read_bpr + x) as usize] };
     println!("UP-R8 v(0,0)={} v(8,8)={} v(4,2)={}", r8(0, 0), r8(8, 8), r8(4, 2));
-    // 翻转对位：读侧行 y 对应写侧行 8-y。
-    let ok2 = r8(0, 0) == (8 * 16) as u8 && r8(8, 8) == 8u8 && r8(4, 2) == (4 + 6 * 16) as u8;
+    // 行序原样：读写同坐标相等（x + y*16）。
+    let ok2 = r8(0, 0) == 0u8 && r8(8, 8) == (8 + 8 * 16) as u8 && r8(4, 2) == (4 + 2 * 16) as u8;
     println!("UP-R8-VERDICT={}", if ok2 { "PASS" } else { "FAIL" });
 }
 

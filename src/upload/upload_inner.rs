@@ -342,7 +342,7 @@ pub(crate) fn convert_impl(l: &TexelCopyBufferLayout, e: &Extent3d) -> TexelCopy
 
 // 设计预期（伪码·示意·非唯一实现）：纹理→缓冲读回=同步即时（录制即执行的读侧投影）。
 // 1. 门：宿主两方活名；tex COPY_SRC、buf COPY_DST；aspect=All；深度族/数组层/越界/行对齐=拒止断言（短码）。
-// 2. 通路：色宿键 FBO 重挂 target mip→逐行 readPixels（行翻=纹理顶行 0 语义对齐上游；GL 原行 0=底）
+// 2. 通路：色宿键 FBO 重挂 target mip→逐行 readPixels（行序原样：出码侧已对齐全 wgpu 的顶行 0 语义）
 //    组装块（bpr_eff stride，行隙零填）→交还 write_buffer 子写路。无 PBO/扩枚面（ES2 可达+同步保证）。
 // 3. 缓冲内容即刻可读（get_sub_data 同调用点后有效）——无 pending 态。
 pub(crate) fn exec_copy_texture_to_buffer(
@@ -467,8 +467,8 @@ pub(crate) fn exec_copy_texture_to_buffer(
             mip,
         );
         for r in 0..(h as usize) {
-            // GL 原生行 0=底；wgpu 语义行 0=顶——读取逐行翻转对齐。
-            let gl_y: i32 = layers as i32 - 1 - (oy as i32 + r as i32);
+            // 行序原样（ADJUST_COORDINATE_SPACE 后存储已是 wgpu 顶行 0 方向，不再翻转）。
+            let gl_y: i32 = oy as i32 + r as i32;
             let slice: &mut [u8] = &mut block[r * bpr_usize..r * bpr_usize + row_bytes_usize];
             gl.read_pixels(
                 src.origin.x as i32,
@@ -514,7 +514,7 @@ pub(crate) fn get_sub_data_impl(
     v
 }
 
-// 设计预期（伪码·示意·非唯一实现）：缓冲→纹理=上传的布局化对偶（bpr 步幅+行翻）；同步即时。
+// 设计预期（伪码·示意·非唯一实现）：缓冲→纹理=上传的布局化对偶（bpr 步幅，行序原样）；同步即时。
 pub(crate) fn exec_copy_buffer_to_texture(
     src: crate::types::TexelCopyBufferInfo<'_>,
     dst: TexelCopyTextureInfo<'_>,
@@ -602,18 +602,18 @@ pub(crate) fn exec_copy_buffer_to_texture(
             )),
         );
         for r in 0..(h as usize) {
-            // 源块行 0=纹理顶行；GL 存储行 0=底——逐行翻转直写对应 y。
+            // 行序原样（存储方向与 CPU 缓冲区同向）：源行 r 直写目标行 oy+r。
             let mut row: Vec<u8> = vec![0u8; row_bytes];
             gl.get_buffer_sub_data(
                 GL_COPY_READ_BUFFER,
-                (src.layout.offset + (h - 1 - r as u64) * bpr_eff) as i32,
+                (src.layout.offset + r as u64 * bpr_eff) as i32,
                 &mut row,
             );
             gl.tex_sub_image_2d(
                 tex._target,
                 level,
                 dst.origin.x as i32,
-                r as i32,
+                oy as i32 + r as i32,
                 w as i32,
                 1,
                 tex.params.format,
@@ -788,7 +788,7 @@ pub(crate) mod tests {
     use crate::upload::convert_upload_layout;
 
     /// GPU→CPU 读回全链：离屏 clear→copy_texture_to_buffer→get_sub_data 比对；
-    /// 行翻语义（纹理行 0=顶）+ bpr 补齐零填 + 边界/对齐负断言。真实 GL（attach→probe 同序）。
+    /// 行序原样（纹理行 0=顶，与出码侧 NDC 翻转配套）+ bpr 补齐零填 + 边界/对齐负断言。真实 GL。
     pub(crate) fn gl_copy_check() {
         let _caps = crate::caps_inner::probe_impl();
         let di = crate::entry::DeviceInner {

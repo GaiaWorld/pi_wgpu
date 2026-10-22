@@ -259,10 +259,12 @@ fn blend_factor_to_gl(f: BlendFactor) -> u32 {
 }
 
 /// 正面绕序映射（GL_CW=0x0900/GL_CCW=0x0901）。
+/// 正面绕序映射：出码侧翻 NDC Y（ADJUST_COORDINATE_SPACE）会让窗口空间绕序反向，
+/// 故此处必须反向映射，否则正面被当背面剔除（wgpu-hal gles/conv.rs 同因）。
 fn front_face_to_gl(f: FrontFace) -> u32 {
     match f {
-        FrontFace::Ccw => 0x0901,
-        FrontFace::Cw => 0x0900,
+        FrontFace::Ccw => 0x0900,
+        FrontFace::Cw => 0x0901,
     }
 }
 
@@ -1199,7 +1201,8 @@ mod tests {
         assert_eq!(cmp_to_gl(CompareFunction::Never), 0x0200);
         assert_eq!(cmp_to_gl(CompareFunction::Always), 0x0207);
         assert_eq!(blend_op_to_gl(BlendOperation::Add), 0x8006);
-        assert_eq!(front_face_to_gl(FrontFace::Ccw), 0x0901);
+        assert_eq!(front_face_to_gl(FrontFace::Ccw), 0x0900, "NDC Y 翻后绕序反向");
+        assert_eq!(front_face_to_gl(FrontFace::Cw), 0x0901);
         assert_eq!(polygon_to_gl(PolygonMode::Fill), 0x1B01);
         assert_eq!(stencil_op_to_gl(StencilOperation::Replace), 0x1E02);
     }

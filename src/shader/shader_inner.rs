@@ -332,7 +332,9 @@ pub(crate) fn emit_stage_impl(
     }
     let options = naga::back::glsl::Options {
         version: naga::back::glsl::Version::new_gles(300),
-        writer_flags: naga::back::glsl::WriterFlags::empty(),
+        // 坐标系对齐 wgpu（GL 后端同款）：顶点末尾追加 gl_Position.y 取反 + z 从 [0,1] 映到 [-1,1]。
+        // 代价/配套：正面绕序随之镜像（见 state 的 front face 映射）；copy 路径不再做行翻。
+        writer_flags: naga::back::glsl::WriterFlags::ADJUST_COORDINATE_SPACE,
         binding_map: bmap,
         zero_initialize_workgroup_memory: false,
     };

@@ -867,7 +867,7 @@ mod tests {
     }
 
     /// Blit/拷贝族回环：pass clear A→(t2t)→B→(t2b)→buf 校验；写 buf→(b2t)→C→(t2b)→buf 校验
-    /// ——双向行翻对偶自洽（顶序进、底序存、顶序出）；真实 GL 单线程。
+    /// ——行序原样（进出同向，ADJUST 后存储即 wgpu 顶行 0 方向）；真实 GL 单线程。
     pub(crate) fn gl_blit_copy_probe() {
         let di = crate::entry::DeviceInner {
             state: std::sync::Mutex::new(crate::state::StateMirror::default()),
