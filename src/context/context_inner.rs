@@ -564,6 +564,7 @@ mod tests {
             _vertex: Vec::new(),
             _topology: crate::types::PrimitiveTopology::TriangleList,
             _depth_stencil: None,
+            _blend: None,
             _primitive: crate::types::PrimitiveState::default(),
             _slots: crate::binds::SlotTable::default(),
             _sampler_uniforms: Vec::new(),

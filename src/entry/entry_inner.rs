@@ -1160,6 +1160,10 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         _vertex: vertex,
         _topology: p.primitive.topology,
         _depth_stencil: p.depth_stencil.clone(),
+        _blend: p
+            .fragment
+            .as_ref()
+            .and_then(|f| f.targets.iter().flatten().next().and_then(|t| t.blend)),
         _primitive: p.primitive.clone(),
         _slots: own_slots,
         _sampler_uniforms: sampler_uniforms,

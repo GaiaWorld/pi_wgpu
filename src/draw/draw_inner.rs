@@ -484,6 +484,8 @@ pub(crate) fn exec_set_pipeline_parts(
                 crate::types::CompareFunction::Always,
             ),
         }
+        // 混合随管线定态下发（2026-10-22 断线修复）：None=关混合；Some=开并双方程四因子。
+        state_inner::set_blend(&mut m, x.blend);
     }
     p._slots = x.slots.clone();
     p._pipe_set = true;

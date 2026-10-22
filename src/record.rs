@@ -54,6 +54,8 @@ pub(crate) struct RetainedPipeline {
     pub(crate) topology: crate::types::PrimitiveTopology,
     /// 深度模板定态。
     pub(crate) depth_stencil: Option<crate::types::DepthStencilState>,
+    /// 管线混合定态（与管线创建期同源；随程序切换差异由 set_blend 成对下发）。
+    pub(crate) blend: Option<crate::types::BlendState>,
     /// 槽分配。
     pub(crate) slots: crate::binds::SlotTable,
     /// 采样入口指位表（与 `slots` 同源定格；延后执行回放时仍须知道指到哪）。
@@ -70,6 +72,7 @@ impl RetainedPipeline {
             vertex: p._vertex.clone(),
             topology: p._topology,
             depth_stencil: p._depth_stencil.clone(),
+            blend: p._blend,
             slots: p._slots.clone(),
             sampler_uniforms: p._sampler_uniforms.clone(),
             block_bindings: p._block_bindings.clone(),

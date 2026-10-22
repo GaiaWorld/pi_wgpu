@@ -307,6 +307,9 @@ pub struct RenderPipeline {
     pub(crate) _topology: crate::types::PrimitiveTopology,
     /// 深度模板态（创建期定格；set_pipeline 随管线切换下发——曾断线 2026-10-20 实锤）。
     pub(crate) _depth_stencil: Option<crate::types::DepthStencilState>,
+    /// 管线混合定态（创建期定格=target[0].blend；set_pipeline 随管线切换下发——映射表与下发链
+    /// 皆在、字段与接线缺，2026-10-22 断线实锤修复）。 @internal
+    pub(crate) _blend: Option<crate::types::BlendState>,
     /// 图元固定功能（剔除/绕序/填充；同上发）。
     pub(crate) _primitive: crate::types::PrimitiveState,
     /// 本管线布局的槽分配结果（创建期定格）：出码期的绑定号与绘制期查槽必须同源——
@@ -330,6 +333,7 @@ impl RenderPipeline {
             _vertex: self._vertex.clone(),
             _topology: self._topology,
             _depth_stencil: self._depth_stencil.clone(),
+            _blend: self._blend,
             _primitive: self._primitive.clone(),
             _slots: self._slots.clone(),
             _sampler_uniforms: self._sampler_uniforms.clone(),

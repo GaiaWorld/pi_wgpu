@@ -1201,6 +1201,24 @@ mod tests {
         assert_eq!(cmp_to_gl(CompareFunction::Never), 0x0200);
         assert_eq!(cmp_to_gl(CompareFunction::Always), 0x0207);
         assert_eq!(blend_op_to_gl(BlendOperation::Add), 0x8006);
+        assert_eq!(blend_op_to_gl(BlendOperation::Subtract), 0x800A);
+        assert_eq!(blend_op_to_gl(BlendOperation::ReverseSubtract), 0x800B);
+        assert_eq!(blend_op_to_gl(BlendOperation::Min), 0x8007);
+        assert_eq!(blend_op_to_gl(BlendOperation::Max), 0x8008);
+        // 半透明主力因子逐值对规范（Zero/One/Src 系/Alpha 系/饱和/常量色）。
+        assert_eq!(blend_factor_to_gl(BlendFactor::Zero), 0);
+        assert_eq!(blend_factor_to_gl(BlendFactor::One), 1);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Src), 0x0300);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusSrc), 0x0301);
+        assert_eq!(blend_factor_to_gl(BlendFactor::SrcAlpha), 0x0302);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusSrcAlpha), 0x0303);
+        assert_eq!(blend_factor_to_gl(BlendFactor::DstAlpha), 0x0304);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusDstAlpha), 0x0305);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Dst), 0x0306);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusDst), 0x0307);
+        assert_eq!(blend_factor_to_gl(BlendFactor::SrcAlphaSaturated), 0x0308);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Constant), 0x8001);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusConstant), 0x8002);
         assert_eq!(front_face_to_gl(FrontFace::Ccw), 0x0900, "NDC Y 翻后绕序反向");
         assert_eq!(front_face_to_gl(FrontFace::Cw), 0x0901);
         assert_eq!(polygon_to_gl(PolygonMode::Fill), 0x1B01);
