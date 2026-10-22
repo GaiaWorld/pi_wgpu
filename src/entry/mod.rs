@@ -568,7 +568,7 @@ impl CommandEncoder {
     /// 开渲染通道（形制=25.0.2 双生命周期：'encoder 通道锁、desc 独立短借读毕即弃——
     /// 描述符临时对象可直接内联传入）。检查项（一次全量）：color_attachments 中 Some ≤1（纯深度通道合法）；
     /// 宿主附件四前置门（死名/D2/sample1/RENDER_ATTACHMENT）+槽系族校验（色槽拒深度族、深度槽需深度族、
-    /// 模板 ops 需打包格式）；load=Clear 的色/深/模板按位合一 glClear。违约=断言（短码），通道未开、守卫不变。
+    /// 模板 ops 需打包格式）；load=Clear 的色/深/模板按位合一 glClear——清屏带守卫：GL 全局残状（裁剪框/写掩码/sRGB 写转换）不随 FBO 切换洗净，临时解禁后再按上层镜像期望归还，WebGPU load-op=附件全体语义成立；视口不参与清屏（glClear 无涉），本层不设通道默认视口（延续上通道，登记差异）。违约=断言（短码），通道未开、守卫不变。
     /// 登记差异：store=Discard 落 noop（GL 单缓冲）；宿主视图=离屏 RTT——按「色×深×目标」配置键复用 FBO 行；
     /// 上游 forget_lifetime 不移植——上游通道对编码器为 PhantomDrop 抹除借、本层通道锁定借
     /// 是真引用（借用+守卫双重合同），无法安全升 'static。 @public

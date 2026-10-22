@@ -24,6 +24,10 @@ const GL_DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
 const GL_DEPTH_BUFFER_BIT: u32 = 0x0000_0100;
 const GL_STENCIL_BUFFER_BIT: u32 = 0x0000_0400;
 const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
+/// GL_SCISSOR_TEST：裁剪测试使能态（0x0C11；清屏守卫带临时禁用后归还）。
+const GL_SCISSOR_TEST: u32 = 0x0C11;
+/// GL_FRAMEBUFFER_SRGB：sRGB 写转换开关（0x8DB9；清屏期暂关、按 GL 现值归还）。
+const GL_FRAMEBUFFER_SRGB: u32 = 0x8DB9;
 const GL_ARRAY_BUFFER: u32 = 0x8892;
 const GL_ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
 const GL_FLOAT: u32 = 0x1406;
@@ -265,11 +269,36 @@ pub(crate) fn exec_begin_impl<'p>(
         }
     }
     /// 同段清除体（目标已绑；由调用方在 GL 段内执行）。
+    /// 清屏守卫带（WebGPU load-op 语义=附件全体、不受残状影响；GL 里裁剪与写掩码是全局态、
+    /// 随 FBO 切换不洗——上通道残裁剪框会裁缺清屏、残写掩码会挡清除值写入，产品 render_core
+    /// 高频 depth Write(false)=实弹面）：清屏临时禁裁剪+写掩码全开+sRGB 关，清毕按上层镜像
+    /// 期望归还（镜像只读不动、零下发链与水位不扰；深度使能/比较与 sRGB 另有回读档 flush
+    /// 自纠=双保险；模板写掩码全库无下发面=恒初值，不动）。视口与 glClear 无涉、不设默认
+    /// （登记差异：上游 pass 起始重置全屏视口，本层通道未显式 set 者延续上通道，render_core
+    /// 每通道必设全屏=无暴露）。
     let do_clear = |gl: &glow::Context| {
         if mask == 0 {
             return;
         }
+        let (sc_expected, sc_box, cw_bits, dw_expected) = {
+            let m = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
+            (
+                m.scissor_test.unwrap_or(false),
+                m.scissor,
+                m.color_writes.map(|w| w.bits()).unwrap_or(0xF),
+                m.depth_write_enabled.unwrap_or(true),
+            )
+        };
         unsafe {
+            let srgb_on = gl.is_enabled(GL_FRAMEBUFFER_SRGB);
+            // 守卫带进场：残状不参清屏语义。
+            gl.disable(GL_SCISSOR_TEST);
+            gl.scissor(0, 0, i32::MAX, i32::MAX);
+            gl.color_mask(true, true, true, true);
+            gl.depth_mask(true);
+            if srgb_on {
+                gl.disable(GL_FRAMEBUFFER_SRGB);
+            }
             if let Some(c) = col {
                 gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
             }
@@ -282,6 +311,18 @@ pub(crate) fn exec_begin_impl<'p>(
                 gl.clear_stencil(v as i32);
             }
             gl.clear(mask);
+            // 守卫带退场：按上层镜像期望逐位归还（None=GL 初始默认形为已在上取回读时折算）。
+            if sc_expected {
+                gl.enable(GL_SCISSOR_TEST);
+                if let Some(b) = sc_box {
+                    gl.scissor(b[0], b[1], b[2], b[3]);
+                }
+            }
+            gl.color_mask(cw_bits & 1 != 0, cw_bits & 2 != 0, cw_bits & 4 != 0, cw_bits & 8 != 0);
+            gl.depth_mask(dw_expected);
+            if srgb_on {
+                gl.enable(GL_FRAMEBUFFER_SRGB);
+            }
         }
     };
     // 通道目标：双无宿主=默认帧缓冲；任一宿主=按（色×深×目标）配置键复用 FBO 行。
