@@ -38,6 +38,9 @@ pub struct Surface<'surface> {
     pub(crate) _attach: crate::context::AttachmentSlot,
     /// 配置代号（每次 configure +1）：跨重配置旧帧句柄的失效判据。
     pub(crate) _creation: pi_share::ShareCell<u64>,
+    /// 离屏「屏幕」纹理（configure 期按尺寸/格式建，重配置即换）：渲染全部落在它上面，
+    /// present 时一次翻转 blit 到默认帧缓冲（wgpu 同形：surface texture 就是普通纹理）。
+    pub(crate) _stage: pi_share::ShareCell<Option<crate::entry::Texture>>,
 }
 impl Surface<'_> {
     /// 配置呈现。先全量校验（宽高≥1、present×alpha 仅 (Fifo, Opaque)），全部通过才建平台表面并写入配置。
@@ -59,10 +62,8 @@ impl Surface<'_> {
 }
 
 /// 帧租约（与上游 api SurfaceTexture 同形：pub texture + pub suboptimal + presented 哨兵 +
-/// present 按值自消费 + Drop 未呈现即丢弃；Clone=上游同备）。texture=帧背板句柄：
-/// 默认帧缓冲无独立可挂纹理对象，该句柄为占位直建（名恒 0、永不删驱动），属性方法面
-/// （width/height/format/usage 等）按 configure 快照真读；渲染附件用视图经 view() 取
-/// （texture.create_view 产物指空名=本层不产出面，死名合同按错误码上递不崩）。 @public
+/// present 按值自消费 + Drop 未呈现即丢弃；Clone=上游同备）。texture=离屏「屏幕」纹理（真实驱动对象，
+/// 与 wgpu 的 surface texture 同语义）：渲染附件用视图经 view() 取，present 时一次翻转 blit 上屏。 @public
 #[derive(Debug, Clone)]
 pub struct SurfaceTexture {
     /// 帧背板纹理句柄（上游同名同位；属性快照可读，见壳注）。

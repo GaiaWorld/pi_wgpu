@@ -61,29 +61,9 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
     }
     *s._cfg.borrow_mut() = Some(c.clone());
     *s._creation.borrow_mut() += 1;
-}
-
-// 设计预期（伪码·示意·非唯一实现）：
-// 1. _cfg=None 前置：未配置=Err(Outdated)+log 码（须先 configure）。
-// 2. 帧视图=默认帧缓冲标记（TextureView{_tex:None}）；suboptimal 恒 true（官方旧语义，登迁移清单）。texture 字段不提供（GL 无独立帧纹理对象，法窄，见壳注）。
-// 3. Lost 代号推进由上下文侧 gen_bump 承担（本面不做失效动作，重建=上层 re-request_device）。
-pub(crate) fn get_current_impl(
-    s: &Surface<'_>,
-) -> std::result::Result<SurfaceTexture, SurfaceError> {
-    if s._cfg.borrow().is_none() {
-        log::error!("surface {:?}", SurfaceErr::NotConfigured);
-        return Err(SurfaceError::Outdated);
-    }
-    let guard = s._cfg.borrow();
-    let c = match guard.as_ref() {
-        Some(c) => c,
-        None => {
-            log::error!("surface {:?}", SurfaceErr::NotConfigured);
-            return Err(SurfaceError::Outdated);
-        }
-    };
-    let frame_desc = TextureDescriptor {
-        label: None,
+    // 离屏「屏幕」纹理：尺寸/格式随配置定格（旧的一路 Clone 引用计数收尾，跨帧租约仍安全）。
+    let stage_desc = TextureDescriptor {
+        label: Some("surface-stage"),
         size: Extent3d {
             width: c.width,
             height: c.height,
@@ -93,36 +73,42 @@ pub(crate) fn get_current_impl(
         sample_count: 1,
         dimension: TextureDimension::D2,
         format: c.format,
-        usage: c.usage,
+        usage: c.usage | TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     };
-    // 帧背板句柄=占位直建（名恒 0，Drop 永不触驱动）；属性面按 configure 快照真读，
-    // creation 位跨重配置失效旧帧（失配消费按死名合同上递，不 panic）。
-    let texture = crate::entry::Texture {
-        _h: crate::objects::DirectHandle::placeholder(
-            crate::objects::DirectKind::Texture,
-            *s._creation.borrow() as u32,
-        ),
-        params: crate::formats::to_gl_params(&frame_desc, c.format),
-        _target: crate::formats::target_of(&frame_desc),
-        _dim: TextureDimension::D2,
-        _layers: 1,
-        _size: frame_desc.size,
-        _mip: 1,
-        _samples: 1,
-        _format: c.format,
-        _usage: c.usage,
-        _surface: true,
+    let stage = crate::entry_inner::create_texture_impl(_d, &stage_desc);
+    *s._stage.borrow_mut() = Some(stage);
+}
+
+// 设计预期（伪码·示意·非唯一实现）：
+// 1. _cfg=None 前置：未配置=Err(Outdated)+log 码（须先 configure）。
+// 2. 帧=离屏「屏幕」纹理的真实克隆（_surface 仅作标记；视图走 create_view 实路）；suboptimal 恒 true（官方旧语义，登迁移清单）。
+// 3. Lost 代号推进由上下文侧 gen_bump 承担（本面不做失效动作，重建=上层 re-request_device）。
+pub(crate) fn get_current_impl(
+    s: &Surface<'_>,
+) -> std::result::Result<SurfaceTexture, SurfaceError> {
+    if s._cfg.borrow().is_none() {
+        log::error!("surface {:?}", SurfaceErr::NotConfigured);
+        return Err(SurfaceError::Outdated);
+    }
+    if s._cfg.borrow().is_none() {
+        log::error!("surface {:?}", SurfaceErr::NotConfigured);
+        return Err(SurfaceError::Outdated);
+    }
+    let stage = s._stage.borrow().as_ref().cloned();
+    let Some(stage) = stage else {
+        log::error!("surface {:?}", SurfaceErr::NotConfigured);
+        return Err(SurfaceError::Outdated);
     };
+    // 帧=屏幕纹理的克隆（同一驱动对象；_surface 仅作标记），视图走真实纹理视图。
+    let mut texture = stage;
+    texture._surface = true;
+    let view = crate::entry_inner::create_view_impl(&texture, &TextureViewDescriptor::default());
     Ok(SurfaceTexture {
         texture,
         suboptimal: true,
         presented: false,
-        _view: crate::entry::TextureView {
-            _tex: None,
-            _target: 0,
-            _dim: crate::types::TextureViewDimension::D2,
-        },
+        _view: view,
     })
 }
 
@@ -147,10 +133,10 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
 }
 
 // —— 上屏翻转（坐标系对齐 wgpu 的最后一环）——
-// 出码侧 ADJUST_COORDINATE_SPACE 让离屏内容按 wgpu「行 0=顶」方向存；默认帧缓冲仍是
-// GL「行 0=底」（且直画不可翻，glViewport 负高在 ES 非法）。做法同 wgpu-hal 的 GL 后端：
-// 先把默认帧缓冲整幅落到中转纹理，再以反向源矩形 blit 回去；中转按 尺寸/内部格式/目标/
-// 上下文代号 复用（重附着后旧名失效=按代号重建）。
+// 渲染全部落在离屏「屏幕」纹理（configure 期建，帧视图=它的真实视图），与 wgpu 的
+// surface texture 同语义；出码侧 ADJUST_COORDINATE_SPACE 让内容按 wgpu「行 0=顶」方向存，
+// 默认帧缓冲仍是 GL「行 0=底」——present 用一次反向源矩形 blit 翻正（不可直画：自 blit 重叠=未定义，
+// glViewport 负高在 ES 非法）。
 #[cfg(not(target_arch = "wasm32"))]
 const GL_FRAMEBUFFER: u32 = 0x8D40;
 #[cfg(not(target_arch = "wasm32"))]
@@ -163,79 +149,60 @@ const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
 const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
 #[cfg(not(target_arch = "wasm32"))]
 const GL_NEAREST: u32 = 0x2600;
-#[cfg(not(target_arch = "wasm32"))]
-const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
-#[cfg(not(target_arch = "wasm32"))]
-const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+
 #[cfg(not(target_arch = "wasm32"))]
 const GL_SCISSOR_TEST: u32 = 0x0C11;
 #[cfg(not(target_arch = "wasm32"))]
 const GL_FRAMEBUFFER_SRGB: u32 = 0x8DB9;
 
-/// 上屏翻转中转行（显存常驻；尺寸/格式/上下文任一变更即重建）。
+/// 上屏 blit 的 FBO 缓存行（键=屏幕纹理名 + 上下文代号；纹理随 configure 重建即换键）。
 #[cfg(not(target_arch = "wasm32"))]
-struct Stage {
-    /// 中转纹理驱动名。
-    tex: u32,
-    /// 中转 FBO 驱动名。
+struct PresentFbo {
+    /// FBO 驱动名。
     fbo: u32,
-    /// 宽（像素）。
-    w: u32,
-    /// 高（像素）。
-    h: u32,
-    /// GL 内部格式（换格式=重建）。
-    ifmt: u32,
-    /// GL 目标（帧面通常 GL_TEXTURE_2D）。
-    target: u32,
+    /// 挂在该 FBO 上的屏幕纹理名。
+    tex: u32,
     /// 上下文代号（重附着后旧名失效）。
     gen: u32,
 }
-/// 进程级唯一中转（单附着/单窗口语义；多窗口同尺寸共享亦安全——只在换帧期占用）。
+/// 进程级唯一上屏 FBO（单附着语义；屏幕纹理换名即重建）。
 #[cfg(not(target_arch = "wasm32"))]
-static STAGE: std::sync::Mutex<Option<Stage>> = std::sync::Mutex::new(None);
+static PRESENT_FBO: std::sync::Mutex<Option<PresentFbo>> = std::sync::Mutex::new(None);
 
-/// 取/建中转 FBO（返回驱动名）：键不匹配即删旧建新；跨代号只丢记录不删（旧名属旧上下文）。
+/// 取/建上屏 FBO（把屏幕纹理挂 COLOR0）：键不匹配即删旧建新；跨代号只丢记录不删。
 #[cfg(not(target_arch = "wasm32"))]
-fn ensure_stage(t: &crate::entry::Texture) -> u32 {
-    let w = t._size.width;
-    let h = t._size.height;
-    let ifmt = t.params.internal_format;
-    let target = t._target;
+fn ensure_present_fbo(tex: u32, target: u32) -> u32 {
     let gen = crate::context_inner::generation_now();
-    let mut guard = STAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = PRESENT_FBO.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = guard.as_ref() {
-        if s.w == w && s.h == h && s.ifmt == ifmt && s.target == target && s.gen == gen {
+        if s.tex == tex && s.gen == gen {
             return s.fbo;
         }
         if s.gen == gen {
-            let (tex, fbo) = (s.tex, s.fbo);
+            let fbo = s.fbo;
             crate::context_inner::with_gl(|gl| unsafe {
                 gl.delete_framebuffer(glow::NativeFramebuffer(nz(fbo)));
-                gl.delete_texture(glow::NativeTexture(nz(tex)));
             });
         }
     }
-    let (tex, fbo) = crate::context_inner::with_gl(|gl| unsafe {
-        let tex = gl.create_texture().expect("surface 断言: 中转纹理建失败");
-        gl.bind_texture(target, Some(tex));
-        gl.tex_storage_2d(target, 1, ifmt, w as i32, h as i32);
-        gl.tex_parameter_i32(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST as i32);
-        gl.tex_parameter_i32(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST as i32);
-        let fbo = gl.create_framebuffer().expect("surface 断言: 中转 FBO 建失败");
+    let fbo = crate::context_inner::with_gl(|gl| unsafe {
+        let fbo = gl.create_framebuffer().expect("surface 断言: 上屏 FBO 建失败");
         gl.bind_framebuffer(GL_FRAMEBUFFER, Some(fbo));
-        gl.framebuffer_texture_2d(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, Some(tex), 0);
+        gl.framebuffer_texture_2d(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            target,
+            Some(glow::NativeTexture(nz(tex))),
+            0,
+        );
+        let st = gl.check_framebuffer_status(GL_FRAMEBUFFER);
+        if st != 0x8CD5 {
+            log::error!("surface: 上屏 FBO 不完整 status={st:#x}（present 将不可见）");
+        }
         gl.bind_framebuffer(GL_FRAMEBUFFER, None);
-        (tex.0.get(), fbo.0.get())
+        fbo.0.get()
     });
-    *guard = Some(Stage {
-        tex,
-        fbo,
-        w,
-        h,
-        ifmt,
-        target,
-        gen,
-    });
+    *guard = Some(PresentFbo { fbo, tex, gen });
     fbo
 }
 
@@ -245,16 +212,20 @@ fn nz(name: u32) -> std::num::NonZeroU32 {
     std::num::NonZeroU32::new(name).expect("surface 断言: 驱动名为 0")
 }
 
-/// 把默认帧缓冲内容翻正：默认→中转（原序），中转→默认（源矩形 y 反向）。
-/// SCISSOR 临时关闭后按原值恢复（blit 受裁剪测试影响；SCISSOR_BOX 不动，镜像不失效）。
+/// 屏幕纹理上屏：一次翻转 blit（READ=屏幕 FBO，DRAW=默认帧缓冲，源矩形 y 反向）。
+/// SCISSOR/sRGB 临时关闭后按原值恢复（blit 受裁剪测试与 sRGB 转换影响；SCISSOR_BOX 不动）。
 #[cfg(not(target_arch = "wasm32"))]
-fn flip_back_buffer(t: &crate::entry::Texture) {
+fn blit_present(t: &crate::entry::Texture) {
+    let Some(name) = t._h.name() else {
+        log::error!("surface: 上屏纹理无驱动名（present 跳过）");
+        return;
+    };
     let w = t._size.width as i32;
     let h = t._size.height as i32;
     if w <= 0 || h <= 0 {
         return;
     }
-    let fbo = ensure_stage(t);
+    let fbo = ensure_present_fbo(name.0, t._target);
     let fb = glow::NativeFramebuffer(nz(fbo));
     crate::context_inner::with_gl(|gl| unsafe {
         let scissor = gl.is_enabled(GL_SCISSOR_TEST);
@@ -266,12 +237,9 @@ fn flip_back_buffer(t: &crate::entry::Texture) {
         if srgb {
             gl.disable(GL_FRAMEBUFFER_SRGB);
         }
-        gl.bind_framebuffer(GL_READ_FRAMEBUFFER, None);
-        gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, Some(fb));
-        gl.blit_framebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         gl.bind_framebuffer(GL_READ_FRAMEBUFFER, Some(fb));
         gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None);
-        gl.blit_framebuffer(0, 0, w, h, 0, h, w, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        gl.blit_framebuffer(0, h, w, 0, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         gl.bind_framebuffer(GL_READ_FRAMEBUFFER, None);
         gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None);
         if srgb {
@@ -281,16 +249,16 @@ fn flip_back_buffer(t: &crate::entry::Texture) {
             gl.enable(GL_SCISSOR_TEST);
         }
     });
-    crate::state_inner::check_err("present_flip");
+    crate::state_inner::check_err("present_blit");
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
-// 1. 桌面/安卓：先翻正默认帧缓冲，再 swap_buffers（换帧+同步）；Web：空操作。
+// 1. 桌面/安卓：一次翻转 blit 上屏，再 swap_buffers（换帧+同步）；Web：空操作。
 // 2. 换帧报错不回传错误值（租约已消耗）：记 log::error!(码)，由下一次 get_current 以 Lost/Outdated 暴露。
 pub(crate) fn present_impl(t: SurfaceTexture) {
     crate::state_inner::check_err("present");
     #[cfg(not(target_arch = "wasm32"))]
-    flip_back_buffer(&t.texture);
+    blit_present(&t.texture);
     #[cfg(target_arch = "wasm32")]
     let _ = &t;
     if let Err(e) = crate::context_inner::surface_swap() {

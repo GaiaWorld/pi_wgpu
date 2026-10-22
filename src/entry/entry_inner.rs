@@ -164,6 +164,7 @@ pub(crate) fn create_surface_impl<'s>(
         _cfg: pi_share::ShareCell::new(None),
         _attach: Some(slot),
         _creation: pi_share::ShareCell::new(0),
+        _stage: pi_share::ShareCell::new(None),
     })
 }
 
@@ -610,15 +611,8 @@ pub(crate) fn create_view_impl(tex: &Texture, d: &TextureViewDescriptor<'_>) -> 
         "entry 断言: 视图维度与纹理维度不相容（field=dimension/dim_inferred, label={:?}）",
         d.label
     );
-    // Surface backbuffer: no GL texture object (placeholder name 0); view must stay a frame view
-    // (same shape as SurfaceTexture::view), otherwise the attachment gate reports a dead handle.
-    if tex._surface {
-        return TextureView {
-            _tex: None,
-            _target: 0,
-            _dim: dim,
-        };
-    }
+    // 表面帧纹理自离屏「屏幕」纹理来（真实驱动对象）：与普通纹理同路建视图；旧占位帧视图
+    // （_tex=None）路径已随上屏模型改为离屏纹理而删除——不允许再出现无宿主的帧视图。
     let target = match dim {
         VD::Cube => GL_TEXTURE_CUBE_MAP,
         VD::CubeArray => GL_TEXTURE_CUBE_MAP_ARRAY,
