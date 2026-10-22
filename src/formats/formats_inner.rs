@@ -23,6 +23,8 @@ const GL_RGBA8: u32 = 0x8058;
 const GL_SRGB8_ALPHA8: u32 = 0x8C43;
 /// GL_RGBA16F：半浮点 RGBA 内部格式（0x881A）。
 const GL_RGBA16F: u32 = 0x881A;
+/// GL_R16F：半浮点单通道内部格式（0x822D；prepass 色代深度常用形态，两形态核心同在、映射唯一）。
+const GL_R16F: u32 = 0x822D;
 /// GL_RG16F：半浮点双通道内部格式（0x822F；BRDF LUT 常用形态，两形态核心同在）。
 const GL_RG16F: u32 = 0x822F;
 /// GL_DEPTH24_STENCIL8：D24+S8 打包深度模板内部格式（0x88F0；GLES 核心无此组合）。
@@ -72,7 +74,7 @@ const GL_TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 
 /// 格式转换表：词汇→驱动参数组单一转换点。词汇全表 75 项在场（desc-align 后续批），本表当前
-/// 收录已接 GL 映射的 14 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
+/// 收录已接 GL 映射的 15 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
 /// 全条目未压缩：block=(1,1)、block_bytes=单像素字节；sRGB 只换内部格式不动采样通路（交 caps/GL 判读）。
 /// 收录口径=GL3.0∨ES3.0 核心**共有**且映射唯一的格式（无平台分歧；有分歧者留表外断言，不近似替代）。
 fn table_entry(f: TextureFormat) -> Option<GlParams> {
@@ -89,6 +91,14 @@ fn table_entry(f: TextureFormat) -> Option<GlParams> {
             internal_format: GL_RG8,
             format: GL_RG,
             pixel_type: GL_UNSIGNED_BYTE,
+            block: (1, 1),
+            block_bytes: 2,
+        },
+        // 半浮点单通道：prepass 色代深度常规形态（ES3/GL3 核心均在场；附件按半浮点族门控）。
+        TextureFormat::R16Float => GlParams {
+            internal_format: GL_R16F,
+            format: GL_RED,
+            pixel_type: GL_HALF_FLOAT,
             block: (1, 1),
             block_bytes: 2,
         },
@@ -222,7 +232,7 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
                 desc.label
             );
         }
-        TextureFormat::Rg16Float | TextureFormat::Rgba16Float => {
+        TextureFormat::R16Float | TextureFormat::Rg16Float | TextureFormat::Rgba16Float => {
             // ES3 core 的 16F 仅可采样：作颜色附件须 EXT_color_buffer_half_float / 浮点扩展。
             let render = desc
                 .usage
@@ -321,16 +331,17 @@ mod tests {
         }
     }
 
-    /// 表覆盖全词汇子集：13 条目内部格式逐一对规范值。
+    /// 表覆盖全词汇子集：全条目内部格式逐一对规范值。
     #[test]
     fn table_covers_subset_test() {
-        let cases: [(TextureFormat, u32, u32); 14] = [
+        let cases: [(TextureFormat, u32, u32); 15] = [
             (TextureFormat::R8Unorm, GL_R8, GL_RED),
             (TextureFormat::Rg8Unorm, GL_RG8, GL_RG),
             (TextureFormat::Rgba8Unorm, GL_RGBA8, GL_RGBA),
             (TextureFormat::Rgba8UnormSrgb, GL_SRGB8_ALPHA8, GL_RGBA),
             (TextureFormat::Bgra8Unorm, GL_RGBA8, GL_BGRA),
             (TextureFormat::Bgra8UnormSrgb, GL_SRGB8_ALPHA8, GL_BGRA),
+            (TextureFormat::R16Float, GL_R16F, GL_RED),
             (TextureFormat::Rg16Float, GL_RG16F, GL_RG),
             (TextureFormat::Rgba16Float, GL_RGBA16F, GL_RGBA),
             (TextureFormat::Rgba32Float, GL_RGBA32F, GL_RGBA),
