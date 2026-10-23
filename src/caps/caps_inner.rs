@@ -194,8 +194,7 @@ fn clears_of(qualcomm: bool, ios18: bool) -> u64 {
 #[cfg(target_arch = "wasm32")]
 fn extra_haystack() -> String {
     web_sys::window()
-        .map(|w| w.navigator())
-        .and_then(|n| n.user_agent())
+        .map(|w| w.navigator().user_agent().unwrap_or_default())
         .unwrap_or_default()
         .to_ascii_lowercase()
 }

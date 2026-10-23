@@ -1,7 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! draw 芯 · 渲染通道录制（begin/set/draw；Drop=end）。契约权威文本住壳面注释。
 //! 错误处理（错误纪律）：合同违反（嵌套通道/死句柄/参数级）保留断言（短码）；断言前无副作用。
-use std::num::NonZeroU32;
 
 use glow::HasContext;
 
@@ -147,9 +146,6 @@ pub(crate) fn layout_hash(v: &[VertexLayout]) -> u64 {
 }
 
 /// 非零包装（活句柄≥1；零=合同违反）。
-fn nz(n: u32) -> NonZeroU32 {
-    NonZeroU32::new(n).expect("draw str-assert: 零句柄名")
-}
 
 /// 借设备状态镜像（锁序：state 先、with_gl 后）。
 fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirror> {
@@ -290,7 +286,10 @@ pub(crate) fn exec_begin_impl<'p>(
             )
         };
         unsafe {
+            #[cfg(not(target_arch = "wasm32"))]
             let srgb_on = gl.is_enabled(GL_FRAMEBUFFER_SRGB);
+            #[cfg(target_arch = "wasm32")]
+            let srgb_on = false;
             // 守卫带进场：残状不参清屏语义。
             gl.disable(GL_SCISSOR_TEST);
             gl.scissor(0, 0, i32::MAX, i32::MAX);
@@ -350,9 +349,7 @@ pub(crate) fn exec_begin_impl<'p>(
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
                     GL_FRAMEBUFFER,
-                    Some(glow::NativeFramebuffer(
-                        NonZeroU32::new(fb.0).expect("非零 fb 名"),
-                    )),
+                    Some(crate::gid::framebuffer_from(fb.0)),
                 );
                 // 行复用安全：先裸槽，防旧配置行残挂他宿主误判（0x8CD7 实测教训）。
                 gl.framebuffer_texture_2d(
@@ -374,9 +371,7 @@ pub(crate) fn exec_begin_impl<'p>(
                         GL_FRAMEBUFFER,
                         GL_COLOR_ATTACHMENT0,
                         t._target,
-                        Some(glow::NativeTexture(
-                            NonZeroU32::new(nm.0).expect("非零纹理名"),
-                        )),
+                        Some(crate::gid::texture_from(nm.0)),
                         0,
                     );
                 }
@@ -397,9 +392,7 @@ pub(crate) fn exec_begin_impl<'p>(
                         GL_FRAMEBUFFER,
                         slot,
                         t._target,
-                        Some(glow::NativeTexture(
-                            NonZeroU32::new(nm.0).expect("非零纹理名"),
-                        )),
+                        Some(crate::gid::texture_from(nm.0)),
                         0,
                     );
                 }
@@ -535,8 +528,8 @@ pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
     let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
     let mut m = lock_state(p);
     with_gl(|gl| unsafe {
-        gl.bind_vertex_array(Some(glow::NativeVertexArray(nz(vao_name.0))));
-        gl.bind_buffer(GL_ARRAY_BUFFER, Some(glow::NativeBuffer(nz(name.0))));
+        gl.bind_vertex_array(Some(crate::gid::vao_from(vao_name.0)));
+        gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(name.0)));
         for a in layout.attributes.iter() {
             let (n, ty, norm, integer) = vtx_fmt(a.format);
             if integer {
@@ -586,7 +579,7 @@ pub(crate) fn exec_set_index(
     with_gl(|gl| unsafe {
         gl.bind_buffer(
             GL_ELEMENT_ARRAY_BUFFER,
-            Some(glow::NativeBuffer(nz(name.0))),
+            Some(crate::gid::buffer_from(name.0)),
         );
     });
     p._index_format = Some(f);
@@ -756,9 +749,7 @@ pub(crate) fn exec_end_impl(p: &mut RenderPass<'_>) {
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
                     GL_FRAMEBUFFER,
-                    Some(glow::NativeFramebuffer(
-                        std::num::NonZeroU32::new(msfb.0).expect("非零 ms fb"),
-                    )),
+                    Some(crate::gid::framebuffer_from(msfb.0)),
                 );
                 while gl.get_error() != 0 {}
                 gl.read_pixels(
@@ -776,25 +767,19 @@ pub(crate) fn exec_end_impl(p: &mut RenderPass<'_>) {
                 if !read_rejected {
                     gl.bind_framebuffer(
                         GL_FRAMEBUFFER,
-                        Some(glow::NativeFramebuffer(
-                            std::num::NonZeroU32::new(dfb.0).expect("非零 dst fb"),
-                        )),
+                        Some(crate::gid::framebuffer_from(dfb.0)),
                     );
                     gl.framebuffer_texture_2d(
                         GL_FRAMEBUFFER,
                         GL_COLOR_ATTACHMENT0,
                         rtx._target,
-                        Some(glow::NativeTexture(
-                            std::num::NonZeroU32::new(drn.0).expect("非零 dst"),
-                        )),
+                        Some(crate::gid::texture_from(drn.0)),
                         0,
                     );
                     gl.active_texture(crate::upload_inner::UPLOAD_TEX_UNIT);
                     gl.bind_texture(
                         rtx._target,
-                        Some(glow::NativeTexture(
-                            std::num::NonZeroU32::new(drn.0).expect("非零 dst"),
-                        )),
+                        Some(crate::gid::texture_from(drn.0)),
                     );
                     gl.tex_sub_image_2d(
                         rtx._target,
@@ -1035,26 +1020,20 @@ pub(crate) mod tests {
         let px: [u8; 4] = with_gl(|gl| unsafe {
             gl.bind_framebuffer(
                 GL_FRAMEBUFFER,
-                Some(glow::NativeFramebuffer(
-                    std::num::NonZeroU32::new(fb.0).expect("非零"),
-                )),
+                Some(crate::gid::framebuffer_from(fb.0)),
             );
             gl.framebuffer_texture_2d(
                 GL_FRAMEBUFFER,
                 GL_COLOR_ATTACHMENT0,
                 ctex._target,
-                Some(glow::NativeTexture(
-                    std::num::NonZeroU32::new(ctex._h.name().expect("活名").0).expect("非零"),
-                )),
+                Some(crate::gid::texture_from(ctex._h.name().expect("活名").0)),
                 0,
             );
             gl.framebuffer_texture_2d(
                 GL_FRAMEBUFFER,
                 GL_DEPTH_ATTACHMENT,
                 dtex._target,
-                Some(glow::NativeTexture(
-                    std::num::NonZeroU32::new(dtex._h.name().expect("活名").0).expect("非零"),
-                )),
+                Some(crate::gid::texture_from(dtex._h.name().expect("活名").0)),
                 0,
             );
             let mut cbuf = [0u8; 4];
@@ -1088,17 +1067,13 @@ pub(crate) mod tests {
         let cok = with_gl(|gl| unsafe {
             gl.bind_framebuffer(
                 GL_FRAMEBUFFER,
-                Some(glow::NativeFramebuffer(
-                    std::num::NonZeroU32::new(fb.0).expect("非零"),
-                )),
+                Some(crate::gid::framebuffer_from(fb.0)),
             );
             gl.framebuffer_texture_2d(
                 GL_FRAMEBUFFER,
                 GL_DEPTH_ATTACHMENT,
                 dtex._target,
-                Some(glow::NativeTexture(
-                    std::num::NonZeroU32::new(dtex._h.name().expect("活名").0).expect("非零"),
-                )),
+                Some(crate::gid::texture_from(dtex._h.name().expect("活名").0)),
                 0,
             );
             gl.clear_depth_f64(0.77);

@@ -86,11 +86,11 @@ pub(crate) fn probe_count(slot: usize) -> u32 {
 
 /// —— 死名刷失驻留：「镜像不假设驱动仍持有已删对象」的机制层（objects 删除路径登记）——
 /// 已删对象名登记表（域编号×名字防跨域串扰；域编号约定见 objects 芯 kind_num_* 函数注释）。
-static REMOVED_NAMES: Lazy<Mutex<XHashSet<(u8, u32)>>> =
+static REMOVED_NAMES: Lazy<Mutex<XHashSet<(u8, u64)>>> =
     Lazy::new(|| Mutex::new(XHashSet::default()));
 
 /// 登记一个被物理删除的对象名（objects 芯 mark_dead/release 删除后调用）。
-pub(crate) fn note_removed(domain: u8, name: u32) {
+pub(crate) fn note_removed(domain: u8, name: u64) {
     REMOVED_NAMES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -98,7 +98,7 @@ pub(crate) fn note_removed(domain: u8, name: u32) {
 }
 
 /// 查询某域对象名是否已被删除（回读比对命中=该组按驱动未知处理，强制重发）。
-pub(crate) fn is_removed(domain: u8, name: u32) -> bool {
+pub(crate) fn is_removed(domain: u8, name: u64) -> bool {
     REMOVED_NAMES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -106,7 +106,7 @@ pub(crate) fn is_removed(domain: u8, name: u32) -> bool {
 }
 
 /// 重下发成功后销记（GL 名可被驱动回收再用，滞留登记会误判新对象为死）。
-pub(crate) fn forget_removed(domain: u8, name: u32) {
+pub(crate) fn forget_removed(domain: u8, name: u64) {
     REMOVED_NAMES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -155,19 +155,19 @@ fn frame_now() -> u32 {
 #[derive(Debug, Default)]
 pub(crate) struct Water {
     /// 程序组（对象名，0=无名绑定）。
-    pub(crate) program: Option<u32>,
+    pub(crate) program: Option<u64>,
     /// 属性组（VAO 对象名，0=无绑定）。
-    pub(crate) vao: Option<u32>,
+    pub(crate) vao: Option<u64>,
     /// 目标组 DRAW framebuffer（对象名，0=默认帧缓冲）。
-    pub(crate) fbo_draw: Option<u32>,
+    pub(crate) fbo_draw: Option<u64>,
     /// 上传组 PIXEL_UNPACK_BUFFER（对象名，0=无绑定）。
-    pub(crate) unpack: Option<u32>,
+    pub(crate) unpack: Option<u64>,
     /// uniform 槽表（名,偏移,尺寸；None=该槽从未下发过绑定）。
-    pub(crate) ubo: [Option<(u32, u32, u32)>; BIND_SLOTS],
+    pub(crate) ubo: [Option<(u64, u32, u32)>; BIND_SLOTS],
     /// 纹理槽表（名,目标；外层 None=未下发过、内层 None=已发过解绑）。
-    pub(crate) tex: [Option<Option<(u32, u32)>>; BIND_SLOTS],
+    pub(crate) tex: [Option<Option<(u64, u32)>>; BIND_SLOTS],
     /// 采样器槽表（名；外层 None=未下发过、内层 None=已发过解绑）。
-    pub(crate) sampler: [Option<Option<u32>>; BIND_SLOTS],
+    pub(crate) sampler: [Option<Option<u64>>; BIND_SLOTS],
     /// 混合组（等式×2+因子×4 映射值；外层 None=未设、内层 None=关混合哨兵）。
     pub(crate) blend: Option<Option<[u32; 6]>>,
     /// 混合常量色（RGBA）。
@@ -186,25 +186,20 @@ pub(crate) struct Water {
 
 /// 镜像名读数（None=驱动侧 0 名=无绑定语义）。
 /// 镜像字段名读数（诊断探针用）：None=0。
-pub(crate) fn name_of_public(o: Option<GlHandle>) -> u32 {
+pub(crate) fn name_of_public(o: Option<GlHandle>) -> u64 {
     name_of(o)
 }
 
 /// 死名判据：登记表为空时零开销（常态）；非空才查表（避免把已删名重新下发进驱动）。
-fn dead_name(pending: bool, domain: u8, name: u32) -> bool {
+fn dead_name(pending: bool, domain: u8, name: u64) -> bool {
     pending && name != 0 && is_removed(domain, name)
 }
 
-fn name_of(o: Option<GlHandle>) -> u32 {
+fn name_of(o: Option<GlHandle>) -> u64 {
     match o {
         Some(g) => g.0,
         None => 0,
     }
-}
-
-/// 进入绑定面的句柄名必须非零（0 名=非法状态断言）。
-fn nz(n: u32) -> std::num::NonZeroU32 {
-    std::num::NonZeroU32::new(n).unwrap_or_else(|| panic!("state 断言: 非法零句柄名进入绑定面"))
 }
 
 // —— 枚举映射（词汇无 PartialEq：比较一律经映射原语；全表值对规范注释）——
@@ -399,7 +394,7 @@ fn apply_program(m: &StateMirror) {
     with_gl(|gl| unsafe {
         probe(0);
         match m.program {
-            Some(g) => gl.use_program(Some(glow::NativeProgram(nz(g.0)))),
+            Some(g) => gl.use_program(Some(crate::gid::program_from(g.0))),
             None => gl.use_program(None),
         }
     });
@@ -412,7 +407,7 @@ fn apply_block_bindings(m: &StateMirror, program: GlHandle) {
         return;
     }
     with_gl(|gl| unsafe {
-        let prog = glow::NativeProgram(nz(program.0));
+        let prog = crate::gid::program_from(program.0);
         for b in m.block_bindings.iter() {
             gl.uniform_block_binding(prog, b.index, b.binding);
         }
@@ -429,7 +424,7 @@ fn apply_sampler_units(m: &StateMirror) {
         for u in m.sampler_uniforms.iter() {
             // 位置按驱动句柄原样回填（创建期自 get_uniform_location 取，u32 与 i32 往返无损）。
             gl.uniform_1_i32(
-                Some(&glow::NativeUniformLocation(u.location as u32)),
+                Some(&u.location),
                 u.unit as i32,
             );
         }
@@ -440,7 +435,7 @@ fn apply_sampler_units(m: &StateMirror) {
 fn apply_vao(m: &StateMirror) {
     with_gl(|gl| unsafe {
         match m.vao {
-            Some(g) => gl.bind_vertex_array(Some(glow::NativeVertexArray(nz(g.0)))),
+            Some(g) => gl.bind_vertex_array(Some(crate::gid::vao_from(g.0))),
             None => gl.bind_vertex_array(None),
         }
     });
@@ -451,7 +446,7 @@ fn apply_fbo(m: &StateMirror) {
     with_gl(|gl| unsafe {
         // 通用目标 GL_FRAMEBUFFER（双端同绑；本上下文 DRAW 分绑枚举实测被拒 0x500 族）。
         match m.fbo_draw {
-            Some(g) => gl.bind_framebuffer(GL_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(g.0)))),
+            Some(g) => gl.bind_framebuffer(GL_FRAMEBUFFER, Some(crate::gid::framebuffer_from(g.0))),
             None => gl.bind_framebuffer(GL_FRAMEBUFFER, None),
         };
     });
@@ -464,7 +459,7 @@ const GL_FRAMEBUFFER: u32 = 0x8D40;
 fn apply_unpack(m: &StateMirror) {
     with_gl(|gl| unsafe {
         match m.pixel_unpack_buffer {
-            Some(g) => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, Some(glow::NativeBuffer(nz(g.0)))),
+            Some(g) => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, Some(crate::gid::buffer_from(g.0))),
             None => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, None),
         }
     });
@@ -496,7 +491,7 @@ fn ubo_range(off: u32, size: u32) -> (i32, i32) {
 }
 
 /// Env-gated framebuffer completeness tap (PI_GL_CHECK=1): logs an incomplete FBO before a draw.
-pub(crate) fn check_fbo(tag: &str, expect: u32) {
+pub(crate) fn check_fbo(tag: &str, expect: u64) {
     if std::env::var_os("PI_GL_CHECK").is_none() {
         return;
     }
@@ -603,14 +598,14 @@ pub(crate) fn bind_ubo(
     with_gl(|gl| unsafe {
         match (name, offset, size) {
             (Some(g), 0, 0) => {
-                gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(glow::NativeBuffer(nz(g.0))))
+                gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(crate::gid::buffer_from(g.0)))
             }
             (Some(g), off, sz) => {
                 let (a_off, a_sz) = ubo_range(off, sz);
                 gl.bind_buffer_range(
                     GL_UNIFORM_BUFFER,
                     index,
-                    Some(glow::NativeBuffer(nz(g.0))),
+                    Some(crate::gid::buffer_from(g.0)),
                     a_off,
                     a_sz,
                 )
@@ -637,7 +632,7 @@ pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, target: u32, name: Op
             m.active_texture_unit = Some(unit);
         }
         match name {
-            Some(g) => gl.bind_texture(target, Some(glow::NativeTexture(nz(g.0)))),
+            Some(g) => gl.bind_texture(target, Some(crate::gid::texture_from(g.0))),
             None => gl.bind_texture(target, None),
         };
     });
@@ -655,7 +650,7 @@ pub(crate) fn bind_sampler(m: &mut StateMirror, unit: u32, name: Option<GlHandle
     m.sampler_bindings[idx] = name;
     with_gl(|gl| unsafe {
         match name {
-            Some(g) => gl.bind_sampler(unit, Some(glow::NativeSampler(nz(g.0)))),
+            Some(g) => gl.bind_sampler(unit, Some(crate::gid::sampler_from(g.0))),
             None => gl.bind_sampler(unit, None),
         };
     });
@@ -997,14 +992,14 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                         gl.bind_buffer_base(
                             GL_UNIFORM_BUFFER,
                             i as u32,
-                            Some(glow::NativeBuffer(nz(g.0))),
+                            Some(crate::gid::buffer_from(g.0)),
                         );
                     } else {
                         let (a_off, a_sz) = ubo_range(off, sz);
                         gl.bind_buffer_range(
                             GL_UNIFORM_BUFFER,
                             i as u32,
-                            Some(glow::NativeBuffer(nz(g.0))),
+                            Some(crate::gid::buffer_from(g.0)),
                             a_off,
                             a_sz,
                         );
@@ -1019,7 +1014,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
                 switched = true;
                 match tex_t {
-                    Some((n, tg)) => gl.bind_texture(tg, Some(glow::NativeTexture(nz(n)))),
+                    Some((n, tg)) => gl.bind_texture(tg, Some(crate::gid::texture_from(n))),
                     None => gl.bind_texture(GL_TEXTURE_2D, None),
                 };
                 m.water.tex[i] = Some(tex_t);
@@ -1029,7 +1024,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             let smp_t = m.sampler_bindings[i].map(|g| g.0);
             if !smp_dead && m.water.sampler[i] != Some(smp_t) {
                 match smp_t {
-                    Some(n) => gl.bind_sampler(i as u32, Some(glow::NativeSampler(nz(n)))),
+                    Some(n) => gl.bind_sampler(i as u32, Some(crate::gid::sampler_from(n))),
                     None => gl.bind_sampler(i as u32, None),
                 };
                 m.water.sampler[i] = Some(smp_t);
@@ -1181,7 +1176,7 @@ pub(crate) fn invalidate_impl(m: &mut StateMirror, dead: GlHandle) {
 
 /// 调试读口（仅测试）：程序域死名登记查询。
 #[cfg(test)]
-pub(crate) fn dbg_removed_program(name: u32) -> bool {
+pub(crate) fn dbg_removed_program(name: u64) -> bool {
     is_removed(0, name)
 }
 
@@ -1236,10 +1231,14 @@ mod tests {
         assert!(name_of(None) == 0);
     }
 
-    /// nz：合法名通过、零名断言路径。
+    /// gid：桌面名往返恒等（u64 归一化）；Web 形为 slot-key ffi，语义合同见 gid 壳注。
     #[test]
     fn nz_test() {
-        assert_eq!(nz(5).get(), 5);
-        assert!(std::panic::catch_unwind(|| nz(0)).is_err());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let v = glow::NativeBuffer(std::num::NonZeroU32::new(5).unwrap());
+            assert_eq!(crate::gid::id_of_buffer(v), 5);
+            assert_eq!(crate::gid::buffer_from(5), v);
+        }
     }
 }

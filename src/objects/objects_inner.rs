@@ -4,7 +4,6 @@
 //! 零计数行=已删待重建位（ensure 命中换新名覆写；GL 名可回收，保守换代不复用死名）。
 //! Lost 世代失配后的 release 由 invalidate_generations 显式清场兜底（只改记账、不触驱动）。
 
-use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
@@ -19,7 +18,7 @@ use crate::objects::{
 };
 use crate::state::StateMirror;
 use crate::state_inner::note_removed;
-use pi_share::{Share, ShareU32};
+use pi_share::{Share, ShareU32, ShareU64};
 
 /// 复用在途计数真相表（键→持有者数）。仅经 bump/drop_count 访问，禁止旁路手改（成对合同）。
 static REFCOUNTS: Lazy<Mutex<XHashMap<ReuseKey, u32>>> =
@@ -74,37 +73,27 @@ fn kind_num_direct(kind: DirectKind) -> u8 {
     }
 }
 
-/// 句柄名构造性非零（gl*Create 产物恒 ≥1）；零名=非法状态断言（防死名伪装活名进删除面）。
-fn nz_name(name: u32, ctx: &str) -> NonZeroU32 {
-    NonZeroU32::new(name).unwrap_or_else(|| panic!("objects 断言: 非法零句柄名（{ctx}）"))
-}
-
-/// 按域生成复用物理对象名（glCreate* 分派，native 包装 NonZeroU32 → 壳 GlHandle(u32) 边界化；
-/// 失败=断言报键域与哈希——先建后登记，表不留半项）。
+/// 按域生成复用物理对象柄（glCreate* 分派经 gid 身份层取归一化 u64；Web=slot-key ffi 全 64 位）。
 fn gen_by_key(key: ReuseKey) -> GlHandle {
     with_gl(|gl| {
-        let name: u32 = unsafe {
+        let name: u64 = unsafe {
             match key {
-                ReuseKey::Program(h) => gl
-                    .create_program()
-                    .unwrap_or_else(|e| panic!("objects 断言: Program 域创建失败 err={e} hash={h}"))
-                    .0
-                    .get(),
-                ReuseKey::Vao(h) => gl
-                    .create_vertex_array()
-                    .unwrap_or_else(|e| panic!("objects 断言: Vao 域创建失败 err={e} hash={h}"))
-                    .0
-                    .get(),
-                ReuseKey::Fbo(h) => gl
-                    .create_framebuffer()
-                    .unwrap_or_else(|e| panic!("objects 断言: Fbo 域创建失败 err={e} hash={h}"))
-                    .0
-                    .get(),
-                ReuseKey::Rbo(h) => gl
-                    .create_renderbuffer()
-                    .unwrap_or_else(|e| panic!("objects 断言: Rbo 域创建失败 err={e} hash={h}"))
-                    .0
-                    .get(),
+                ReuseKey::Program(h) => crate::gid::id_of_program(
+                    gl.create_program()
+                        .unwrap_or_else(|e| panic!("objects 断言: Program 域创建失败 err={e} hash={h}")),
+                ),
+                ReuseKey::Vao(h) => crate::gid::id_of_vao(
+                    gl.create_vertex_array()
+                        .unwrap_or_else(|e| panic!("objects 断言: Vao 域创建失败 err={e} hash={h}")),
+                ),
+                ReuseKey::Fbo(h) => crate::gid::id_of_framebuffer(
+                    gl.create_framebuffer()
+                        .unwrap_or_else(|e| panic!("objects 断言: Fbo 域创建失败 err={e} hash={h}")),
+                ),
+                ReuseKey::Rbo(h) => crate::gid::id_of_renderbuffer(
+                    gl.create_renderbuffer()
+                        .unwrap_or_else(|e| panic!("objects 断言: Rbo 域创建失败 err={e} hash={h}")),
+                ),
             }
         };
         // 名可被驱动回收再用：新建即权威「此名为活对象」，销去死名登记（否则守卫永久吞下发）。
@@ -117,13 +106,12 @@ fn gen_by_key(key: ReuseKey) -> GlHandle {
 /// 在途 GL 态若正引用该名，删除即失配——合同上 release 只发生在通道锁释放后（RenderPass Drop 之后）。
 fn delete_by_key(key: ReuseKey, name: GlHandle) {
     with_gl(|gl| {
-        let nn = nz_name(name.0, "reused");
         unsafe {
             match key {
-                ReuseKey::Program(_) => gl.delete_program(glow::NativeProgram(nn)),
-                ReuseKey::Vao(_) => gl.delete_vertex_array(glow::NativeVertexArray(nn)),
-                ReuseKey::Fbo(_) => gl.delete_framebuffer(glow::NativeFramebuffer(nn)),
-                ReuseKey::Rbo(_) => gl.delete_renderbuffer(glow::NativeRenderbuffer(nn)),
+                ReuseKey::Program(_) => gl.delete_program(crate::gid::program_from(name.0)),
+                ReuseKey::Vao(_) => gl.delete_vertex_array(crate::gid::vao_from(name.0)),
+                ReuseKey::Fbo(_) => gl.delete_framebuffer(crate::gid::framebuffer_from(name.0)),
+                ReuseKey::Rbo(_) => gl.delete_renderbuffer(crate::gid::renderbuffer_from(name.0)),
             }
         };
     });
@@ -221,12 +209,11 @@ pub(crate) fn drop_impl(s: &mut DirectHandleState) {
 /// 直建资源物理删除 + 死名登记（mark_dead 与末引用析构共用）。
 fn delete_direct(kind: DirectKind, name: GlHandle) {
     with_gl(|gl| {
-        let nn = nz_name(name.0, "direct");
         unsafe {
             match kind {
-                DirectKind::Buffer => gl.delete_buffer(glow::NativeBuffer(nn)),
-                DirectKind::Texture => gl.delete_texture(glow::NativeTexture(nn)),
-                DirectKind::Sampler => gl.delete_sampler(glow::NativeSampler(nn)),
+                DirectKind::Buffer => gl.delete_buffer(crate::gid::buffer_from(name.0)),
+                DirectKind::Texture => gl.delete_texture(crate::gid::texture_from(name.0)),
+                DirectKind::Sampler => gl.delete_sampler(crate::gid::sampler_from(name.0)),
             }
         };
     });
@@ -253,24 +240,21 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
 /// 直建一对一资源（entry 创建链 B11 消费）：glGen*/glCreate* 得活态名，代号=当前附着快照。
 /// 域删除在末引用 Drop 自动发生（共享计数；合同=死亡即删）；跨线程搬运前提见 context 壳 attach 条款。
 pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
-    let name = with_gl(|gl| -> u32 {
+    let name = with_gl(|gl| -> u64 {
         unsafe {
             match kind {
-                DirectKind::Buffer => gl
-                    .create_buffer()
-                    .unwrap_or_else(|e| panic!("objects 断言: Buffer 直建失败 err={e}"))
-                    .0
-                    .get(),
-                DirectKind::Texture => gl
-                    .create_texture()
-                    .unwrap_or_else(|e| panic!("objects 断言: Texture 直建失败 err={e}"))
-                    .0
-                    .get(),
-                DirectKind::Sampler => gl
-                    .create_sampler()
-                    .unwrap_or_else(|e| panic!("objects 断言: Sampler 直建失败 err={e}"))
-                    .0
-                    .get(),
+                DirectKind::Buffer => crate::gid::id_of_buffer(
+                    gl.create_buffer()
+                        .unwrap_or_else(|e| panic!("objects 断言: Buffer 直建失败 err={e}")),
+                ),
+                DirectKind::Texture => crate::gid::id_of_texture(
+                    gl.create_texture()
+                        .unwrap_or_else(|e| panic!("objects 断言: Texture 直建失败 err={e}")),
+                ),
+                DirectKind::Sampler => crate::gid::id_of_sampler(
+                    gl.create_sampler()
+                        .unwrap_or_else(|e| panic!("objects 断言: Sampler 直建失败 err={e}")),
+                ),
             }
         }
     });
@@ -278,7 +262,7 @@ pub(crate) fn create_direct(kind: DirectKind) -> DirectHandle {
     DirectHandle {
         inner: Share::new(DirectHandleState {
             kind,
-            handle: ShareU32::new(name),
+            handle: ShareU64::new(name),
             generation: generation_now(),
         }),
     }

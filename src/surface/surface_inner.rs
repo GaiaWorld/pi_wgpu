@@ -116,12 +116,18 @@ pub(crate) fn get_current_impl(
 // 1. 按附着能力位→formats 候选表×present/alpha 组合回报（纯查询，不建状态）。
 pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabilities {
     SurfaceCapabilities {
-        formats: vec![
-            TextureFormat::Bgra8Unorm,
-            TextureFormat::Bgra8UnormSrgb,
-            TextureFormat::Rgba8Unorm,
-            TextureFormat::Rgba8UnormSrgb,
-        ],
+        // Web=ES 域：sRGB×BGRA 无核心组合（formats 门拒路），候选只报 RGBA 族（登记差异）；
+        // 桌面/GL 域四候选全报（swapchain 习惯形保留）。
+        formats: if cfg!(target_arch = "wasm32") {
+            vec![TextureFormat::Rgba8Unorm, TextureFormat::Rgba8UnormSrgb]
+        } else {
+            vec![
+                TextureFormat::Bgra8Unorm,
+                TextureFormat::Bgra8UnormSrgb,
+                TextureFormat::Rgba8Unorm,
+                TextureFormat::Rgba8UnormSrgb,
+            ]
+        },
         present_modes: vec![PresentMode::Fifo],
         // 回报面与 configure 合法面同源（Auto 是 wgpu 标准默认值，上游恒用之）。
         alpha_modes: vec![
@@ -137,41 +143,33 @@ pub(crate) fn capabilities_impl(_a: &crate::entry::Adapter) -> SurfaceCapabiliti
 // surface texture 同语义；出码侧 ADJUST_COORDINATE_SPACE 让内容按 wgpu「行 0=顶」方向存，
 // 默认帧缓冲仍是 GL「行 0=底」——present 用一次反向源矩形 blit 翻正（不可直画：自 blit 重叠=未定义，
 // glViewport 负高在 ES 非法）。
-#[cfg(not(target_arch = "wasm32"))]
 const GL_FRAMEBUFFER: u32 = 0x8D40;
-#[cfg(not(target_arch = "wasm32"))]
 const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
-#[cfg(not(target_arch = "wasm32"))]
 const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
-#[cfg(not(target_arch = "wasm32"))]
 const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
-#[cfg(not(target_arch = "wasm32"))]
 const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
-#[cfg(not(target_arch = "wasm32"))]
 const GL_NEAREST: u32 = 0x2600;
 
-#[cfg(not(target_arch = "wasm32"))]
 const GL_SCISSOR_TEST: u32 = 0x0C11;
+/// 帧面色空间转换开关——仅桌面 core 可发：WebGL2 不暴露该 cap 枚举（enable/is_enabled 均
+/// INVALID_ENUM 污染错误队列），其 sRGB 读写转换由格式语义自动承担，无开关位可对齐亦无需对齐。
 #[cfg(not(target_arch = "wasm32"))]
 const GL_FRAMEBUFFER_SRGB: u32 = 0x8DB9;
 
 /// 上屏 blit 的 FBO 缓存行（键=屏幕纹理名 + 上下文代号；纹理随 configure 重建即换键）。
-#[cfg(not(target_arch = "wasm32"))]
 struct PresentFbo {
     /// FBO 驱动名。
-    fbo: u32,
-    /// 挂在该 FBO 上的屏幕纹理名。
-    tex: u32,
+    fbo: u64,
+    /// 挂在该 FBO 上的屏幕纹理名（gid 归一化）。
+    tex: u64,
     /// 上下文代号（重附着后旧名失效）。
     gen: u32,
 }
 /// 进程级唯一上屏 FBO（单附着语义；屏幕纹理换名即重建）。
-#[cfg(not(target_arch = "wasm32"))]
 static PRESENT_FBO: std::sync::Mutex<Option<PresentFbo>> = std::sync::Mutex::new(None);
 
 /// 取/建上屏 FBO（把屏幕纹理挂 COLOR0）：键不匹配即删旧建新；跨代号只丢记录不删。
-#[cfg(not(target_arch = "wasm32"))]
-fn ensure_present_fbo(tex: u32, target: u32) -> u32 {
+fn ensure_present_fbo(tex: u64, target: u32) -> u64 {
     let gen = crate::context_inner::generation_now();
     let mut guard = PRESENT_FBO.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = guard.as_ref() {
@@ -181,7 +179,7 @@ fn ensure_present_fbo(tex: u32, target: u32) -> u32 {
         if s.gen == gen {
             let fbo = s.fbo;
             crate::context_inner::with_gl(|gl| unsafe {
-                gl.delete_framebuffer(glow::NativeFramebuffer(nz(fbo)));
+                gl.delete_framebuffer(crate::gid::framebuffer_from(fbo));
             });
         }
     }
@@ -192,7 +190,7 @@ fn ensure_present_fbo(tex: u32, target: u32) -> u32 {
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             target,
-            Some(glow::NativeTexture(nz(tex))),
+            Some(crate::gid::texture_from(tex)),
             0,
         );
         let st = gl.check_framebuffer_status(GL_FRAMEBUFFER);
@@ -200,21 +198,15 @@ fn ensure_present_fbo(tex: u32, target: u32) -> u32 {
             log::error!("surface: 上屏 FBO 不完整 status={st:#x}（present 将不可见）");
         }
         gl.bind_framebuffer(GL_FRAMEBUFFER, None);
-        fbo.0.get()
+        crate::gid::id_of_framebuffer(fbo)
     });
     *guard = Some(PresentFbo { fbo, tex, gen });
     fbo
 }
 
-/// 非零 GL 名包装（0 非法=断言）。
-#[cfg(not(target_arch = "wasm32"))]
-fn nz(name: u32) -> std::num::NonZeroU32 {
-    std::num::NonZeroU32::new(name).expect("surface 断言: 驱动名为 0")
-}
-
 /// 屏幕纹理上屏：一次翻转 blit（READ=屏幕 FBO，DRAW=默认帧缓冲，源矩形 y 反向）。
-/// SCISSOR/sRGB 临时关闭后按原值恢复（blit 受裁剪测试与 sRGB 转换影响；SCISSOR_BOX 不动）。
-#[cfg(not(target_arch = "wasm32"))]
+/// SCISSOR/sRGB 临时关闭后按原值恢复（blit 受裁剪测试影响；sRGB 段仅桌面——WebGL2 无该开关，
+/// 帧面色空间由 canvas framebufferColorSpace 决定，本层不触碰，登记差异）。
 fn blit_present(t: &crate::entry::Texture) {
     let Some(name) = t._h.name() else {
         log::error!("surface: 上屏纹理无驱动名（present 跳过）");
@@ -226,14 +218,16 @@ fn blit_present(t: &crate::entry::Texture) {
         return;
     }
     let fbo = ensure_present_fbo(name.0, t._target);
-    let fb = glow::NativeFramebuffer(nz(fbo));
+    let fb = crate::gid::framebuffer_from(fbo);
     crate::context_inner::with_gl(|gl| unsafe {
         let scissor = gl.is_enabled(GL_SCISSOR_TEST);
         if scissor {
             gl.disable(GL_SCISSOR_TEST);
         }
         // sRGB 帧面：blit 期间的转换行为各驱动不一，统一关掉再恢复（wgpu-hal 同法）。
+        #[cfg(not(target_arch = "wasm32"))]
         let srgb = gl.is_enabled(GL_FRAMEBUFFER_SRGB);
+        #[cfg(not(target_arch = "wasm32"))]
         if srgb {
             gl.disable(GL_FRAMEBUFFER_SRGB);
         }
@@ -242,6 +236,7 @@ fn blit_present(t: &crate::entry::Texture) {
         gl.blit_framebuffer(0, h, w, 0, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
         gl.bind_framebuffer(GL_READ_FRAMEBUFFER, None);
         gl.bind_framebuffer(GL_DRAW_FRAMEBUFFER, None);
+        #[cfg(not(target_arch = "wasm32"))]
         if srgb {
             gl.enable(GL_FRAMEBUFFER_SRGB);
         }
@@ -253,14 +248,12 @@ fn blit_present(t: &crate::entry::Texture) {
 }
 
 // 设计预期（伪码·示意·非唯一实现）：
-// 1. 桌面/安卓：一次翻转 blit 上屏，再 swap_buffers（换帧+同步）；Web：空操作。
+// 1. 桌面/安卓：一次翻转 blit 上屏，再 swap_buffers（换帧+同步）；Web：同 blit 上默认帧缓冲后
+//    空 swap（隐式合成，浏览器出帧）。
 // 2. 换帧报错不回传错误值（租约已消耗）：记 log::error!(码)，由下一次 get_current 以 Lost/Outdated 暴露。
 pub(crate) fn present_impl(t: SurfaceTexture) {
     crate::state_inner::check_err("present");
-    #[cfg(not(target_arch = "wasm32"))]
     blit_present(&t.texture);
-    #[cfg(target_arch = "wasm32")]
-    let _ = &t;
     if let Err(e) = crate::context_inner::surface_swap() {
         log::error!("surface {:?}", e);
     }
@@ -282,3 +275,49 @@ pub(crate) fn debug_impl(s: &Surface<'_>, f: &mut core::fmt::Formatter<'_>) -> c
         .field("configured", &s._cfg.borrow().is_some())
         .finish()
 }
+
+/// Web 形态：自画布取 WebGL2 上下文并包 glow 入口，**首个呈现面创建时**注入（幂等：已有入口跳过；
+/// OffscreenCanvas 面未接=Err 拒面，登记差异）。注：WebGL2 版串须可被 glow Version 解析（实装自察）。
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn web_inject_from_canvas(t: &crate::surface::SurfaceTarget<'_>) -> bool {
+    if crate::context_inner::web_gl_present() {
+        return true;
+    }
+    let canvas: web_sys::HtmlCanvasElement = match t {
+        crate::surface::SurfaceTarget::Canvas(c) => c.clone(),
+        crate::surface::SurfaceTarget::OffscreenCanvas(_) => {
+            log::error!("surface WebOffscreenCanvasUnsupported");
+            return false;
+        }
+        _ => {
+            log::error!("surface WebWindowTargetInvalid");
+            return false;
+        }
+    };
+    use wasm_bindgen::JsCast as _;
+    // 上下文属性属库级差异收口（旧仓先例：present/blit 差异不入用例）：默认 antialias:true
+    // 使画布默认 fb 采样=4，本层 1 采样 present blit 0→4 恒拒；alpha=false=WebGPU 不透明面对齐。
+    let attrs: web_sys::WebGlContextAttributes = web_sys::WebGlContextAttributes::new();
+    attrs.set_antialias(false);
+    attrs.set_alpha(false);
+    let opts: wasm_bindgen::JsValue = attrs.into();
+    let js: wasm_bindgen::JsValue = match canvas.get_context_with_context_options("webgl2", &opts) {
+        Ok(Some(g)) => g.into(),
+        _ => {
+            log::error!("surface WebContextMissing");
+            return false;
+        }
+    };
+    let gl2: web_sys::WebGl2RenderingContext = match js.dyn_into() {
+        Ok(g) => g,
+        Err(_) => {
+            log::error!("surface WebContextNotWebGl2");
+            return false;
+        }
+    };
+    let gl = glow::Context::from_webgl2_context(gl2);
+    crate::context_inner::web_bind_glow(gl);
+    log::info!("surface: Web GL 入口注入完成");
+    true
+}
+

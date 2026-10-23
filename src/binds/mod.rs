@@ -83,12 +83,12 @@ pub(crate) fn consume_dynamic_offsets(group: &BindGroup, offsets: &mut &[Dynamic
 }
 
 /// 采样入口指位对（设计：sampler-unit-assign）：驱动侧 uniform 位置 × 该入口要读的 GL 纹理单元。
-/// 不变量：`location >= 0`（-1 表查位失败，不入表）；`unit < BIND_SLOTS`。空表是合法态
-/// （无采样入口的管线），不代表未初始化。 @internal
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 不变量：位置=定格期 get_uniform_location 实得句柄（查位失败不入表）；`unit < BIND_SLOTS`。
+/// 空表是合法态（无采样入口的管线），不代表未初始化。 @internal
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SamplerUniform {
-    /// 驱动侧 uniform 位置（指位表定格期查得）。
-    pub(crate) location: i32,
+    /// 驱动侧 uniform 位置句柄（指位表定格期查得；两面同形 glow::UniformLocation）。
+    pub(crate) location: glow::UniformLocation,
     /// 该采样入口要读的纹理单元号。
     pub(crate) unit: u32,
 }

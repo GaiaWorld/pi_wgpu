@@ -28,6 +28,22 @@ impl<'target, T: WindowHandle + 'target> From<T> for SurfaceTarget<'target> {
         Self::Window(Box::new(t))
     }
 }
+/// Web 附着目标构造口（画布即表面；首面创建期注入 GL 入口，合同见芯注）。
+/// 登记差异：上游 wgpu 此处为 `From<HtmlCanvasElement>` 臂，本仓被 WindowHandle blanket 的
+/// cohere 保守判定挡死（rwh 未来可能为 web 类型补 impl），故定槽为关联函数构造入口。 @public
+#[cfg(target_arch = "wasm32")]
+#[allow(clippy::new_ret_no_self)]
+impl<'target> SurfaceTarget<'target> {
+    /// 画布里附着目标。
+    pub fn canvas(c: web_sys::HtmlCanvasElement) -> Self {
+        Self::Canvas(c)
+    }
+    /// 离屏画布附着目标（构造可达；支持面=未接批次，create_surface 显式拒）。
+    pub fn offscreen_canvas(c: web_sys::OffscreenCanvas) -> Self {
+        Self::OffscreenCanvas(c)
+    }
+}
+
 /// 可呈现表面。不变量：configure 成功之后方可参与取帧/换帧（_cfg=None 即未就绪，get_current 返回 Err）。 @public
 pub struct Surface<'surface> {
     /// 附着目标（窗口/画布；configure 时据此建平台表面）。

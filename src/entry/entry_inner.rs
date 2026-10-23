@@ -12,7 +12,6 @@ use crate::state::StateMirror;
 use crate::types::*;
 use glow::HasContext;
 use pi_share::{Share, ShareMutex};
-use std::num::NonZeroU32;
 
 /// GL 纹理目标常量（GL_* 名面未导出故内联规范值）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
@@ -117,11 +116,6 @@ fn vtx_format_in_domain(f: crate::types::VertexFormat) -> bool {
     )
 }
 
-/// 句柄名→非零包装（零名=非法断言）。
-fn nz(name: GlHandle) -> NonZeroU32 {
-    NonZeroU32::new(name.0).unwrap_or_else(|| panic!("entry 断言: 非法零句柄名"))
-}
-
 /// 能力快照→上限全表（36 字段静态保底拍板=宁低报不虚高，不逐项真探；字段值表住 types::Limits）。
 fn limits_of(_c: &caps::Caps) -> Limits {
     Limits::default()
@@ -138,7 +132,12 @@ pub(crate) fn new_impl(d: &InstanceDescriptor) -> Instance {
         slot.is_some(),
         "entry 断言: 上下文附着失败（无可用 GL 附着）"
     );
+    // Web 形态：实例创建期尚无 GL 入口（首面创建才注入），caps 即探推迟至
+    // request_adapter 前探（其 attach 门覆盖）——登记使用序合同：先建面后取适配器。
+    #[cfg(not(target_arch = "wasm32"))]
     let _ = caps::probe();
+    #[cfg(target_arch = "wasm32")]
+    let _ = 0;
     Instance { _attach: slot }
 }
 
@@ -154,6 +153,10 @@ pub(crate) fn create_surface_impl<'s>(
             | crate::surface::SurfaceTarget::OffscreenCanvas(_)
     );
     if !ok {
+        return Err(CreateSurfaceError);
+    }
+    #[cfg(target_arch = "wasm32")]
+    if !crate::surface_inner::web_inject_from_canvas(&t) {
         return Err(CreateSurfaceError);
     }
     let Some(slot) = context::attach() else {
@@ -352,7 +355,7 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
     // 分配驱动侧存储（glBufferData 等价）——write_buffer 只发子写入，无存储则子写失败、缓冲为空；
     // 届时顶点读取越界取数（实测在本机 NVIDIA 驱动侧直接崩）。目标用通用 COPY_WRITE_BUFFER（与 upload 芯同源）。
     crate::context_inner::with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(glow::NativeBuffer(nz(name))));
+        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(crate::gid::buffer_from(name.0)));
         gl.buffer_data_size(GL_COPY_WRITE_BUFFER, b.size as i32, GL_DYNAMIC_DRAW);
     });
     Buffer {
@@ -433,7 +436,7 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
                 break;
             }
         }
-        gl.bind_texture(target, Some(glow::NativeTexture(nz(name))));
+        gl.bind_texture(target, Some(crate::gid::texture_from(name.0)));
         let e_bind = gl.get_error() as u32;
         if e_bind != 0 || !stale_codes.is_empty() {
             log::error!(
@@ -659,7 +662,7 @@ pub(crate) fn create_sampler_impl(_d: &Device, s: &SamplerDescriptor<'_>) -> Sam
     let h = crate::objects_inner::create_direct(DirectKind::Sampler);
     let name = h.name().expect("entry 断言: 新采样器无名");
     crate::context_inner::with_gl(|gl| unsafe {
-        let sm = glow::NativeSampler(nz(name));
+        let sm = crate::gid::sampler_from(name.0);
         gl.sampler_parameter_i32(
             sm,
             GL_TEXTURE_MIN_FILTER,
@@ -1193,7 +1196,7 @@ fn collect_sampler_uniforms(
     }
 
     crate::context_inner::with_gl(|gl| unsafe {
-        let prog = glow::NativeProgram(nz(program));
+        let prog = crate::gid::program_from(program.0);
         let n = gl.get_active_uniforms(prog);
         let mut out: Vec<crate::binds::SamplerUniform> = Vec::with_capacity(n as usize);
         for i in 0..n {
@@ -1215,7 +1218,7 @@ fn collect_sampler_uniforms(
             };
 
             out.push(crate::binds::SamplerUniform {
-                location: loc.0 as i32,
+                location: loc,
                 unit,
             });
         }
@@ -1232,9 +1235,11 @@ fn collect_block_bindings(
     ir_keys: &[(String, (u32, u32))],
 ) -> Vec<crate::binds::BlockBinding> {
     crate::context_inner::with_gl(|gl| unsafe {
-        let prog = glow::NativeProgram(nz(program));
+        let prog = crate::gid::program_from(program.0);
         let mut out: Vec<crate::binds::BlockBinding> = Vec::new();
-        for i in 0..64u32 {
+        // 界=64 上限+空串探测（WebGL API 无块数读数；glow fork 已订越界空串语义=桌面同形）。
+        // 界=IR 出码块数（出码合同：程序块集⊆名表；越界查询触发 web 告警+残 1281）。
+        for i in 0..ir_keys.len() as u32 {
             let name = gl.get_active_uniform_block_name(prog, i);
             if name.is_empty() {
                 break;
@@ -1271,7 +1276,7 @@ fn collect_block_bindings(
 /// 把 GLSL ES 3.0 源编译+链接进给定程序对象（仅新程序路径；复用命中不重链）。
 fn link_program(name: GlHandle, vs: &str, fs: Option<&str>) {
     crate::context_inner::with_gl(|gl| unsafe {
-        let prog = glow::NativeProgram(nz(name));
+        let prog = crate::gid::program_from(name.0);
         let vsh = gl
             .create_shader(GL_VERTEX_SHADER)
             .unwrap_or_else(|e| panic!("entry 断言: 顶点着色器对象创建失败 {e}"));
@@ -1554,9 +1559,6 @@ pub(crate) mod tests {
             got.iter().all(|u: &crate::binds::SamplerUniform| u.unit == unit),
             "同一 (g,b) 的两条 uniform 指向同一单元"
         );
-        assert!(got
-            .iter()
-            .all(|u: &crate::binds::SamplerUniform| u.location >= 0));
         assert_ne!(got[0].location, got[1].location, "两阶段各得自己的位置");
     }
 
@@ -1642,7 +1644,7 @@ pub(crate) mod tests {
         // 再备资源：期望态进镜像 → 程序真换 → useProgram + 全量指位。
         // 与产品同路径：期望态进镜像 → 水位差异下发 useProgram + 全量指位。
         let mut m = crate::state::StateMirror::default();
-        m.program = Some(crate::objects::GlHandle(name.0));
+        m.program = Some(name);
         m.sampler_uniforms = got.clone();
         m.flush_if_changed();
         assert_eq!(m.water.program, Some(name.0), "程序水位推进=useProgram+指位已发");
@@ -1688,7 +1690,7 @@ pub(crate) mod tests {
             gl.disable(0x0B44); // CULL_FACE
             gl.disable(0x8C89); // RASTERIZER_DISCARD
             gl.color_mask(true, true, true, true);
-            gl.use_program(Some(glow::NativeProgram(super::nz(name))));
+            gl.use_program(Some(crate::gid::program_from(name.0)));
             gl.bind_framebuffer(FB, Some(fb));
             assert_eq!(gl.check_framebuffer_status(FB), 0x8CD5, "FBO 应完整");
             gl.viewport(0, 0, 1, 1);
@@ -1800,7 +1802,7 @@ pub(crate) mod tests {
             gl.bind_buffer(UNIFORM_BUFFER, Some(ubuf));
             gl.buffer_data_u8_slice(UNIFORM_BUFFER, &data, STATIC_DRAW);
             gl.bind_buffer_range(UNIFORM_BUFFER, binding_point, Some(ubuf), 0, 64);
-            let prog_gl = glow::NativeProgram(super::nz(name));
+            let prog_gl = crate::gid::program_from(name.0);
             gl.use_program(Some(prog_gl));
             let block = gl
                 .get_uniform_block_index(prog_gl, "MatParams")
@@ -1947,7 +1949,7 @@ pub(crate) mod tests {
                     FB,
                     COLOR0,
                     CUBE_POS_X + face,
-                    Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(tex_name)))),
+                    Some(crate::gid::texture_from(tex_name)),
                     0,
                 );
                 assert_eq!(
@@ -2002,7 +2004,7 @@ pub(crate) mod tests {
                 FB,
                 COLOR0,
                 CUBE_POS_X + 5,
-                Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(tex_name)))),
+                Some(crate::gid::texture_from(tex_name)),
                 0,
             );
             let mut out = [0u8; 4];
@@ -2112,7 +2114,7 @@ pub(crate) mod tests {
                 FB,
                 COLOR0,
                 TEX2D,
-                Some(glow::NativeTexture(super::nz(crate::objects::GlHandle(name)))),
+                Some(crate::gid::texture_from(name)),
                 0,
             );
             let st = gl.check_framebuffer_status(FB);

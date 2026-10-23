@@ -1427,6 +1427,7 @@ dependencies = [
  "pi_share",
  "pollster",
  "raw-window-handle 0.6.2",
+ "slotmap",
  "thiserror 1.0.69",
  "wasm-bindgen",
  "web-sys",

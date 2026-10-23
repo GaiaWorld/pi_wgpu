@@ -53,6 +53,11 @@ pub(crate) mod objects;
 #[path = "objects/objects_inner.rs"]
 pub(crate) mod objects_inner;
 
+// gid · 对象身份层（B 路线归一化 u64 柄 ⇄ glow 柄值唯一闸口）。
+#[cfg(not(feature = "use_wgpu"))]
+#[path = "objects/gid.rs"]
+pub(crate) mod gid;
+
 #[cfg(not(feature = "use_wgpu"))]
 pub(crate) mod state;
 

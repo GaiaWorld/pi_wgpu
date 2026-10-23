@@ -2,13 +2,13 @@
 //! objects · GL 对象句柄层：一对一资源与可复用缓存两种生命周期。隐藏决定=哪些对象允许复用（仅四类）。
 //! 契约权威文本住本面注释；本面全部 @internal。
 use crate::state::StateMirror;
-use pi_share::{Share, ShareU32};
+use pi_share::{Share, ShareU32, ShareU64};
 
-/// GL 对象名（glGen* 原始产物）。只做类型区分，数值本身不含生命周期信息。
-/// 元组字段=驱动原始名号 u32（native 实形；glow native 的 NonZeroU32 包装由芯边界转换；Web 形态句柄
-/// 包装随官方挂接批处理）。 @internal
+/// GL 对象归一化柄（gid 层的存形）。只做类型区分，数值本身不含生命周期信息。
+/// 元组字段：桌面=驱动原始名号（u32 加宽零损）；Web=glow slot-key as_ffi 全 64 位
+/// （idx+version 无损——截 32 位即删后混叠，禁截）。进出驱动面必须过 objects::gid。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GlHandle(pub u32);
+pub(crate) struct GlHandle(pub u64);
 /// 一对一资源域：直建三件套=全部合法域（复用域另列四类合同）。供删除分派与域校验。 @internal
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DirectKind {
@@ -32,16 +32,15 @@ pub(crate) struct DirectHandle {
 pub(crate) struct DirectHandleState {
     /// 资源域：删除入口按此分派（buffer/texture/sampler 三路 glDelete*）。
     pub(crate) kind: DirectKind,
-    /// 句柄名（原子形：0=死态或已释放——非零即活名，与驱动 GL_NAMES 约定同域；
-    /// pi_share 缺省线程形 ShareU32，使全句柄链满足上游公开面 Send+Sync 合同）。
-    pub(crate) handle: ShareU32,
+    /// 句柄名（原子形：0=死态或已释放——非零即活名；gid 归一化 u64：桌面=驱动名，Web=slot-key ffi）。
+    pub(crate) handle: ShareU64,
     /// 构造时附着代号快照；使用死代号句柄由消费方按失配断言拦截。
     pub(crate) generation: u32,
 }
 impl DirectHandle {
     /// 读当前驱动名（None=死态；原子装载，跨线程观察合法——驱动调用仍受附着门控）。 @internal
     pub(crate) fn name(&self) -> Option<GlHandle> {
-        std::num::NonZeroU32::new(self.inner.handle.load(std::sync::atomic::Ordering::SeqCst))
+        std::num::NonZeroU64::new(self.inner.handle.load(std::sync::atomic::Ordering::SeqCst))
             .map(|v| GlHandle(v.get()))
     }
     /// 读附着代号快照。 @internal
@@ -53,7 +52,7 @@ impl DirectHandle {
         Self {
             inner: Share::new(DirectHandleState {
                 kind,
-                handle: ShareU32::new(0),
+                handle: ShareU64::new(0),
                 generation,
             }),
         }

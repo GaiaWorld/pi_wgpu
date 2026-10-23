@@ -184,7 +184,7 @@ fn bind_current_thread() {
 }
 
 /// 取得一层持有（非重入路径限时争锁）：获胜后同线程重入=TLS 层数快路，零成本。
-#[cfg(not(feature = "single_thread"))]
+#[cfg(all(not(feature = "single_thread"), not(target_arch = "wasm32")))]
 fn claim_and_attach() {
     if HELD.with(|c| c.get()) > 0 {
         HELD.with(|c| c.set(c.get() + 1));
@@ -222,7 +222,7 @@ fn claim_and_attach() {
 }
 
 /// 交还一层持有：末层（层数归零）才真正交还持锁位并唤醒等待者。
-#[cfg(not(feature = "single_thread"))]
+#[cfg(all(not(feature = "single_thread"), not(target_arch = "wasm32")))]
 fn release_one_layer() {
     let prev = HELD.with(|c| {
         let v = c.get();
@@ -252,6 +252,17 @@ fn release_one_layer() {
         READY.notify_all();
     }
 }
+
+/// Web 形态：争用面编译期退化=附着直建（单主线程无跨线程持锁面；且 wasm pal 未实装
+/// std 时间基元，限时等待路不可运行——登记差异：与 single_thread 合同同形，不开特性亦成立）。
+#[cfg(all(target_arch = "wasm32", not(feature = "single_thread")))]
+fn claim_and_attach() {
+    bind_current_thread();
+}
+
+/// Web 形态：交还恒空操作（同退化合同）。
+#[cfg(all(target_arch = "wasm32", not(feature = "single_thread")))]
+fn release_one_layer() {}
 
 /// single_thread 合同：锁步与搬运步编译期退化=附着即建、无争用。
 #[cfg(feature = "single_thread")]
@@ -292,7 +303,14 @@ fn current_glow() -> &'static glow::Context {
     }
 }
 
-/// Web 形态 GL 入口注入点（surface 配置链调用；桌面/安卓形态编译期不存在）。
+/// Web 形态注入门判（注入幂等：已有入口=重绑新表致全名作废，只许首注入）。
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn web_gl_present() -> bool {
+    let slot = unsafe { &*SLOT.0.get() };
+    slot.attached.as_ref().and_then(|a| a.glow.as_ref()).is_some()
+}
+
+/// Web 形态 GL 入口注入点（首面创建时接线；桌面/安卓形态编译期不存在）。
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn web_bind_glow(gl: glow::Context) {
     let slot = unsafe { &mut *SLOT.0.get() };
@@ -1080,9 +1098,7 @@ mod tests {
         });
         assert_eq!(errs, 0, "sampler 下发链出现驱动 error");
         let r = with_gl(|gl| unsafe {
-            let sn = glow::NativeSampler(
-                std::num::NonZeroU32::new(sm._h.name().expect("采样器活名").0).expect("非零"),
-            );
+            let sn = crate::gid::sampler_from(sm._h.name().expect("采样器活名").0);
             (
                 gl.get_sampler_parameter_i32(sn, 0x2801),
                 gl.get_sampler_parameter_f32(sn, 0x8131),

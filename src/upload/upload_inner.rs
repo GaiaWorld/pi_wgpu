@@ -1,7 +1,6 @@
 // 设计：pi-wgpu-rebuild
 //! upload 芯 · 即时写路径：校验（错误码记录）→ 锁附着 → 驱动子写。契约权威文本住壳面注释。
 //! 错误处理（错误纪律）：违约记 log::error!(UploadErr)；debug 档不下发、release 档留痕+下发（不谎报）。
-use std::num::NonZeroU32;
 
 use glow::HasContext;
 
@@ -54,12 +53,12 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
     if bad {
         return;
     }
-    let Some(nn) = NonZeroU32::new(name.0) else {
+    if name.0 == 0 {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
-    };
+    }
     with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(glow::NativeBuffer(nn)));
+        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(crate::gid::buffer_from(name.0)));
         gl.buffer_sub_data_u8_slice(GL_COPY_WRITE_BUFFER, o as i32, d);
     });
 }
@@ -182,10 +181,10 @@ pub(crate) fn write_texture_impl(
         return;
     }
     let src: &[u8] = if off <= d.len() { &d[off..] } else { &[] };
-    let Some(nn) = NonZeroU32::new(name.0) else {
+    if name.0 == 0 {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
-    };
+    }
     let lay = convert_impl(l, &e);
     let bpp = p.block_bytes.max(1) as u64;
     let target = t.texture._target;
@@ -199,7 +198,7 @@ pub(crate) fn write_texture_impl(
     let restore_unit = upload_restore_unit(q);
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
-        gl.bind_texture(target, Some(glow::NativeTexture(nn)));
+        gl.bind_texture(target, Some(crate::gid::texture_from(name.0)));
         // 紧排：wgpu 行距=字节精确，不按 4 对齐补隙（默认 4 会把非对齐行读斜）。
         gl.pixel_store_i32(GL_UNPACK_ALIGNMENT, 1);
         match lay.bytes_per_row {
@@ -305,13 +304,13 @@ pub(crate) fn write_js_impl(
     };
     let p = &t.texture.params;
     let bmp = bmp.clone();
-    let Some(nn) = NonZeroU32::new(name.0) else {
+    if name.0 == 0 {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
-    };
+    }
     with_gl(|gl| unsafe {
         gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
-        gl.bind_texture(GL_TEXTURE_2D, Some(glow::NativeTexture(nn)));
+        gl.bind_texture(GL_TEXTURE_2D, Some(crate::gid::texture_from(name.0)));
         gl.tex_sub_image_2d_with_image_bitmap(
             GL_TEXTURE_2D,
             t.mip_level as i32,
@@ -453,17 +452,13 @@ pub(crate) fn exec_copy_texture_to_buffer(
     with_gl(|gl| unsafe {
         gl.bind_framebuffer(
             GL_FRAMEBUFFER,
-            Some(glow::NativeFramebuffer(
-                std::num::NonZeroU32::new(fb.0).expect("非零 fb 名"),
-            )),
+            Some(crate::gid::framebuffer_from(fb.0)),
         );
         gl.framebuffer_texture_2d(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             tex._target,
-            Some(glow::NativeTexture(
-                std::num::NonZeroU32::new(tname.0).expect("非零纹理名"),
-            )),
+            Some(crate::gid::texture_from(tname.0)),
             mip,
         );
         for r in 0..(h as usize) {
@@ -506,8 +501,10 @@ pub(crate) fn get_sub_data_impl(
     );
     let mut v: Vec<u8> = vec![0u8; len as usize];
     with_gl(|gl| unsafe {
-        let nn = std::num::NonZeroU32::new(n.expect("前置活名").0).expect("非零缓冲名");
-        gl.bind_buffer(GL_COPY_READ_BUFFER, Some(glow::NativeBuffer(nn)));
+        gl.bind_buffer(
+            GL_COPY_READ_BUFFER,
+            Some(crate::gid::buffer_from(n.expect("前置活名").0)),
+        );
         gl.get_buffer_sub_data(GL_COPY_READ_BUFFER, offset as i32, &mut v);
         gl.bind_buffer(GL_COPY_READ_BUFFER, None);
     });
@@ -590,16 +587,12 @@ pub(crate) fn exec_copy_buffer_to_texture(
     with_gl(|gl| unsafe {
         gl.bind_buffer(
             GL_COPY_READ_BUFFER,
-            Some(glow::NativeBuffer(
-                std::num::NonZeroU32::new(fname.0).expect("非零"),
-            )),
+            Some(crate::gid::buffer_from(fname.0)),
         );
         gl.active_texture(UPLOAD_TEX_UNIT);
         gl.bind_texture(
             tex._target,
-            Some(glow::NativeTexture(
-                std::num::NonZeroU32::new(tname.0).expect("非零"),
-            )),
+            Some(crate::gid::texture_from(tname.0)),
         );
         for r in 0..(h as usize) {
             // 行序原样（存储方向与 CPU 缓冲区同向）：源行 r 直写目标行 oy+r。
@@ -722,17 +715,13 @@ pub(crate) fn exec_copy_texture_to_texture(
     with_gl(|gl| unsafe {
         gl.bind_framebuffer(
             GL_FRAMEBUFFER,
-            Some(glow::NativeFramebuffer(
-                std::num::NonZeroU32::new(fb.0).expect("非零"),
-            )),
+            Some(crate::gid::framebuffer_from(fb.0)),
         );
         gl.framebuffer_texture_2d(
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             stx._target,
-            Some(glow::NativeTexture(
-                std::num::NonZeroU32::new(sname.0).expect("非零"),
-            )),
+            Some(crate::gid::texture_from(sname.0)),
             slvl,
         );
         for r in 0..(h as usize) {
@@ -752,9 +741,7 @@ pub(crate) fn exec_copy_texture_to_texture(
         gl.active_texture(UPLOAD_TEX_UNIT);
         gl.bind_texture(
             dtarget,
-            Some(glow::NativeTexture(
-                std::num::NonZeroU32::new(ddst.0 .0).expect("非零"),
-            )),
+            Some(crate::gid::texture_from(ddst.0 .0)),
         );
         for r2 in 0..(h as usize) {
             let srcrow: &[u8] = &blockw[r2 * row_bytes..(r2 + 1) * row_bytes];
