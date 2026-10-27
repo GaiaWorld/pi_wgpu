@@ -2,22 +2,10 @@
 
 use crate::error::{Error, ErrorFilter, ErrorSource};
 
-/// 短错误码源（本层 Error 的 source 载荷=枚举短码文本，形=上游 lower-level source 语义）。
-#[derive(Debug)]
-pub(crate) struct ShortCode(pub String);
-
-impl std::fmt::Display for ShortCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for ShortCode {}
-
-/// 由短码文本构造 Validation 错误（source=短码本体=下游 source() 链可取）。
+/// 由短码文本构造 Validation 错误（source=短码本体＝字段直读；std source() 链=None 定形）。
 pub(crate) fn validation(code: &str) -> Error {
     Error::Validation {
-        source: Box::new(ShortCode(code.to_string())) as ErrorSource,
+        source: code.to_string(),
         description: code.to_string(),
     }
 }
@@ -25,7 +13,7 @@ pub(crate) fn validation(code: &str) -> Error {
 /// 由短码文本构造 Internal 错误。
 pub(crate) fn internal(code: &str) -> Error {
     Error::Internal {
-        source: Box::new(ShortCode(code.to_string())) as ErrorSource,
+        source: code.to_string(),
         description: code.to_string(),
     }
 }
@@ -50,15 +38,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::OutOfMemory { source } => Some(source.as_ref()),
-            Error::Validation { source, .. } => Some(source.as_ref()),
-            Error::Internal { source, .. } => Some(source.as_ref()),
-        }
-    }
-}
+impl std::error::Error for Error {}
 
 /// Device 错误通道态（被 entry_inner 的 DeviceInner 持有）：
 /// scopes=push/pop 栈（内层优先捕获），uncaptured=用户回调槽。

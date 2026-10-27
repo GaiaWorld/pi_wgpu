@@ -13,14 +13,13 @@ fn error_variants_shape_and_source_chain() {
         s.to_string(),
         "Validation error: ErrCache: 占位类型无构造面"
     );
-    let chained: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(&v);
-    assert_eq!(
-        chained.expect("source 链").to_string(),
-        "ErrCache: 占位类型无构造面"
-    );
+    // String 定形：source 字段即短码文本直读；std source() 链恒 None（无下层装载对象=诚实形）。
+    let Error::Validation { source, .. } = &v else { unreachable!() };
+    assert_eq!(source, "ErrCache: 占位类型无构造面");
+    assert!(std::error::Error::source(&v).is_none(), "链面=None 定形");
     let i: Error = internal("ErrGlEnv: 多采样读拒绝");
     assert!(matches!(i, Error::Internal { .. }));
-    assert!(std::error::Error::source(&i).is_some(), "Internal 带源");
+    assert!(std::error::Error::source(&i).is_none(), "Internal 链面=None");
 }
 
 #[test]
