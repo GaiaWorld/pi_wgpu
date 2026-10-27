@@ -22,6 +22,14 @@ pub(crate) enum UploadErr {
     NotBitmap,
     /// 非主线程调用（Web 专有面）。
     OffMainThread,
+    /// 压缩纹理写数组/3D 目标——WebGL2 compressedTexSubImage 系无多层形（平台限制登记）。
+    CompressedArray,
+    /// 外来图源上传目标非单层 2D（源形无数组/立方体路）。
+    WebExternalTarget,
+    /// 源区 origin/flip_y 的局部语义在 ES 源形不支持——记录后整帧下发（平台差异登记）。
+    WebExternalPartial,
+    /// OffscreenCanvas 在 ES texSubImage 源形无对应重载（需先转 bitmap，本层未代做）。
+    WebOffscreenSource,
 }
 
 impl Queue {
@@ -54,6 +62,21 @@ impl Queue {
         bitmap: wasm_bindgen::JsValue,
     ) {
         crate::upload_inner::write_js_impl(self, &texture, bitmap)
+    }
+    /// 外部图像源→纹理指定 mip/层 拷贝（WebGL2 专面，零字节 GL 直灌）：img/canvas/bitmap/video
+    /// 整帧缩放写；ImageData 走字节路（行紧排）。登记差异：源 origin/flip_y 与色彩空间/预乘注解
+    /// 为记录面（非默认=log::error!(UploadErr) 仍整帧发）；非单层 2D 目标拒。主线程合同同
+    /// write_texture_jsbuffer 形。 @public
+    #[cfg(target_arch = "wasm32")]
+    // 旧名形承 pi 系调用面（wgpu-types 25 弃用别名）——入口允许，迁册登记。
+    #[allow(deprecated)]
+    pub fn copy_external_image_to_texture(
+        &self,
+        source: &crate::types::ImageCopyExternalImage,
+        destination: crate::types::CopyExternalImageDestInfo<&crate::entry::Texture>,
+        copy_size: crate::types::Extent3d,
+    ) {
+        crate::upload_inner::copy_external_impl(self, source, &destination, &copy_size)
     }
 }
 /// 256 字节行距语义→驱动 unpack 行距/偏移参数换算。单职责：纯换算、零校验零状态——

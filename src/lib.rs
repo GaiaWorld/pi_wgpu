@@ -140,7 +140,11 @@ pub use entry::*;
 #[cfg(not(feature = "use_wgpu"))]
 pub use surface::{Surface, SurfaceCapabilities, SurfaceError, SurfaceTarget, SurfaceTexture};
 #[cfg(not(feature = "use_wgpu"))]
-pub use types::{Backends, BufferUsages, Extent3d, TextureFormat};
+pub use types::{Backends, BufferUsages, Extent3d, PredefinedColorSpace, TextureFormat};
+/// Web 专面外来图源族（wgpu-types 25.0.0 源；ImageCopyExternalImage=官方旧名形，pi 系沿用）。
+#[cfg(all(target_arch = "wasm32", not(feature = "use_wgpu")))]
+#[allow(deprecated)]
+pub use types::{CopyExternalImageDestInfo, ExternalImageSource, ImageCopyExternalImage};
 #[cfg(not(feature = "use_wgpu"))]
 pub use utils::{
     backend_bits_from_env, parse_backends_from_comma_list, power_preference_from_env,
@@ -163,25 +167,23 @@ use std::path::Path;
 pub trait PiWgpuAdapter {
     /// 请求设备：future 借用收体与各参（'p 显式统一），Send 合同保持（自产 futures 已证）。
     /// desc.trace=词汇位（Directory=断言 ErrTrace）；trace_path 历史兼容位=仅记录不产出（None 常态）。
-    fn request_device<'p>(
-        &'p self,
-        desc: &'p types::DeviceDescriptor<'p>,
-        trace_path: Option<&'p Path>,
+    fn request_device(
+        & self,
+        desc: & types::DeviceDescriptor,
+        trace_path: Option<& Path>,
     ) -> impl std::future::Future<
         Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>,
-    > + Send
-           + 'p;
+    > + Send;
 }
 #[cfg(not(feature = "use_wgpu"))]
 impl PiWgpuAdapter for entry::Adapter {
-    fn request_device<'p>(
-        &'p self,
-        desc: &'p types::DeviceDescriptor<'p>,
-        trace_path: Option<&'p Path>,
+    fn request_device(
+        & self,
+        desc: & types::DeviceDescriptor,
+        trace_path: Option<& Path>,
     ) -> impl std::future::Future<
         Output = std::result::Result<(entry::Device, entry::Queue), entry::RequestDeviceError>,
-    > + Send
-           + 'p {
+    > + Send {
         let r = crate::entry_inner::request_device_impl(self, desc, trace_path);
         async move { r }
     }

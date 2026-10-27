@@ -9,6 +9,10 @@ use crate::entry::{Buffer, Queue};
 use crate::types::{BufferAddress, Extent3d, TexelCopyBufferLayout, TexelCopyTextureInfo};
 use crate::upload::UploadErr;
 
+/// GL_ARRAY_BUFFER 目标（Web 合同：非 ELEMENT 绑会永久锁掉该缓冲的索引用途）。
+const GL_ARRAY_BUFFER: u32 = 0x8892;
+/// GL_ELEMENT_ARRAY_BUFFER 目标。
+const GL_ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
 /// GL_COPY_WRITE_BUFFER（GL3.1+/ES3.0/WebGL2；非镜像/VAO 管辖的通用子写目标）。
 // COPY_WRITE_BUFFER is 0x8F37.
 const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
@@ -57,9 +61,16 @@ pub(crate) fn write_buffer_impl(_q: &Queue, b: &Buffer, o: BufferAddress, d: &[u
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
     }
+    // 写目标与 create_buffer 的分配目标同判据（usage INDEX→ELEMENT）：Web 上 COPY 写会把
+    // 缓冲锁为「非索引用途」，索引缓冲必须走 ELEMENT 目标（桌面两目标行为一致）。
+    let write_target: u32 = if b._usage.contains(crate::types::BufferUsages::INDEX) {
+        GL_ELEMENT_ARRAY_BUFFER
+    } else {
+        GL_ARRAY_BUFFER
+    };
     with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(crate::gid::buffer_from(name.0)));
-        gl.buffer_sub_data_u8_slice(GL_COPY_WRITE_BUFFER, o as i32, d);
+        gl.bind_buffer(write_target, Some(crate::gid::buffer_from(name.0)));
+        gl.buffer_sub_data_u8_slice(write_target, o as i32, d);
     });
 }
 
@@ -87,12 +98,14 @@ pub(crate) fn write_range_err(
     if dst.mip_level >= t._mip {
         return Some(UploadErr::OutOfRange);
     }
-    if e.width == 0 || e.height == 0 || e.depth_or_array_layers == 0 {
-        return Some(UploadErr::OutOfRange);
-    }
     let lvl = dst.mip_level;
-    let mw = (t._size.width >> lvl).max(1) as u64;
-    let mh = (t._size.height >> lvl).max(1) as u64;
+    // 压缩块级尺寸公式：level 尺寸 = max(块宽高, roundup(基尺寸 >> level, 块宽高))；块宽 1 紧凑形
+    // = 基语义（未压缩行为零变化），尾级收敛到恰一 block——与 ES textureSize 块语义同形。
+    let bw = t.params.block.0.max(1) as u64;
+    let bh = t.params.block.1.max(1) as u64;
+    let up = |v: u64, q: u64| (v + q - 1) / q * q;
+    let mw = up(t._size.width as u64 >> lvl, bw).max(bw);
+    let mh = up(t._size.height as u64 >> lvl, bh).max(bh);
     let ox = dst.origin.x as u64;
     let oy = dst.origin.y as u64;
     if ox + e.width as u64 > mw || oy + e.height as u64 > mh {
@@ -127,6 +140,12 @@ pub(crate) fn write_texture_impl(
     l: &TexelCopyBufferLayout,
     e: Extent3d,
 ) {
+    // 零维写=静默忽略（上游同形 queue.rs:654：width/height/depth 任一 0 在 texture 取回前
+    // 直接 Ok 返回——非错误；2026-10-27 产品 92x572x0 实锤纠偏）。
+    if e.width == 0 || e.height == 0 || e.depth_or_array_layers == 0 {
+        log::trace!("upload: 零维写静默忽略（上游同形）");
+        return;
+    }
     let Some(name) = t.texture._h.name() else {
         log::error!("upload {:?}", UploadErr::DeadHandle);
         return;
@@ -157,8 +176,9 @@ pub(crate) fn write_texture_impl(
     }
     if let Some(bpr) = l.bytes_per_row {
         // 默认=wgpu 契约（256 对齐）硬校验；loose_upload=放宽为「行距容得下一整行」，
-        // 非 4 倍数行走紧凑重排（GL UNPACK_ALIGNMENT=4 硬规则）。
-        let row_ok = if cfg!(feature = "loose_upload") {
+        // 非 4 倍数行走紧凑重排（GL UNPACK_ALIGNMENT=4 硬规则）。Web 目标恒走宽松档：
+        // 产品 Web 包（ktx/画布）传自然行距为常态，256 硬合同在 Web 实测即误伤。
+        let row_ok = if cfg!(any(feature = "loose_upload", target_arch = "wasm32")) {
             bpr as u64 >= (e.width as u64 * (p.block_bytes.max(1) as u64))
         } else {
             bpr % 256 == 0
@@ -186,6 +206,9 @@ pub(crate) fn write_texture_impl(
         return;
     }
     let lay = convert_impl(l, &e);
+    // block≠(1,1)=压缩合同（formats 表约定）：写路换 compressedTex 系，
+    // 内部格式落 p.internal_format（压缩词汇位=0 槽，本支不读 unpack 词）。
+    let comp = p.block != (1, 1);
     let bpp = p.block_bytes.max(1) as u64;
     let target = t.texture._target;
     crate::crash_diag::op(&format!(
@@ -210,6 +233,10 @@ pub(crate) fn write_texture_impl(
             None => gl.pixel_store_i32(GL_UNPACK_IMAGE_HEIGHT, 0),
         }
         match target {
+            GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY if comp => {
+                // ES/WebGL2 compressedTexSubImage2D 无数组/3D 形——本层无 resolve 路可代，拒止留痕。
+                log::error!("upload {:?} target={target:#x}", UploadErr::CompressedArray);
+            }
             GL_TEXTURE_3D | GL_TEXTURE_2D_ARRAY | GL_TEXTURE_CUBE_MAP_ARRAY => {
                 gl.tex_sub_image_3d(
                     target,
@@ -238,6 +265,20 @@ pub(crate) fn write_texture_impl(
                     let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z + f;
                     let off = f as usize * face_stride as usize;
                     let part: &[u8] = if off < src.len() { &src[off..] } else { &[] };
+                    if comp {
+                        gl.compressed_tex_sub_image_2d(
+                            face,
+                            t.mip_level as i32,
+                            t.origin.x as i32,
+                            t.origin.y as i32,
+                            e.width as i32,
+                            e.height as i32,
+                            p.internal_format,
+                            part.len() as i32,
+                            glow::CompressedPixelUnpackData::Slice(part),
+                        );
+                        continue;
+                    }
                     gl.tex_sub_image_2d(
                         face,
                         t.mip_level as i32,
@@ -250,6 +291,19 @@ pub(crate) fn write_texture_impl(
                         glow::PixelUnpackData::Slice(part),
                     );
                 }
+            }
+            _ if comp => {
+                gl.compressed_tex_sub_image_2d(
+                    target,
+                    t.mip_level as i32,
+                    t.origin.x as i32,
+                    t.origin.y as i32,
+                    e.width as i32,
+                    e.height as i32,
+                    p.internal_format,
+                    src.len() as i32,
+                    glow::CompressedPixelUnpackData::Slice(src),
+                );
             }
             _ => {
                 gl.tex_sub_image_2d(
@@ -1090,5 +1144,79 @@ mod range_tests {
             Some(UploadErr::LayerRange),
             "单层 2D 带层=拒"
         );
+    }
+}
+/// 外来图源整帧直灌（Web 专面芯）：目标=单层 2D（源形无数组路，违者 WebExternalTarget）；
+/// 源 origin/flip_y/色彩注解=记录面（非默认留痕仍整帧发——ES 源形只有目标偏移+缩放尺寸，无源区
+/// 概念）；ImageData 为像素阵列走字节路（行紧排）。与位图源同单元合同（专用单元+镜像恢复）。
+#[cfg(target_arch = "wasm32")]
+#[allow(deprecated)]
+pub(crate) fn copy_external_impl(
+    q: &Queue,
+    src: &crate::types::ImageCopyExternalImage,
+    dst: &crate::types::CopyExternalImageDestInfo<&crate::entry::Texture>,
+    size: &crate::types::Extent3d,
+) {
+    use crate::types::ExternalImageSource as EIS;
+    let Some(name) = dst.texture._h.name() else {
+        log::error!("upload {:?}", UploadErr::DeadHandle);
+        return;
+    };
+    if name.0 == 0 {
+        log::error!("upload {:?}", UploadErr::DeadHandle);
+        return;
+    }
+    if dst.texture._target != GL_TEXTURE_2D {
+        log::error!("upload {:?} target={:#x}", UploadErr::WebExternalTarget, dst.texture._target);
+        return;
+    }
+    if src.origin != crate::types::Origin2d::ZERO || src.flip_y {
+        log::error!("upload {:?} origin=({},{}) flip={}",
+            UploadErr::WebExternalPartial, src.origin.x, src.origin.y, src.flip_y);
+    }
+    if dst.mip_level >= dst.texture._mip {
+        log::error!("upload {:?} mip={}", UploadErr::OutOfRange, dst.mip_level);
+        return;
+    }
+    let p = &dst.texture.params;
+    let lvl = dst.mip_level as i32;
+    let (x, y) = (dst.origin.x as i32, dst.origin.y as i32);
+    let (w, h) = (size.width as i32, size.height as i32);
+    let restore = upload_restore_unit(q);
+    match &src.source {
+        EIS::ImageData(d) => {
+            let v: Vec<u8> = d.data().to_vec();
+            let inner = crate::types::TexelCopyTextureInfo {
+                texture: dst.texture,
+                mip_level: dst.mip_level,
+                origin: dst.origin,
+                aspect: dst.aspect,
+            };
+            write_texture_impl(q, &inner, &v, &crate::types::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: None,
+                rows_per_image: None,
+            }, *size);
+        }
+        EIS::OffscreenCanvas(_) => {
+            log::error!("upload {:?}", UploadErr::WebOffscreenSource);
+        }
+        _ => with_gl(|gl| unsafe {
+            gl.active_texture(GL_TEXTURE0 + UPLOAD_TEX_UNIT);
+            gl.bind_texture(GL_TEXTURE_2D, Some(crate::gid::texture_from(name.0)));
+            match &src.source {
+                EIS::ImageBitmap(b) => gl.tex_sub_image_2d_with_image_bitmap_and_width_and_height(
+                    GL_TEXTURE_2D, lvl, x, y, w, h, p.format, p.pixel_type, b),
+                EIS::HTMLImageElement(i) => gl.tex_sub_image_2d_with_html_image_and_width_and_height(
+                    GL_TEXTURE_2D, lvl, x, y, w, h, p.format, p.pixel_type, i),
+                EIS::HTMLCanvasElement(c) => gl.tex_sub_image_2d_with_html_canvas_and_width_and_height(
+                    GL_TEXTURE_2D, lvl, x, y, w, h, p.format, p.pixel_type, c),
+                EIS::HTMLVideoElement(vv) => gl.tex_sub_image_2d_with_html_video_and_width_and_height(
+                    GL_TEXTURE_2D, lvl, x, y, w, h, p.format, p.pixel_type, vv),
+                // unstable 面（VideoFrame 等）：stable 构建不可达；开启位后=留痕不下发。
+                _ => log::error!("upload {:?} source=unstable-variant", UploadErr::WebExternalPartial),
+            }
+            gl.active_texture(GL_TEXTURE0 + restore);
+        }),
     }
 }

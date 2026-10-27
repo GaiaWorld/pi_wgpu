@@ -233,7 +233,7 @@ pub(crate) fn probe_impl() -> Caps {
         if es {
             family |= CAP_EMBEDDED;
         }
-        if has(&["texture_compression_s3tc", "texture_compression_dxt1"]) {
+        if has(&["texture_compression_s3tc", "texture_compression_dxt1", "webgl_compressed_texture_s3tc"]) {
             family |= CAP_S3TC;
         }
         if has(&["texture_compression_bptc"]) || (!es && (ver.major, ver.minor) >= (4, 2)) {

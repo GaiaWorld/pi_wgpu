@@ -129,14 +129,6 @@ fn has_removed() -> bool {
         .is_empty()
 }
 
-/// 旁路纹理绑定后失效全部纹理槽水位（create_texture 建后直绑当前单元等非镜像路径）。
-/// 置槽水位=「未下发」，令下次 flush 重发镜像期望以复位驱动绑定（防水位命中而漏复位）。
-pub(crate) fn invalidate_texture_water(m: &mut StateMirror) {
-    for slot in m.water.tex.iter_mut() {
-        *slot = None;
-    }
-}
-
 /// 帧序号：present 每次换帧推进一格（可回读档帧门的钟）。
 static FRAME: AtomicU32 = AtomicU32::new(0);
 
@@ -152,7 +144,7 @@ fn frame_now() -> u32 {
 
 /// 整发档已下发水位：非回读组「上次实际下发」的原语快照（比较基准；缺省=从未发→首轮全发）。
 /// 全字段 GL 原语型——比对即 `==`（词汇面无 PartialEq，比较一律经映射原语落水位值）。
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Water {
     /// 程序组（对象名，0=无名绑定）。
     pub(crate) program: Option<u64>,
@@ -424,7 +416,7 @@ fn apply_sampler_units(m: &StateMirror) {
         for u in m.sampler_uniforms.iter() {
             // 位置按驱动句柄原样回填（创建期自 get_uniform_location 取，u32 与 i32 往返无损）。
             gl.uniform_1_i32(
-                Some(&u.location),
+                Some(&u.location.0),
                 u.unit as i32,
             );
         }

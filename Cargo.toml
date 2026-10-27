@@ -20,7 +20,7 @@ webgl = []
 use_wgpu = ["dep:wgpu", "wgpu/glsl"]  # B13 薄壳 facade：整面 re-export 官方 wgpu；与 gl 互斥
 
 [dependencies]
-once_cell = "=1.21.3"  # 钉住本 naga fork 传递依赖的可用版本（新版本缺 sync 模块）
+once_cell = "=1.21.4"  # 钉住本 naga fork 传递依赖的可用版本（新版本缺 sync 模块）
 pi_egl = { version = "0.2", registry = "yn" }
 glow = { package = "pi_glow", version = "0.13", registry = "yn" }
 pi_share = "0.5"

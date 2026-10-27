@@ -302,9 +302,13 @@ pub(crate) fn exec_begin_impl<'p>(
                 gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
             }
             if let Some(v) = dep {
-                // 深度清除走核心入口 glClearDepth(f64)——glClearDepthf 为 ES/EXT 名，
-                // 桌面上下文经 wgl 取该指针不保证在场（实测静默丢，登记事故）。
+                // 深度清除按形态分口：桌面=glClearDepth(f64) 核心入口（glClearDepthf 为 ES/EXT 名，
+                // 桌面 wgl 取该指针不保证在场=实测静默丢事故，登记）；Web=glClearDepthf(f32) ES 核心
+                // ——_f64 专口在 glow web_sys 后端=合同级 panic（2026-10-27 产品实锤）。
+                #[cfg(not(target_arch = "wasm32"))]
                 gl.clear_depth_f64(v as f64);
+                #[cfg(target_arch = "wasm32")]
+                gl.clear_depth_f32(v as f32);
             }
             if let Some(v) = ste {
                 gl.clear_stencil(v as i32);
@@ -436,6 +440,8 @@ pub(crate) fn exec_begin_impl<'p>(
         _vao: None,
         _slots: crate::binds::SlotTable::default(),
         _replay: true,
+        _vbinds: Vec::new(),
+        _fi_base: 0,
         _fbo: fbo,
         _hold_color: ctext.cloned(),
         _hold_depth: dtext.cloned(),
@@ -561,6 +567,8 @@ pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
     });
     state_inner::set_vao(&mut m, Some(vao_name));
     drop(m);
+    p._vbinds.retain(|b| b.0 != i);
+    p._vbinds.push((i, name, o));
     p._vertex_ready = true;
 }
 
@@ -620,9 +628,45 @@ pub(crate) fn exec_set_blend(p: &mut RenderPass<'_>, c: Color) {
     state_inner::set_blend_constant(&mut m, c);
 }
 
+/// first_instance 模拟芯（GLES/WebGL2 无 base_instance，同上游 gles 属性偏移路数）：
+/// Instance 步进属性按记录基线偏移+base*stride 重下；Vertex 步进槽不动。
+/// 无 uniform/index 通道（登记差异：`@builtin(instance_index)` 保持 0 基，不含 base；
+/// 属性数据定位与上游等价）。只在 base 变化时由 draw 路调用。
+unsafe fn fi_rebind(
+    gl: &glow::Context,
+    vbinds: &[(u32, crate::objects::GlHandle, u64)],
+    layouts: &[VertexLayout],
+    base: u32,
+) {
+    for (slot, bname, o) in vbinds.iter() {
+        let Some(lay) = layouts.get(*slot as usize) else { continue };
+        if !matches!(lay.step_mode, crate::types::VertexStepMode::Instance) {
+            continue;
+        }
+        gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(bname.0)));
+        let shift = (base as i64) * (lay.array_stride as i64);
+        for a in lay.attributes.iter() {
+            let (n, ty, norm, integer) = vtx_fmt(a.format);
+            let off = (*o as i64 + a.offset as i64 + shift) as i32;
+            if integer {
+                gl.vertex_attrib_pointer_i32(a.shader_location, n, ty, lay.array_stride as i32, off);
+            } else {
+                gl.vertex_attrib_pointer_f32(
+                    a.shader_location,
+                    n,
+                    ty,
+                    norm,
+                    lay.array_stride as i32,
+                    off,
+                );
+            }
+        }
+    }
+}
+
 // 设计预期（形照 25.0.2 Range 双参）：绑定完备缺一=断言零副作用；
-// 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异），instance 区间起点须 0
-// （WebGL2 无 base_instance；上游恒传 0..N）；实例数 1 走非实例化快路。
+// instance Range 起点=first_instance 语义（属性偏移模拟见 fi_rebind；instance_index
+// 保持 0 基=登记差异）；实例数 1 且 base=0 走非实例化快路。
 // 完备→立即发出数组绘制（first=start，count=end-start）。
 pub(crate) fn exec_draw(
     p: &mut RenderPass<'_>,
@@ -634,12 +678,15 @@ pub(crate) fn exec_draw(
         v.end >= v.start && ins.end >= ins.start,
         "draw str-assert: 区间倒置（instances={ins:?} vertices={v:?}）"
     );
-    assert!(
-        ins.start == 0,
-        "draw str-assert: instance 区间起点须 0（WebGL2 无 base_instance；instances={ins:?}）"
-    );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
+    let base = ins.start;
+    let need = base != p._fi_base;
+    if need {
+        p._fi_base = base;
+    }
+    let vbinds: Vec<(u32, crate::objects::GlHandle, u64)> = if need { p._vbinds.clone() } else { Vec::new() };
+    let layouts: Vec<VertexLayout> = if need { p._vertex.clone() } else { Vec::new() };
     let mode = topo(p._topology);
     let count = (v.end - v.start) as i32;
     let icount = (ins.end - ins.start) as i32;
@@ -647,7 +694,7 @@ pub(crate) fn exec_draw(
     // 他线程无法插进两者之间改绑（多线程编码共驱动上下文的必需原子面）。
     let mut m = lock_state(p);
     crate::crash_diag::op(&format!(
-        "draw_arrays mode={mode:#x} first={} count={count} instances={icount} vao={:?} prog={:?}",
+        "draw_arrays mode={mode:#x} first={} count={count} base={base} instances={icount} vao={:?} prog={:?}",
         v.start,
         p._vao,
         m.program
@@ -657,7 +704,10 @@ pub(crate) fn exec_draw(
     with_gl(|gl| unsafe {
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        if icount == 1 {
+        if need {
+            fi_rebind(gl, &vbinds, &layouts, base);
+        }
+        if icount == 1 && base == 0 {
             gl.draw_arrays(mode, v.start as i32, count);
         } else {
             gl.draw_arrays_instanced(mode, v.start as i32, count, icount);
@@ -665,8 +715,8 @@ pub(crate) fn exec_draw(
     });
 }
 
-// 设计预期（形照 25.0.2 三参 Range 形）：base≠0=断言；instance 区间起点须 0（WebGL2 无 base_instance）；
-// 实例化=ES3.0/WebGL2 与桌面核心共有能力（无平台差异）；绘制区间须落在绑定片段 [start,end) 内
+// 设计预期（形照 25.0.2 三参 Range 形）：base_vertex≠0=断言（上游 gles 同不模拟）；
+// instance 区间=属性偏移模拟（fi_rebind）；绘制区间须落在绑定片段 [start,end) 内
 // （越界=断言，取代旧绑定期 c-count 校验——口径随形改为 draw 期）；通过→立即发元素绘制。
 pub(crate) fn exec_draw_idx(
     p: &mut RenderPass<'_>,
@@ -680,10 +730,6 @@ pub(crate) fn exec_draw_idx(
         ix.end >= ix.start && ins.end >= ins.start,
         "draw str-assert: 区间倒置（instances={ins:?} indices={ix:?}）"
     );
-    assert!(
-        ins.start == 0,
-        "draw str-assert: instance 区间起点须 0（WebGL2 无 base_instance；instances={ins:?}）"
-    );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
     assert!(p._index_ready, "draw str-assert: 索引未绑");
@@ -696,20 +742,30 @@ pub(crate) fn exec_draw_idx(
         en
     );
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
+    let base = ins.start;
+    let need = base != p._fi_base;
+    if need {
+        p._fi_base = base;
+    }
+    let vbinds: Vec<(u32, crate::objects::GlHandle, u64)> = if need { p._vbinds.clone() } else { Vec::new() };
+    let layouts: Vec<VertexLayout> = if need { p._vertex.clone() } else { Vec::new() };
     let mode = topo(p._topology);
     let off = st + (ix.start as u64) * w;
     let count = (ix.end - ix.start) as i32;
     let icount = (ins.end - ins.start) as i32;
     let mut m = lock_state(p);
     crate::crash_diag::op(&format!(
-        "draw_elements mode={mode:#x} count={count} off={off} instances={icount} vao={:?} prog={:?}",
+        "draw_elements mode={mode:#x} count={count} off={off} base={base} instances={icount} vao={:?} prog={:?}",
         p._vao, m.program
     ));
     crate::state_inner::check_fbo("draw_idx", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        if icount == 1 {
+        if need {
+            fi_rebind(gl, &vbinds, &layouts, base);
+        }
+        if icount == 1 && base == 0 {
             gl.draw_elements(mode, count, idx_type(f), off as i32)
         } else {
             gl.draw_elements_instanced(mode, count, idx_type(f), off as i32, icount)
@@ -1217,6 +1273,8 @@ pub(crate) fn begin_impl<'p>(
         _hold_depth: None,
         _resolve: None,
         _replay: false,
+        _vbinds: Vec::new(),
+        _fi_base: 0,
     }
 }
 

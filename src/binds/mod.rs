@@ -82,13 +82,22 @@ pub(crate) fn consume_dynamic_offsets(group: &BindGroup, offsets: &mut &[Dynamic
     crate::binds_inner::consume_impl(group, offsets)
 }
 
+/// glow location 投影的显式搬运载体：投影类型随外部供给形态而变（本地新形=整型/句柄包装，外部旧形
+/// =裸指针结构，trait 界不保证 auto 特质）；手工 Send/Sync 的正当性=**全库唯一 GL 入口 + Web 争用面
+/// 编译期退化**合同（attach 使用序）下，location 只随镜像表搬运、从不跨线程触驱动——值语义本身绑
+/// (context, program)，搬运非 GL 操作。比较转发内层投影（两面同形语义）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PubLoc(pub(crate) glow::UniformLocation);
+unsafe impl Send for PubLoc {}
+unsafe impl Sync for PubLoc {}
+
 /// 采样入口指位对（设计：sampler-unit-assign）：驱动侧 uniform 位置 × 该入口要读的 GL 纹理单元。
 /// 不变量：位置=定格期 get_uniform_location 实得句柄（查位失败不入表）；`unit < BIND_SLOTS`。
 /// 空表是合法态（无采样入口的管线），不代表未初始化。 @internal
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SamplerUniform {
-    /// 驱动侧 uniform 位置句柄（指位表定格期查得；两面同形 glow::UniformLocation）。
-    pub(crate) location: glow::UniformLocation,
+    /// 驱动侧 uniform 位置句柄（指位表定格期查得；经 PubLoc 载体免疫外部 glow 供给形态）。
+    pub(crate) location: PubLoc,
     /// 该采样入口要读的纹理单元号。
     pub(crate) unit: u32,
 }

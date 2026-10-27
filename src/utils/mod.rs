@@ -25,6 +25,18 @@ pub trait DeviceExt {
         order: TextureDataOrder,
         data: &[u8],
     ) -> Texture;
+    /// 压缩纹里 js 段直建（Web 专面）：create_texture（压缩表门/块级校验在内）→ 段序=order 语义
+    /// （MipMajor 每 mip 逐层；LayerMajor 反向）→ 每段 ArrayBufferView 零拷贝直灌 jsobj 路。
+    /// 段形违约=log::error!(UploadErr) 跳段不谎报；非压缩条目误用本面=创建期已按表拒/写段留痕。
+    /// 委托实体见本 trait 于 Device 的 impl 头。 @public
+    #[cfg(target_arch = "wasm32")]
+    fn create_compress_texture_with_data_jsdata(
+        &self,
+        queue: &Queue,
+        desc: &TextureDescriptor<'_>,
+        order: TextureDataOrder,
+        data: &[js_sys::Object],
+    ) -> Texture;
 }
 impl DeviceExt for Device {
     fn create_buffer_init(&self, desc: &BufferInitDescriptor<'_>) -> Buffer {
@@ -38,6 +50,16 @@ impl DeviceExt for Device {
         data: &[u8],
     ) -> Texture {
         crate::utils_inner::tex_init_impl(self, queue, desc, order, data)
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn create_compress_texture_with_data_jsdata(
+        &self,
+        queue: &Queue,
+        desc: &TextureDescriptor<'_>,
+        order: TextureDataOrder,
+        data: &[js_sys::Object],
+    ) -> Texture {
+        crate::utils_inner::compress_jsdata_impl(self, queue, desc, order, data)
     }
 }
 /// 环境读面：本库恒 GL——恒返回 Some(Backends::GL)；官方 WGPU_BACKEND 变量在此不生效（登记为差异面）。 @public

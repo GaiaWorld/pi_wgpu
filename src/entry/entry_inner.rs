@@ -11,7 +11,8 @@ use crate::shader::{self, CompiledEs300};
 use crate::state::StateMirror;
 use crate::types::*;
 use glow::HasContext;
-use pi_share::{Share, ShareMutex};
+use pi_share::Share;
+use std::sync::Mutex as ShareMutex;
 
 /// GL 纹理目标常量（GL_* 名面未导出故内联规范值）。
 const GL_TEXTURE_2D: u32 = 0x0DE1;
@@ -19,6 +20,9 @@ const GL_TEXTURE_3D: u32 = 0x806F;
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
 const GL_TEXTURE_CUBE_MAP: u32 = 0x8513;
 const GL_TEXTURE_CUBE_MAP_ARRAY: u32 = 0x9009;
+
+/// GL_TEXTURE0 基址。
+const GL_TEXTURE0_BASE: u32 = 0x84C0;
 /// get_parameter_string 名：供应商/渲染器/版本。
 const GL_VENDOR: u32 = 0x1F00;
 const GL_RENDERER: u32 = 0x1F01;
@@ -42,6 +46,10 @@ const GL_TEXTURE_WRAP_T: u32 = 0x2803;
 const GL_TEXTURE_COMPARE_MODE: u32 = 0x884C;
 const GL_TEXTURE_COMPARE_FUNC: u32 = 0x884D;
 const GL_COMPARE_REF_TO_TEXTURE: i32 = 0x884E;
+/// GL_ARRAY_BUFFER 目标。
+const GL_ARRAY_BUFFER: u32 = 0x8892;
+/// GL_ELEMENT_ARRAY_BUFFER 目标。
+const GL_ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
 /// GL_COPY_WRITE_BUFFER（通用子写/分配目标；与 upload 芯同源）。
 // COPY_WRITE_BUFFER is 0x8F37 (0x8F3F belongs to the copy-buffer binding group).
 const GL_COPY_WRITE_BUFFER: u32 = 0x8F37;
@@ -146,6 +154,14 @@ pub(crate) fn create_surface_impl<'s>(
 ) -> std::result::Result<crate::surface::Surface<'s>, CreateSurfaceError> {
     #[cfg(not(target_arch = "wasm32"))]
     let ok = matches!(t, crate::surface::SurfaceTarget::Window(_));
+    
+    
+    #[cfg(target_arch = "wasm32")]
+    match t {
+        crate::surface::SurfaceTarget::Window(_) => { log::error!("Window"); },
+        crate::surface::SurfaceTarget::Canvas(_) => { log::error!("Canvas"); },
+        crate::surface::SurfaceTarget::OffscreenCanvas(_) => { log::error!("OffscreenCanvas"); },
+    }
     #[cfg(target_arch = "wasm32")]
     let ok = matches!(
         t,
@@ -353,10 +369,25 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
     let h = crate::objects_inner::create_direct(DirectKind::Buffer);
     let name = h.name().expect("entry 断言: 新缓冲无名");
     // 分配驱动侧存储（glBufferData 等价）——write_buffer 只发子写入，无存储则子写失败、缓冲为空；
-    // 届时顶点读取越界取数（实测在本机 NVIDIA 驱动侧直接崩）。目标用通用 COPY_WRITE_BUFFER（与 upload 芯同源）。
+    // 届时顶点读取越界取数（实测在本机 NVIDIA 驱动侧直接崩）。分配目标按用途走 ARRAY/ELEMENT：
+    // WebGL bindBuffer 合同——曾绑任何非 ELEMENT 目标（COPY_WRITE 也算）的缓冲永不可再作 ELEMENT
+    // 绑定（ANGLE 按 spec 实装，2026-10-27 产品实锤：索引缓冲经 COPY 分配→set_index 恒拒→
+    // drawElements 无 element）；桌面同样合法，双轨统一形。读写两侧同判据见 upload 芯。
+    let alloc_target: u32 = if b.usage.contains(crate::types::BufferUsages::INDEX) {
+        GL_ELEMENT_ARRAY_BUFFER
+    } else {
+        GL_ARRAY_BUFFER
+    };
+    #[cfg(target_arch = "wasm32")]
+    assert!(
+        !(b.usage.contains(crate::types::BufferUsages::INDEX)
+            && b.usage.contains(crate::types::BufferUsages::VERTEX)),
+        "entry 断言: WebGL 无 vertex/index 双用缓冲（label={:?}）",
+        b.label
+    );
     crate::context_inner::with_gl(|gl| unsafe {
-        gl.bind_buffer(GL_COPY_WRITE_BUFFER, Some(crate::gid::buffer_from(name.0)));
-        gl.buffer_data_size(GL_COPY_WRITE_BUFFER, b.size as i32, GL_DYNAMIC_DRAW);
+        gl.bind_buffer(alloc_target, Some(crate::gid::buffer_from(name.0)));
+        gl.buffer_data_size(alloc_target, b.size as i32, GL_DYNAMIC_DRAW);
     });
     Buffer {
         _h: h,
@@ -422,7 +453,18 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         "create_texture target={target:#x} {}x{} layers={layers} mips={} fmt={:?} ifmt={:#x} samples={}",
         t.size.width, t.size.height, t.mip_level_count, t.format, params.internal_format, t.sample_count
     ));
+    // 存储构建落域外专槽（UPLOAD_TEX_UNIT=16，业务槽 0..15 的水位不跟它）：旧版在
+    // 当前 active 业务单元上直绑 + 整表刷洗 16 槽水位=每帧多槽 bindTexture null 风暴之源
+    // （2026-10-27 产品 trace 实锤）。
+    let keep_active: u32 = d
+        ._inner
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active_texture_unit
+        .unwrap_or(0);
     crate::context_inner::with_gl(|gl| unsafe {
+        gl.active_texture(GL_TEXTURE0_BASE + crate::upload_inner::UPLOAD_TEX_UNIT);
         // 存储新鲜度：先清可能遗留的前序操作错误（如上传 RowPitch 非对齐），
         // 防粘进本纹理错误探测造成假「存储被拒」误诊。
         let mut stale_codes: Vec<u32> = Vec::new();
@@ -553,12 +595,8 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
                 }
             }
         }
+        gl.active_texture(GL_TEXTURE0_BASE + keep_active);
     });
-    // 旁路：建后直绑当前 active 单元（tex_storage 需绑定态）——失效纹理槽水位，令下次 flush 重发镜像期望复位。
-    {
-        let mut st = d._inner.state.lock().unwrap_or_else(|e| e.into_inner());
-        crate::state_inner::invalidate_texture_water(&mut st);
-    }
     Texture {
         _h: h,
         params,
@@ -1218,7 +1256,7 @@ fn collect_sampler_uniforms(
             };
 
             out.push(crate::binds::SamplerUniform {
-                location: loc,
+                location: crate::binds::PubLoc(loc),
                 unit,
             });
         }

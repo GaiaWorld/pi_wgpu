@@ -5,7 +5,7 @@
 
 use glow::HasContext;
 
-use crate::caps_inner::{latest_caps, CAP_FLOAT_RENDER, CAP_RENDER_HALF};
+use crate::caps_inner::{latest_caps, CAP_ASTC_LDR, CAP_ETC2, CAP_FLOAT_RENDER, CAP_RENDER_HALF, CAP_S3TC};
 use crate::context_inner::with_gl;
 use crate::formats::GlParams;
 use crate::types::{Extent3d, TextureDescriptor, TextureFormat};
@@ -72,6 +72,24 @@ const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
 /// GL_TEXTURE_2D_ARRAY：多层 2D 数组目标（0x8C1A）。
 const GL_TEXTURE_2D_ARRAY: u32 = 0x8C1A;
+/// GL_COMPRESSED_RGB8_ETC2（0x9274；ES3.0 核心=WebGL2 核心，桌面 4.3/扩展，probe 位确证）。
+const GL_C_RGB8_ETC2: u32 = 0x9274;
+/// GL_COMPRESSED_SRGB8_ETC2（0x9275）。
+const GL_C_SRGB8_ETC2: u32 = 0x9275;
+/// GL_COMPRESSED_RGBA8_ETC2_EAC（0x9278）。
+const GL_C_RGBA8_ETC2_EAC: u32 = 0x9278;
+/// GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC（0x9279）。
+const GL_C_SRGB8_A8_ETC2_EAC: u32 = 0x9279;
+/// DXT/S3TC 系内部格式（桌面=GLES 核心无、须扩展确证；Web=ANGLE 常供 `WEBGL_compressed_texture_s3tc`）。
+/// caps probe 以扩展名单为唯一放行源（无确证=formats 门断言拒）。
+const GL_C_RGBA_S3TC_DXT1: u32 = 0x83F1;
+/// DXT3（0x83F2）。
+const GL_C_RGBA_S3TC_DXT3: u32 = 0x83F2;
+/// DXT5（0x83F3）。
+const GL_C_RGBA_S3TC_DXT5: u32 = 0x83F3;
+/// ASTC UNORM 起点（0x93B0；块序号沿 KHR 枚举连排）；SRGB 组=+0x40（0x93F0）。
+const ASTC_BASE_UNORM: u32 = 0x93B0;
+const ASTC_SRGB_OFF: u32 = 0x40;
 
 /// 格式转换表：词汇→驱动参数组单一转换点。词汇全表 75 项在场（desc-align 后续批），本表当前
 /// 收录已接 GL 映射的 15 项——表无条目（压缩族与未接非色族）=params_impl 断言拒止（形宽法窄）。
@@ -190,9 +208,100 @@ fn table_entry(f: TextureFormat) -> Option<GlParams> {
             block: (1, 1),
             block_bytes: 8,
         },
+        // —— 压缩族（直载开放批）：block≠(1,1)=压缩合同（写路据此切 compressedTex 支）；
+        // 压缩条目 format/pixel_type 槽恒 0——compressedTexSubImage 无 unpack 词汇位。 ——
+        TextureFormat::Bc1RgbaUnorm => GlParams {
+            internal_format: GL_C_RGBA_S3TC_DXT1,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 8,
+        },
+        TextureFormat::Bc2RgbaUnorm => GlParams {
+            internal_format: GL_C_RGBA_S3TC_DXT3,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 16,
+        },
+        TextureFormat::Bc3RgbaUnorm => GlParams {
+            internal_format: GL_C_RGBA_S3TC_DXT5,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 16,
+        },
+        TextureFormat::Etc2Rgb8Unorm => GlParams {
+            internal_format: GL_C_RGB8_ETC2,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 8,
+        },
+        TextureFormat::Etc2Rgb8UnormSrgb => GlParams {
+            internal_format: GL_C_SRGB8_ETC2,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 8,
+        },
+        TextureFormat::Etc2Rgba8Unorm => GlParams {
+            internal_format: GL_C_RGBA8_ETC2_EAC,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 16,
+        },
+        TextureFormat::Etc2Rgba8UnormSrgb => GlParams {
+            internal_format: GL_C_SRGB8_A8_ETC2_EAC,
+            format: 0,
+            pixel_type: 0,
+            block: (4, 4),
+            block_bytes: 16,
+        },
+        TextureFormat::Astc { block, channel } => match astc_params(block, channel) {
+            Some(p) => p,
+            None => return None,
+        },
         _ => return None,
     };
     Some(p)
+}
+
+/// ASTC 块维→(宽,高,内部格式序号)；序号按 KHR 枚举连排+SRGB 组偏移。premul 通道词汇域
+/// 无 GL 对应组合（登记表外）——拒归 None 走上游断言，绝不近似替代。
+fn astc_params(block: crate::types::AstcBlock, channel: crate::types::AstcChannel) -> Option<GlParams> {
+    use crate::types::{AstcBlock, AstcChannel};
+    let (bw, bh, idx): (u32, u32, u32) = match block {
+        AstcBlock::B4x4 => (4, 4, 0),
+        AstcBlock::B5x4 => (5, 4, 1),
+        AstcBlock::B5x5 => (5, 5, 2),
+        AstcBlock::B6x5 => (6, 5, 3),
+        AstcBlock::B6x6 => (6, 6, 4),
+        AstcBlock::B8x5 => (8, 5, 5),
+        AstcBlock::B8x6 => (8, 6, 6),
+        AstcBlock::B8x8 => (8, 8, 7),
+        AstcBlock::B10x5 => (10, 5, 8),
+        AstcBlock::B10x6 => (10, 6, 9),
+        AstcBlock::B10x8 => (10, 8, 10),
+        AstcBlock::B10x10 => (10, 10, 11),
+        AstcBlock::B12x10 => (12, 10, 12),
+        AstcBlock::B12x12 => (12, 12, 13),
+    };
+    let base: u32 = match channel {
+        AstcChannel::Unorm => ASTC_BASE_UNORM,
+        AstcChannel::UnormSrgb => ASTC_BASE_UNORM + ASTC_SRGB_OFF,
+        // Hdr=ASTC66 浮点域（0x9390 段）：ES/WebGL2 无核心确证，词汇暂表外（登记面）。
+        // 词汇穷尽（本 types 形仅三通道）——不写 `_` 兜底，防新变体静默吞。
+        AstcChannel::Hdr => return None,
+    };
+    Some(GlParams {
+        internal_format: base + idx,
+        format: 0,
+        pixel_type: 0,
+        block: (bw, bh),
+        block_bytes: 16,
+    })
 }
 
 // 1. 查格式转换表取条目 → 用 caps 最近快照门控（浮点渲染按探测位、形态拒组合缺口）。
@@ -244,9 +353,45 @@ pub(crate) fn params_impl(desc: &TextureDescriptor<'_>, f: TextureFormat) -> GlP
                 );
             }
         }
+        f if f_bc(f) => {
+            // BC 域门（订正）：GLES 核心无 S3TC，但 Web 走 WEBGL_compressed_texture_s3tc、
+            // 桌面走 EXT/ANGLE 扩展——统一按 probe 的 CAP_S3TC 扩展确证放行，不按形态恒拒。
+            if caps.family & CAP_S3TC == 0 {
+                panic!("formats 断言: 无 S3TC 探得确证，拒 {f:?}（label={:?}）", desc.label);
+            }
+        }
+        f if f_etc2(f) => {
+            if caps.family & CAP_ETC2 == 0 {
+                panic!("formats 断言: 无 ETC2/EAC 探得确证，拒 {f:?}（label={:?}）", desc.label);
+            }
+        }
+        f if f_astc(f) => {
+            if caps.family & CAP_ASTC_LDR == 0 {
+                panic!("formats 断言: 无 ASTC LDR 探得确证，拒 {f:?}（label={:?}）", desc.label);
+            }
+        }
         _ => {}
     }
     p
+}
+
+/// BC 词汇族判定（域门用；单一数据源=match 列表）。
+fn f_bc(f: TextureFormat) -> bool {
+    matches!(f, TextureFormat::Bc1RgbaUnorm | TextureFormat::Bc2RgbaUnorm | TextureFormat::Bc3RgbaUnorm)
+}
+/// ETC2/EAC 词汇族判定。
+fn f_etc2(f: TextureFormat) -> bool {
+    matches!(
+        f,
+        TextureFormat::Etc2Rgb8Unorm
+            | TextureFormat::Etc2Rgb8UnormSrgb
+            | TextureFormat::Etc2Rgba8Unorm
+            | TextureFormat::Etc2Rgba8UnormSrgb
+    )
+}
+/// ASTC 词汇族判定（含未映射组合——门先于表判拒因，premul 由表 None 断言兜底）。
+fn f_astc(f: TextureFormat) -> bool {
+    matches!(f, TextureFormat::Astc { .. })
 }
 
 // 1. 上传完备后整链一次生成：在当前附着+已绑定目标纹理上执行 generate（调用方=upload 写路径在整链上传完成后接线）。
@@ -385,7 +530,10 @@ mod tests {
         inject_latest(0, (4, 5), false);
         let d = desc("ut");
         for f in [
-            TextureFormat::Bc1RgbaUnorm,
+            TextureFormat::Astc {
+                block: crate::types::AstcBlock::B4x4,
+                channel: crate::types::AstcChannel::Hdr,
+            },
             TextureFormat::R8Snorm,
             TextureFormat::Rgba16Unorm,
         ] {
@@ -394,6 +542,72 @@ mod tests {
                 "{f:?} 表无条目应拒"
             );
         }
+    }
+
+    /// 压缩族表值（无 caps 触点=零快照竞）：ASTC/ETC2/BC 内部格式对规范值；premul/Hdr 域表外。
+    #[test]
+    fn compressed_table_values_test() {
+        use crate::types::{AstcBlock, AstcChannel};
+        let astc = TextureFormat::Astc {
+            block: AstcBlock::B4x4,
+            channel: AstcChannel::Unorm,
+        };
+        let p = table_entry(astc).expect("ASTC 4x4 在表");
+        assert_eq!(p.internal_format, 0x93b0);
+        assert_eq!(p.block, (4, 4));
+        assert_eq!(p.block_bytes, 16);
+        let astc_s = TextureFormat::Astc {
+            block: AstcBlock::B10x5,
+            channel: AstcChannel::UnormSrgb,
+        };
+        assert_eq!(table_entry(astc_s).unwrap().internal_format, 0x93b0 + 0x40 + 8);
+        assert_eq!(
+            table_entry(TextureFormat::Etc2Rgba8Unorm).unwrap().internal_format,
+            0x9278
+        );
+        assert_eq!(table_entry(TextureFormat::Bc3RgbaUnorm).unwrap().internal_format, 0x83f3);
+        assert_eq!(table_entry(astc_s).unwrap().block, (10, 5));
+    }
+
+    /// 门·单段（桌面全位）：BC/ETC2/ASTC 有探得位全放行。
+    #[test]
+    fn compressed_gate_desktop_allow_test() {
+        use crate::types::{AstcBlock, AstcChannel};
+        inject_latest(CAP_S3TC | CAP_ETC2 | CAP_ASTC_LDR, (4, 5), false);
+        let d = desc("cmp-desk");
+        let _ = params_impl(&d, TextureFormat::Bc1RgbaUnorm);
+        let _ = params_impl(&d, TextureFormat::Etc2Rgba8UnormSrgb);
+        let _ = params_impl(
+            &d,
+            TextureFormat::Astc {
+                block: AstcBlock::B8x8,
+                channel: AstcChannel::Unorm,
+            },
+        );
+    }
+
+    /// 门·单段（ES 无 DXT）：BC 域拒断言，ETC2 放行（两断言同一快照短窗）。
+    #[test]
+    fn compressed_gate_es_bc_reject_test() {
+        inject_latest(CAP_ETC2 | CAP_ASTC_LDR, (3, 2), true);
+        let d = desc("cmp-es");
+        let _ = params_impl(&d, TextureFormat::Etc2Rgb8Unorm);
+        assert!(std::panic::catch_unwind(|| params_impl(&d, TextureFormat::Bc1RgbaUnorm)).is_err(), "ES 无 DXT");
+    }
+
+    /// 门·单段（未探 ASTC 位=拒）：不谎报合同。
+    #[test]
+    fn compressed_gate_no_astc_reject_test() {
+        use crate::types::{AstcBlock, AstcChannel};
+        inject_latest(CAP_ETC2, (4, 5), false);
+        assert!(std::panic::catch_unwind(|| params_impl(
+            &desc("cmp-noastc"),
+            TextureFormat::Astc {
+                block: AstcBlock::B4x4,
+                channel: AstcChannel::Unorm,
+            },
+        ))
+        .is_err());
     }
 
     /// 门控：桌面对全部有目条目放行；GLES 拒 D24S8 与 sRGB×BGRA 组合（断言消息含 label 与格式名）。

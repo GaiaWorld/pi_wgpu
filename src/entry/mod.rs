@@ -3,7 +3,10 @@
 //! 契约的权威文本住本面注释。失败封闭原则：除三个显式 Result 面（request_device / create_surface /
 //! get_current_texture）外，一切操作要么不失败、要么以断言失败——描述符违约在创建边界一次校验。
 use crate::draw::RenderPass;
-use pi_share::{Share, ShareMutex};
+// 锁形钉死 std：本仓 poison 惯用法全库一致，且免疫 pi_share 形态切换（single_thread=LockCell
+// 在 workspace feature 统一时经依赖传染——其 borrow_mut 为 panic 形，与本仓「降级继续」合同不符）。
+use pi_share::Share;
+type ShareMutex<T> = std::sync::Mutex<T>;
 
 /// request_device 的失败信号（封闭类型）：请求的能力/上限超出适配器快照。
 /// 失败后设备未建，同一 Adapter 不受影响、可反复重试。 @public
@@ -141,6 +144,12 @@ impl Buffer {
             size: None,
         }
     }
+    /// 整段缓冲的绑定资源视图（形=上游 as_entire_binding：包装 as_entire_buffer_binding）。 @public
+    #[inline]
+    pub fn as_entire_binding(&self) -> crate::types::BindingResource<'_> {
+        crate::types::BindingResource::Buffer(self.as_entire_buffer_binding())
+    }
+
     /// 创建期用途位集（上游同形）。 @public
     pub fn usage(&self) -> crate::types::BufferUsages {
         self._usage

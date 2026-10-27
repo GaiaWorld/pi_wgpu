@@ -41,6 +41,10 @@ pub struct RenderPass<'pass> {
     /// 当前管线布局的槽分配（set_pipeline 时从管线拷入）：查槽必须与所用管线同源——
     /// 设备级槽表会被后来建的任何管线整体覆盖，唯有管线自带那份与该管线出码一致。
     pub(crate) _slots: crate::binds::SlotTable,
+    /// 已绑顶点槽记录（槽号, 缓冲名, 描述符基偏移）：first_instance 模拟重下 Instance 属性的基线。
+    pub(crate) _vbinds: Vec<(u32, crate::objects::GlHandle, u64)>,
+    /// 当前实例属性已生效的 base：与下次 draw 的 ins.start 不同才重下（含归 0）。
+    pub(crate) _fi_base: u32,
 }
 /// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
 #[derive(Debug, Clone)]
