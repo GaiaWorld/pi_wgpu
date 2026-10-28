@@ -52,6 +52,24 @@ fn count_active(key: ReuseKey) -> bool {
     matches!(t.get(&key), Some(v) if *v > 0)
 }
 
+/// 显式淘汰 VAO 复用行（组合缓存 LRU 回收）：移表行、物理删、清计数条目。
+pub(crate) fn evict_vao_impl(cache: &mut HandleCache, key: u64) {
+    let k = ReuseKey::Vao(key);
+    if let Some(row) = cache.map.remove(&k) {
+        for item in row {
+            if let Some(name) = item.handle {
+                with_gl(|gl| unsafe {
+                    gl.delete_vertex_array(crate::gid::vao_from(name.0));
+                });
+            }
+        }
+    }
+    REFCOUNTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&k);
+}
+
 /// 减计数并返回新值；已为零或无键=断言（引用与获取必须严格成对——成对合同被破=调用方违约）。
 fn drop_count(key: ReuseKey) -> u32 {
     let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -119,7 +137,10 @@ fn delete_by_key(key: ReuseKey, name: GlHandle) {
         unsafe {
             match key {
                 ReuseKey::Program(_) => gl.delete_program(crate::gid::program_from(name.0)),
-                ReuseKey::Vao(_) => gl.delete_vertex_array(crate::gid::vao_from(name.0)),
+                ReuseKey::Vao(_) => {
+                    crate::draw_inner::combo_forget();
+                    gl.delete_vertex_array(crate::gid::vao_from(name.0))
+                }
                 ReuseKey::Fbo(h) => {
                     crate::draw_inner::row_att_drop_fbo(h);
                     gl.delete_framebuffer(crate::gid::framebuffer_from(name.0))
@@ -162,7 +183,7 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
             // Fbo 域驻留（2026-10-28）：计数归零不再物理删（release 侧豁免）——有名行直接沿用，
             // 跨帧同形状=同对象同附着；重建 genGl 仅无名/世代失效行。
             let fresh = match (key, item.handle) {
-                (ReuseKey::Fbo(_), Some(existing)) => existing,
+                (ReuseKey::Fbo(_) | ReuseKey::Vao(_), Some(existing)) => existing,
                 _ => {
                     let g = gen_by_key(key);
                     item.handle = Some(g);
@@ -201,7 +222,7 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
 pub(crate) fn release_reuse_impl(item: &Reusable) {
     let _op = CACHE_OP.lock().unwrap_or_else(|e| e.into_inner());
     let left = drop_count(item.key);
-    if left == 0 && !matches!(item.key, ReuseKey::Fbo(_)) {
+    if left == 0 && !matches!(item.key, ReuseKey::Fbo(_) | ReuseKey::Vao(_)) {
         if let Some(name) = item.handle {
             delete_by_key(item.key, name);
         }
@@ -259,6 +280,7 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
     t.clear();
     drop(t);
     crate::draw_inner::row_att_forget();
+    crate::draw_inner::combo_forget();
     crate::state_inner::clear_removed();
     crate::state_inner::reset_all(s);
 }

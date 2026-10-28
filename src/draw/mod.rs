@@ -25,6 +25,8 @@ pub struct RenderPass<'pass> {
     pub(crate) _index_format: Option<crate::types::IndexFormat>,
     /// 索引有效字节区间 [start,end)（set_index_buffer 记入；draw_indexed 范围校验+偏移用）。
     pub(crate) _index_range: (u64, u64),
+    /// 索引缓冲句柄（组合 VAO 落位时写进该 VAO；None=未设）。
+    pub(crate) _index_ibo: Option<crate::objects::GlHandle>,
     /// 当前管线 VAO 名（管线级复用对象；由 set_pipeline 提供，通道不持有其生命周期）。
     pub(crate) _vao: Option<crate::objects::GlHandle>,
     /// 离屏附件 FBO 复用持行（begin 计数、end 交还；None=默认帧缓冲通道）。
@@ -43,8 +45,6 @@ pub struct RenderPass<'pass> {
     pub(crate) _slots: crate::binds::SlotTable,
     /// 已绑顶点槽记录（槽号, 缓冲名, 描述符基偏移）：first_instance 模拟重下 Instance 属性的基线。
     pub(crate) _vbinds: Vec<(u32, crate::objects::GlHandle, u64)>,
-    /// 当前实例属性已生效的 base：与下次 draw 的 ins.start 不同才重下（含归 0）。
-    pub(crate) _fi_base: u32,
 }
 /// 顶点缓冲布局（拥有版）：创建期从描述符拷入；draw 配属性消费。 @internal
 #[derive(Debug, Clone)]

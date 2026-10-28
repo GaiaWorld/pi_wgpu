@@ -15,14 +15,6 @@ pub(crate) const BIND_SLOTS: usize = 24;
 pub(crate) struct StateMirror {
     /// 程序组：当前 useProgram 名（None=从未设）。
     pub(crate) program: Option<GlHandle>,
-    /// 属性水位（按顶点槽记 (VAO名, 缓冲名, 槽偏移)）：三者全等 ⇒ 驱动属性态已是该布局，
-    /// set_vertex 重放路跳过全量重发；fi_rebind 的 base 移位同步存移位值。16=顶点槽上限。
-    pub(crate) attr_keys: [Option<(u64, u64, u64)>; 16],
-    /// 属性 enable 位独立水位（按 attribute location 记已使能的 VAO 名）：缓冲切片重放
-    /// （key 失配必重下 pointer）时 enable 免随段重复——使能住在 VAO 里，同 VAO 重发纯冗余。
-    pub(crate) attr_en: [Option<u64>; 16],
-    /// 属性 divisor 独立水位：同 enable 语义，记 (VAO名, divisor 值)。
-    pub(crate) attr_div: [Option<(u64, u32)>; 16],
     /// 属性组：当前 VAO 绑定名（顶点属性与 ELEMENT_ARRAY 均被 VAO 吸收，不再单记）。
     pub(crate) vao: Option<GlHandle>,
     /// 目标组：当前 DRAW framebuffer 绑定名（pass begin/end 经本组）。

@@ -109,6 +109,11 @@ pub(crate) fn retain_reuse(item: &Reusable) -> Reusable {
     crate::objects_inner::retain_reuse_impl(item)
 }
 
+/// 显式淘汰 VAO 复用行（组合缓存 LRU 回收；调用方保证该行当前未被使用）。
+pub(crate) fn evict_vao(cache: &mut HandleCache, key: u64) {
+    crate::objects_inner::evict_vao_impl(cache, key)
+}
+
 /// 复用域持有者数只读（RTT 选架占用判据；不含调用方未来计数）。
 pub(crate) fn reuse_holders(key: ReuseKey) -> u32 {
     crate::objects_inner::holders_impl(key)

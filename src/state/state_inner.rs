@@ -925,31 +925,11 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             // 精确清退（2026-10-27 产品 trace 定案）：整面清水位=全组盲强发——useProgram 双发
             // 与贴图重绑全由它来。program/ubo/tex/smp 各组已有逐槽 dead_name 防死名下发，
             // 水位对非死条目仍是有效记录；此处仅按号精退属性/vao 族（objects slot 号复用防撞）。
+            // 属性组合 VAO 的失效随 Vao 物理删除点整清（combo_forget），此处只退当前 VAO 镜像。
             let dead = removed_snapshot();
             if let Some(cur) = m.vao {
                 if dead.iter().any(|(d, n)| *d == 1 && *n == cur.0) {
                     m.vao = None;
-                }
-            }
-            for rec in m.attr_keys.iter_mut() {
-                if let Some((v, b, _)) = *rec {
-                    if dead.iter().any(|(d, n)| (*d == 1 && *n == v) || (*d == 4 && *n == b)) {
-                        *rec = None;
-                    }
-                }
-            }
-            for rec in m.attr_en.iter_mut() {
-                if let Some(v) = *rec {
-                    if dead.iter().any(|(d, n)| *d == 1 && *n == v) {
-                        *rec = None;
-                    }
-                }
-            }
-            for rec in m.attr_div.iter_mut() {
-                if let Some((v, _)) = *rec {
-                    if dead.iter().any(|(d, n)| *d == 1 && *n == v) {
-                        *rec = None;
-                    }
                 }
             }
         }

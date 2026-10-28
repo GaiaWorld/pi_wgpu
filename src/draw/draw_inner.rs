@@ -425,7 +425,7 @@ pub(crate) fn exec_begin_impl<'p>(
         _slots: crate::binds::SlotTable::default(),
         _replay: true,
         _vbinds: Vec::new(),
-        _fi_base: 0,
+        _index_ibo: None,
         _fbo: fbo,
         _hold_color: ctext.cloned(),
         _hold_depth: dtext.cloned(),
@@ -500,6 +500,221 @@ pub(crate) fn exec_set_bind_group(
 
 // 设计预期：句柄活态（形照 25.0.2：入参=BufferSlice，步长由管线布局权威、不再收调用方值——
 // 原「步长与布局不符」比对随形退役；片段边界在 buffer.slice() 构造期已验（entry_inner slice_bounds））。
+// ───────────────── 组合 VAO（顶点属性一次整备、draw 只 bind）─────────────────
+
+/// 组合 VAO 的整备状态。
+struct ComboState {
+    /// 属性指针/enable/divisor 已在本文 VAO 上整备完毕（之后同组合复用零下发）。
+    settled: bool,
+    /// 本文 VAO 当前绑定的 ELEMENT_ARRAY 缓冲名（None=未绑）。
+    elem: Option<u64>,
+    /// 最近使用时刻（LRU 淘汰序）。
+    last: u64,
+    /// 是否草稿（溢出共享 VAO：不参与 LRU、不置整备标记）。
+    scratch: bool,
+}
+
+/// 组合 VAO 状态表：键=布局哈希×按槽号升序的各槽 (槽号,缓冲,偏移+实例 base 移位)。
+static COMBO: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<u64, ComboState>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// 组合缓存上限（WebGL 驱动对 VAO 总量有上限，取保守值；超限按 LRU 真删回收）。
+const COMBO_CAP: usize = 128;
+
+/// 草稿键盐：每布局一具共享 VAO，每次使用都重整备（不做整备标记）。
+const COMBO_SCRATCH_SALT: u64 = 0x5C7A_7C4B_0000_0001;
+
+/// LRU 时刻源。
+static COMBO_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 组合哈希混合子。
+fn combo_mix(acc: u64, v: u64) -> u64 {
+    (acc ^ v).wrapping_mul(0x0100_0000_0000_b711)
+}
+
+/// 组合键与草稿键：布局哈希 + 按槽号升序的各槽 (缓冲名, 偏移 + 实例 base 移位)。
+fn combo_keys(p: &RenderPass<'_>, base: u32) -> (u64, u64) {
+    let lay = layout_hash(&p._vertex);
+    let mut per: [Option<(u64, u64)>; 16] = [None; 16];
+    for (slot, name, o) in p._vbinds.iter() {
+        let s = *slot as usize;
+        if s >= per.len() {
+            continue;
+        }
+        let shift: u64 = match p._vertex.get(s) {
+            Some(l) if matches!(l.step_mode, crate::types::VertexStepMode::Instance) => {
+                base as u64 * l.array_stride as u64
+            }
+            _ => 0,
+        };
+        per[s] = Some((name.0, o.wrapping_add(shift)));
+    }
+    let mut k = lay;
+    for (s, v) in per.iter().enumerate() {
+        if let Some((n, off)) = *v {
+            k = combo_mix(k, s as u64);
+            k = combo_mix(k, n);
+            k = combo_mix(k, off);
+        }
+    }
+    (k, combo_mix(lay, COMBO_SCRATCH_SALT))
+}
+
+/// 超限回收：按 LRU 淘汰非草稿组合（返回被淘汰键，供 GL 侧真删）。
+fn combo_maintain() -> Vec<u64> {
+    let mut t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
+    if t.len() < COMBO_CAP {
+        return Vec::new();
+    }
+    let mut cand: Vec<(u64, u64)> = t
+        .iter()
+        .filter(|(_, s)| !s.scratch)
+        .map(|(k, s)| (*k, s.last))
+        .collect();
+    cand.sort_by_key(|x| x.1);
+    let target = COMBO_CAP * 3 / 4;
+    let mut out: Vec<u64> = Vec::new();
+    for (k, _) in cand {
+        if t.len() <= target {
+            break;
+        }
+        t.remove(&k);
+        out.push(k);
+    }
+    out
+}
+
+/// 取键：已登记=复用；未满=登记新组合；超限=草稿键（返回是否草稿）。
+fn combo_pick(full: u64, scratch: u64) -> (u64, bool) {
+    let tick = COMBO_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(s) = t.get_mut(&full) {
+        s.last = tick;
+        return (full, false);
+    }
+    if t.len() < COMBO_CAP {
+        t.insert(
+            full,
+            ComboState {
+                settled: false,
+                elem: None,
+                last: tick,
+                scratch: false,
+            },
+        );
+        return (full, false);
+    }
+    t.entry(scratch).or_insert(ComboState {
+        settled: false,
+        elem: None,
+        last: tick,
+        scratch: true,
+    });
+    log::error!("draw: 组合 VAO 表满（cap={COMBO_CAP}）转草稿 key={full:#x}");
+    (scratch, true)
+}
+
+/// 取组合 VAO 句柄：Vao 域驻留，ensure/release 成对（行不死、句柄跨帧稳定）。
+fn combo_acquire(p: &RenderPass<'_>, key: u64) -> crate::objects::GlHandle {
+    let item = {
+        let mut cache = p._enc._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
+        crate::objects::ensure_reuse(crate::objects::ReuseKey::Vao(key), &mut cache)
+    };
+    let h = item.handle.expect("draw str-assert: 组合 VAO 无名");
+    crate::objects::release_reuse(&item);
+    h
+}
+
+/// 一次性整备：把各顶点槽的属性指针/enable/divisor 写进当前绑定的 VAO。
+unsafe fn combo_setup(
+    gl: &glow::Context,
+    layouts: &[VertexLayout],
+    vbinds: &[(u32, crate::objects::GlHandle, u64)],
+    base: u32,
+) {
+    for (slot, bname, o) in vbinds.iter() {
+        let Some(lay) = layouts.get(*slot as usize) else {
+            continue;
+        };
+        gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(bname.0)));
+        let inst = matches!(lay.step_mode, crate::types::VertexStepMode::Instance);
+        let shift: u64 = if inst {
+            base as u64 * lay.array_stride as u64
+        } else {
+            0
+        };
+        for a in lay.attributes.iter() {
+            let (n, ty, norm, integer) = vtx_fmt(a.format);
+            let off = o.wrapping_add(shift).wrapping_add(a.offset as u64) as i32;
+            if integer {
+                gl.vertex_attrib_pointer_i32(a.shader_location, n, ty, lay.array_stride as i32, off);
+            } else {
+                gl.vertex_attrib_pointer_f32(
+                    a.shader_location,
+                    n,
+                    ty,
+                    norm,
+                    lay.array_stride as i32,
+                    off,
+                );
+            }
+            gl.enable_vertex_attrib_array(a.shader_location);
+            if inst {
+                gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR);
+            }
+        }
+    }
+}
+
+/// 组合落位：LRU 回收→键判定→句柄→(首次)整备→索引缓冲对齐；返回时 m.vao 已是本文组合 VAO。
+fn combo_bind(p: &RenderPass<'_>, m: &mut StateMirror, base: u32, gl: &glow::Context) {
+    let evicted = combo_maintain();
+    if !evicted.is_empty() {
+        let mut cache = p._enc._inner.cache.lock().unwrap_or_else(|e| e.into_inner());
+        for k in evicted.iter() {
+            crate::objects::evict_vao(&mut cache, *k);
+        }
+        drop(cache);
+        // 被淘汰对象可能正是当前绑定——镜像归零，下方 set_vao 必重绑。
+        m.vao = None;
+    }
+    let (full, scratch_key) = combo_keys(p, base);
+    let (key, scratch) = combo_pick(full, scratch_key);
+    let handle = combo_acquire(p, key);
+    state_inner::set_vao(m, Some(handle));
+    let (settled, elem_same) = {
+        let t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
+        match t.get(&key) {
+            Some(s) => (s.settled, s.elem.is_some() && s.elem == p._index_ibo.map(|g| g.0)),
+            None => (false, false),
+        }
+    };
+    let setup_now = !settled;
+    let need_elem = p._index_ibo.is_some() && !elem_same;
+    if setup_now || need_elem {
+        unsafe {
+            if setup_now {
+                combo_setup(gl, &p._vertex, &p._vbinds, base);
+            }
+            if let Some(ibo) = p._index_ibo {
+                gl.bind_buffer(GL_ELEMENT_ARRAY_BUFFER, Some(crate::gid::buffer_from(ibo.0)));
+            }
+        }
+        let mut t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = t.get_mut(&key) {
+            if setup_now && !scratch {
+                s.settled = true;
+            }
+            s.elem = p._index_ibo.map(|g| g.0);
+        }
+    }
+}
+
+/// 组合表整清（VAO 物理删除/世代重置联动：旧整备标记对新对象无效）。
+pub(crate) fn combo_forget() {
+    COMBO.lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
 pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry::BufferSlice<'_>) {
     let name = sl
         .buffer
@@ -507,85 +722,13 @@ pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
         .name()
         .expect("draw str-assert: 死顶点缓冲句柄");
     let o = sl.offset;
-    let layout: VertexLayout = p
-        ._vertex
-        .get(i as usize)
-        .expect("draw str-assert: 顶点槽越界")
-        .clone();
-    // VAO=管线级复用对象（由 set_pipeline 提供；本处只绑 + 重设属性，不建删）。
-    let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
-    let mut m = lock_state(p);
-    // 属性水位（全局驱动态缓存语义）：属性参数住在 VAO 里——同 (VAO,源缓冲,片段偏移)
-    // 时 VAO 内容已设好，只补 VAO 绑定，属性/divisor 整段免重发（产品实测每 draw 重下 14 条）。
-    let key = (vao_name.0, name.0, o);
-    let slot = (i as usize) % m.attr_keys.len();
-    if m.attr_keys[slot] == Some(key) {
-        // VAO 绑定同走镜像水位：同 VAO 连续命中=本快路零 GL 下发。
-        state_inner::set_vao(&mut m, Some(vao_name));
-        drop(m);
-        p._vbinds.retain(|b| b.0 != i);
-        p._vbinds.push((i, name, o));
-        p._vertex_ready = true;
-        return;
-    }
-    m.attr_keys[slot] = Some(key);
-    with_gl(|gl| unsafe {
-        // VAO 切换判定在 pointer 之前（属性必须落进目标 VAO），比对免同值重绑。
-        if m.vao != Some(vao_name) {
-            gl.bind_vertex_array(Some(crate::gid::vao_from(vao_name.0)));
-            m.vao = Some(vao_name);
-        }
-        gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(name.0)));
-        for a in layout.attributes.iter() {
-            let (n, ty, norm, integer) = vtx_fmt(a.format);
-            if integer {
-                // 非归一化整型：须经 I 变体，否则驱动按浮点转换=uvec/ivec 形参语义错。
-                gl.vertex_attrib_pointer_i32(
-                    a.shader_location,
-                    n,
-                    ty,
-                    layout.array_stride as i32,
-                    o as i32 + a.offset as i32,
-                );
-            } else {
-                gl.vertex_attrib_pointer_f32(
-                    a.shader_location,
-                    n,
-                    ty,
-                    norm,
-                    layout.array_stride as i32,
-                    o as i32 + a.offset as i32,
-                );
-            }
-            // enable 位独立水位：pointer 段重放不拖 enable 重复（使能为 VAO 内态，同 VAO 幂等）。
-            let lk = a.shader_location as usize;
-            match m.attr_en.get_mut(lk) {
-                Some(s) => {
-                    if *s != Some(vao_name.0) {
-                        gl.enable_vertex_attrib_array(a.shader_location);
-                        *s = Some(vao_name.0);
-                    }
-                }
-                None => gl.enable_vertex_attrib_array(a.shader_location),
-            }
-        }
-        if matches!(layout.step_mode, crate::types::VertexStepMode::Instance) {
-            for a in layout.attributes.iter() {
-                let lk = a.shader_location as usize;
-                let want = Some((vao_name.0, INSTANCE_DIVISOR));
-                match m.attr_div.get_mut(lk) {
-                    Some(s) => {
-                        if *s != want {
-                            gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR);
-                            *s = want;
-                        }
-                    }
-                    None => gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR),
-                }
-            }
-        }
-    });
-    drop(m);
+    assert!(
+        (i as usize) < p._vertex.len(),
+        "draw str-assert: 顶点槽越界（slot={i} layouts={}）",
+        p._vertex.len()
+    );
+    assert!(p._vao.is_some(), "draw str-assert: 管线未设 VAO");
+    // 纯记录（2026-10-28 组合 VAO 定案）：属性整备推迟到 draw，一次成型后同组合只 bind。
     p._vbinds.retain(|b| b.0 != i);
     p._vbinds.push((i, name, o));
     p._vertex_ready = true;
@@ -603,12 +746,8 @@ pub(crate) fn exec_set_index(
         .name()
         .expect("draw str-assert: 死索引缓冲句柄");
     let (st, en) = (sl.get_range().start, sl.get_range().end);
-    with_gl(|gl| unsafe {
-        gl.bind_buffer(
-            GL_ELEMENT_ARRAY_BUFFER,
-            Some(crate::gid::buffer_from(name.0)),
-        );
-    });
+    // 纯记录（2026-10-28）：ELEMENT 绑定随组合 VAO 落位（VAO 态）；此处只记格式/区间/缓冲名。
+    p._index_ibo = Some(name);
     p._index_format = Some(f);
     p._index_range = (st, en);
     p._index_ready = true;
@@ -647,41 +786,6 @@ pub(crate) fn exec_set_blend(p: &mut RenderPass<'_>, c: Color) {
     state_inner::set_blend_constant(&mut m, c);
 }
 
-/// first_instance 模拟芯（GLES/WebGL2 无 base_instance，同上游 gles 属性偏移路数）：
-/// Instance 步进属性按记录基线偏移+base*stride 重下；Vertex 步进槽不动。
-/// 无 uniform/index 通道（登记差异：`@builtin(instance_index)` 保持 0 基，不含 base；
-/// 属性数据定位与上游等价）。只在 base 变化时由 draw 路调用。
-unsafe fn fi_rebind(
-    gl: &glow::Context,
-    vbinds: &[(u32, crate::objects::GlHandle, u64)],
-    layouts: &[VertexLayout],
-    base: u32,
-) {
-    for (slot, bname, o) in vbinds.iter() {
-        let Some(lay) = layouts.get(*slot as usize) else { continue };
-        if !matches!(lay.step_mode, crate::types::VertexStepMode::Instance) {
-            continue;
-        }
-        gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(bname.0)));
-        let shift = (base as i64) * (lay.array_stride as i64);
-        for a in lay.attributes.iter() {
-            let (n, ty, norm, integer) = vtx_fmt(a.format);
-            let off = (*o as i64 + a.offset as i64 + shift) as i32;
-            if integer {
-                gl.vertex_attrib_pointer_i32(a.shader_location, n, ty, lay.array_stride as i32, off);
-            } else {
-                gl.vertex_attrib_pointer_f32(
-                    a.shader_location,
-                    n,
-                    ty,
-                    norm,
-                    lay.array_stride as i32,
-                    off,
-                );
-            }
-        }
-    }
-}
 
 // 设计预期（形照 25.0.2 Range 双参）：绑定完备缺一=断言零副作用；
 // instance Range 起点=first_instance 语义（属性偏移模拟见 fi_rebind；instance_index
@@ -700,12 +804,6 @@ pub(crate) fn exec_draw(
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
     let base = ins.start;
-    let need = base != p._fi_base;
-    if need {
-        p._fi_base = base;
-    }
-    let vbinds: Vec<(u32, crate::objects::GlHandle, u64)> = if need { p._vbinds.clone() } else { Vec::new() };
-    let layouts: Vec<VertexLayout> = if need { p._vertex.clone() } else { Vec::new() };
     let mode = topo(p._topology);
     let count = (v.end - v.start) as i32;
     let icount = (ins.end - ins.start) as i32;
@@ -723,14 +821,7 @@ pub(crate) fn exec_draw(
     with_gl(|gl| unsafe {
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        if need {
-            // fi 移位重写了属性偏移=该批槽位缓存过时；清槽令下轮正常路强制重发。
-            let nslots = m.attr_keys.len();
-            for (s, _, _) in vbinds.iter() {
-                m.attr_keys[(*s as usize) % nslots] = None;
-            }
-            fi_rebind(gl, &vbinds, &layouts, base);
-        }
+        combo_bind(p, &mut m, base, gl);
         if icount == 1 && base == 0 {
             gl.draw_arrays(mode, v.start as i32, count);
         } else {
@@ -767,12 +858,6 @@ pub(crate) fn exec_draw_idx(
     );
     let f = p._index_format.expect("draw str-assert: 索引格式缺失");
     let base = ins.start;
-    let need = base != p._fi_base;
-    if need {
-        p._fi_base = base;
-    }
-    let vbinds: Vec<(u32, crate::objects::GlHandle, u64)> = if need { p._vbinds.clone() } else { Vec::new() };
-    let layouts: Vec<VertexLayout> = if need { p._vertex.clone() } else { Vec::new() };
     let mode = topo(p._topology);
     let off = st + (ix.start as u64) * w;
     let count = (ix.end - ix.start) as i32;
@@ -786,9 +871,7 @@ pub(crate) fn exec_draw_idx(
     with_gl(|gl| unsafe {
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        if need {
-            fi_rebind(gl, &vbinds, &layouts, base);
-        }
+        combo_bind(p, &mut m, base, gl);
         if icount == 1 && base == 0 {
             gl.draw_elements(mode, count, idx_type(f), off as i32)
         } else {
@@ -918,7 +1001,7 @@ pub(crate) fn rtt_fbo_key(
     // 形状键（2026-10-28 定案）：格式×样本×目标形态入键、宿主纹理名不入——
     // 逐帧重建同形状贴图时行稳定，附件变化由签名差分定向重挂（begin 路）。
     let shape = |t: &crate::entry::Texture, salt: u64| -> u64 {
-        let mut fmt: u64 = {
+        let fmt: u64 = {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
             t._format.hash(&mut h);
@@ -1416,7 +1499,7 @@ pub(crate) fn begin_impl<'p>(
         _resolve: None,
         _replay: false,
         _vbinds: Vec::new(),
-        _fi_base: 0,
+        _index_ibo: None,
     }
 }
 
