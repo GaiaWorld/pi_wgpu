@@ -32,18 +32,6 @@ pub struct TexelCopyBufferInfo<'a> {
     pub layout: wgpu_types::TexelCopyBufferLayout,
 }
 
-/// 位集合 `|` 算子生成宏：位并集（组合两个 flags 的位）——所有位集合壳共用；不校验（超集位由消费方校验断言）。`&`/contains 等其余算子后续批按需补。
-macro_rules! flag_bitor {
-    ($t:ty) => {
-        impl core::ops::BitOr for $t {
-            type Output = Self;
-            fn bitor(self, rhs: Self) -> Self {
-                Self(self.0 | rhs.0)
-            }
-        }
-    };
-}
-
 /// 绑定组布局创建输入；槽位归组在布局面声明（set 域 0-3），条目违约=断言含 label。
 #[derive(Debug, Clone)]
 pub struct BindGroupLayoutDescriptor<'a> {

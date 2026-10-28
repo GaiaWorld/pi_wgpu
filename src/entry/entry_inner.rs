@@ -480,10 +480,16 @@ pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Text
         }
         gl.bind_texture(target, Some(crate::gid::texture_from(name.0)));
         let e_bind = gl.get_error() as u32;
-        if e_bind != 0 || !stale_codes.is_empty() {
+        if e_bind != 0 {
             log::error!(
-                "entry: 绑定/前序 err bind={:#x} stale={:?} name={} target={:#x}（label={:?}）",
-                e_bind, stale_codes, name.0, target, t.label
+                "entry: 绑定失败 err={:#x} name={} target={:#x}（label={:?}）",
+                e_bind, name.0, target, t.label
+            );
+        } else if !stale_codes.is_empty() {
+            // 本绑定成功、清掉的是前序他人遗留=新鲜度机制按设计留痕（warn 档，不计故障）。
+            log::warn!(
+                "entry: 前序残留已清 stale={:?} name={} target={:#x}（label={:?}）",
+                stale_codes, name.0, target, t.label
             );
         }
         match target {
@@ -1112,8 +1118,9 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
     };
     // 采样入口指位表（设计：sampler-unit-assign）：候选=反射里的纹理类绑定（naga 对 ES300
     // 不下 sampler 全局，合并后的 sampler2D 即纹理全局）；位置查询要触 GL，故在创建期一次收齐，
-    // 切换期只发整数。表随管线定格，切换时经镜像与水位成对下发。
-    let sampler_uniforms = {
+    // uniform1i/block binding 属**程序对象持久态**（2026-10-27 缓存定案）：创建即发、
+    // 永久随程序——之后 use_program 切换零参与（镜像/水位/表留存全链拆除）。
+    {
         // 反射源自产物 IR 现取（模块 `_refl` 只在测试里填过；生产路径以 IR 为准）。
         let mut targets: Vec<(u32, u32)> = Vec::new();
         for blob in core::iter::once(&p.vertex.module._compiled)
@@ -1132,12 +1139,20 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         }
         targets.sort_unstable();
         targets.dedup();
+        let keep_program = d
+            ._inner
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .water
+            .program;
         collect_sampler_uniforms(
             prog.handle.expect("entry 断言: 新程序无句柄"),
             &own_slots,
             &targets,
-        )
-    };
+            keep_program,
+        );
+    }
     // IR 侧「类型名+阶段 → (set,binding)」：GL 块名由类型名派生（registry naga 命名），
     // 用它把块索引反查回绑定点。
     let mut ir_keys: Vec<(String, (u32, u32))> = Vec::new();
@@ -1176,8 +1191,7 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
         }
     }
     // UBO 块指位：ES300 无 `binding=` 限定符，块绑定必须由程序态指定（否则全部停在 0 号）。
-    let block_bindings =
-        collect_block_bindings(prog.handle.expect("entry 断言: 新程序无句柄"), &own_slots, &ir_keys);
+    collect_block_bindings(prog.handle.expect("entry 断言: 新程序无句柄"), &own_slots, &ir_keys);
     let vertex: Vec<crate::draw::VertexLayout> = p
         .vertex
         .buffers
@@ -1207,8 +1221,6 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
             .and_then(|f| f.targets.iter().flatten().next().and_then(|t| t.blend)),
         _primitive: p.primitive.clone(),
         _slots: own_slots,
-        _sampler_uniforms: sampler_uniforms,
-        _block_bindings: block_bindings,
     }
 }
 
@@ -1228,6 +1240,7 @@ fn collect_sampler_uniforms(
     program: GlHandle,
     table: &crate::binds::SlotTable,
     targets: &[(u32, u32)],
+    keep_program: Option<u64>,
 ) -> Vec<crate::binds::SamplerUniform> {
     if targets.is_empty() {
         return Vec::new();
@@ -1235,6 +1248,9 @@ fn collect_sampler_uniforms(
 
     crate::context_inner::with_gl(|gl| unsafe {
         let prog = crate::gid::program_from(program.0);
+        // WebGL 校验：uniform1i 的 location 须属**当前绑定程序**——创建期写程序持久值
+        // 须先切到本程序，毕后回位到镜像已下发态（None=调用侧自理，如探针）。
+        gl.use_program(Some(prog));
         let n = gl.get_active_uniforms(prog);
         let mut out: Vec<crate::binds::SamplerUniform> = Vec::with_capacity(n as usize);
         for i in 0..n {
@@ -1255,10 +1271,16 @@ fn collect_sampler_uniforms(
                 continue;
             };
 
+            // 程序态就地持久发（值属程序对象，非上下文状态——切换重发=缓存浪费）。
+            gl.uniform_1_i32(Some(&loc), unit as i32);
             out.push(crate::binds::SamplerUniform {
                 location: crate::binds::PubLoc(loc),
                 unit,
             });
+        }
+        match keep_program {
+            Some(k) => gl.use_program(Some(crate::gid::program_from(k))),
+            None => gl.use_program(None),
         }
         out
     })
@@ -1275,9 +1297,10 @@ fn collect_block_bindings(
     crate::context_inner::with_gl(|gl| unsafe {
         let prog = crate::gid::program_from(program.0);
         let mut out: Vec<crate::binds::BlockBinding> = Vec::new();
-        // 界=64 上限+空串探测（WebGL API 无块数读数；glow fork 已订越界空串语义=桌面同形）。
-        // 界=IR 出码块数（出码合同：程序块集⊆名表；越界查询触发 web 告警+残 1281）。
-        for i in 0..ir_keys.len() as u32 {
+        // 界=槽表 UBO 项数（布局↔出码合同：程序块集=表项集，同 (set,binding) 跨阶段
+        // link 合并为一块）——精确界、零越界；ir_keys 名表按记录计数（VS/FS 各一条）≥
+        // 实际块数，旧界因此仍越一发 INVALID_VALUE——产品 trace 实锤，本界归零。
+        for i in 0..table.ubo.len() as u32 {
             let name = gl.get_active_uniform_block_name(prog, i);
             if name.is_empty() {
                 break;
@@ -1305,6 +1328,7 @@ fn collect_block_bindings(
                 continue;
             };
 
+            gl.uniform_block_binding(prog, i, binding);
             out.push(crate::binds::BlockBinding { index: i, binding });
         }
         out
@@ -1590,7 +1614,7 @@ pub(crate) mod tests {
         ]
         .join("\n");
         super::link_program(name, &vs_src, Some(&fs_src));
-        let got = super::collect_sampler_uniforms(name, &table, &targets);
+        let got = super::collect_sampler_uniforms(name, &table, &targets, None);
         let unit = crate::binds::unit_of(&table, 0, 0).expect("纹理在槽表");
         assert_eq!(got.len(), 2, "VS/FS 各一条（不按 (group,binding) 去重）");
         assert!(
@@ -1674,18 +1698,16 @@ pub(crate) mod tests {
         .join("\n");
         super::link_program(name, &vs_src, Some(&fs_src));
 
-        let got = super::collect_sampler_uniforms(name, &table, &[(0u32, 0u32)]);
+        let got = super::collect_sampler_uniforms(name, &table, &[(0u32, 0u32)], None);
         assert_eq!(got.len(), 1, "本程序单一采样入口");
         assert_eq!(got[0].unit, unit, "collect 的单元=槽表算出的单元");
 
-        // 先走镜像水位下发（flush 会按空镜像把 16 单元解绑，早于手工绑定执行才不互相冲掉），
-        // 再备资源：期望态进镜像 → 程序真换 → useProgram + 全量指位。
-        // 与产品同路径：期望态进镜像 → 水位差异下发 useProgram + 全量指位。
+        // 指位已在 collect 内一次性下发（程序对象持久态，2026-10-27 缓存定案）；
+        // 本段只验 flush 的 useProgram 水位推进；资源的手工绑定不再受初轮清扫威胁。
         let mut m = crate::state::StateMirror::default();
         m.program = Some(name);
-        m.sampler_uniforms = got.clone();
         m.flush_if_changed();
-        assert_eq!(m.water.program, Some(name.0), "程序水位推进=useProgram+指位已发");
+        assert_eq!(m.water.program, Some(name.0), "程序水位推进=useProgram 已发");
 
         // 资源准备（源纹理与采样器落在目标单元；渲染目标另占末端单元，免覆盖源）。
         let (tex, smp, rt, fb, vao) = crate::context_inner::with_gl(|gl| unsafe {

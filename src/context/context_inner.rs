@@ -585,8 +585,6 @@ mod tests {
             _blend: None,
             _primitive: crate::types::PrimitiveState::default(),
             _slots: crate::binds::SlotTable::default(),
-            _sampler_uniforms: Vec::new(),
-            _block_bindings: Vec::new(),
         };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);
         let texh = crate::objects_inner::create_direct(crate::objects::DirectKind::Texture);
