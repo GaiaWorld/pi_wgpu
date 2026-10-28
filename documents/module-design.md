@@ -1,157 +1,213 @@
-# pi_wgpu 模块设计文档
+# pi_wgpu 模块设计（v0.4.1）
 
-> 依据 v0.3.7 源码结构与 design.md 设计笔记整理；描述「当前实现是什么」，论证「为什么」以 [design.md](design.md) 为准，接口细节见 [api.md](api.md)。
+> 描述「当前实现是什么」。为什么这样做见 design.md；接口面见 api.md；与 wgpu 的差异见 migration.md。
+> 每个模块 = 公开壳（mod.rs，类型/方法声明 + 契约注释）+ 实现芯（*_inner.rs）。壳变更走 dev-design-lite。
 
-## 1. 分层架构
+## 1. 模块清单
 
-```text
-应用代码（wgpu-rs 风格 API）
-┌─────────────────────────────────────────────────────────┐
-│ src/lib.rs  ── use_wgpu? 转发真实 wgpu : 内建 pi_wgpu    │
-├─────────────────────────────────────────────────────────┤
-│ wgc（WebGPU Core）：对外 API 对象层                      │
-│   Instance/Adapter/Device/Queue/CommandEncoder/RenderPass│
-│   Buffer/Texture/Sampler/BindGroup( Layout)/Pipeline…    │
-├─────────────────────────────────────────────────────────┤
-│ wgt（WebGPU Types）：纯类型层（位标志/描述符/限制）      │
-├─────────────────────────────────────────────────────────┤
-│ hal（GL Hardware Abstraction）：                         │
-│   AdapterContext 锁与 make_current ─▶ GLState 全状态机   │
-│   GLCache 资源缓存表 ─▶ pi_glow（OpenGL/GLES/WebGL 入口）│
-├─────────────────────────────────────────────────────────┤
-│ 驱动：OpenGL 3.3+ │ GLES 3.0+ │ WebGL2                  │
-└─────────────────────────────────────────────────────────┘
-   纵向支撑：util（DeviceExt/env 助手/锁包装）· pi_egl（EGL 绑定）
-```
+| 模块 | 职责 | 隐藏的易变决定 | 壳 / 芯 |
+|---|---|---|---|
+| types | 公开词汇面：pub use wgpu_types::* + 引用式描述符别名（BufferDescriptor<'a> 等） | 跟随上游版本对表 | types/mod.rs |
+| entry | 公开对象面：Instance/Adapter/Device/Queue/Encoder/Buffer/Texture/Sampler/BindGroup(Layout)/Pipeline(Layout)/ShaderModule | 对象面失败与持有合同 | entry/mod.rs → entry_inner.rs |
+| surface | 附着→configure→取帧→present；离屏屏幕纹理 + 翻转 blit | 呈现约束与取帧错误态 | surface/mod.rs → surface_inner.rs |
+| context | 全库唯一 GL 附着点：重入锁、跨线程搬运、附着代号、state epoch | 线程合同 | context/mod.rs → context_inner.rs |
+| caps | 版本/扩展探测；Features 投影；设备特判表 | 特判集合（新增只加 SPECIAL_ROWS 一行） | caps/mod.rs → caps_inner.rs |
+| state | 驱动状态镜像与差异下发；死名表；帧门；水位 | 镜像字段集与比较粒度 | state/mod.rs → state_inner.rs |
+| objects | GL 句柄层：1:1 直建三件套 + Program/VAO/FBO/RBO 键复用 | 复用范围与归零删除规则 | objects/mod.rs → objects_inner.rs |
+| formats | 格式→GL 参数表、纹理目标选择、mipmap 链、能力门控 | 格式支持集 | formats/mod.rs → formats_inner.rs |
+| binds | (set,binding)→三族槽位；reorder/alias；动态偏移 | 槽位分配规则 | binds/mod.rs → binds_inner.rs |
+| shader | naga 转译（WGSL/GLSL→ES300）、反射登记、按入口出码 | 转译输出形态与反射契约 | shader/mod.rs → shader_inner.rs |
+| draw | 通道录制/执行：begin/set/draw/end、组合 VAO、RTT、清屏守卫 | 通道能力约束与状态下发点 | draw/mod.rs → draw_inner.rs |
+| upload | 即时写入、拷贝、读回、Web 图像直传 | 写入生效时机（即时） | upload/mod.rs → upload_inner.rs |
+| utils | DeviceExt 便捷构造 + 环境助手 | 附加便利面 | utils/mod.rs → utils_inner.rs |
+| record | 渲染命令表与提交序回放 | 命令粒度（通道整体 + 状态/绘制逐条） | record.rs |
+| error | Error/ErrorFilter/UncapturedErrorHandler + 作用域栈 | 错误面形状 | error/mod.rs → error_inner.rs |
+| gid | GlHandle(u64) ⇄ glow 句柄值唯一闸口（Web 保留 slot-key 全 64 位） | 身份表示 | objects/gid.rs |
 
-要点：**wgc 不再保留 wgpu-core 的 Context Hub / 共享句柄表，公开对象是对 hal 结构的直接薄封装，调用即执行**（录制即提交），与 WebGPU 语义的差别集中记录在 api.md。
+## 2. 依赖边
 
-## 2. 模块与文件职责
+~~~mermaid
+flowchart TD
+  types["types · 词汇"]
+  entry["entry · 对象面"]
+  surface["surface · 呈现"]
+  context["context · 附着"]
+  caps["caps · 能力"]
+  state["state · 镜像"]
+  objects["objects · 句柄"]
+  formats["formats · 格式"]
+  binds["binds · 槽"]
+  shader["shader · 转译"]
+  draw["draw · 通道"]
+  upload["upload · 写"]
+  utils["utils · 便捷"]
+  record["record · 回放"]
+  error["error · 错误面"]
 
-### 2.1 crate 根
+  entry --> types
+  entry --> surface
+  entry --> context
+  entry --> caps
+  entry --> state
+  entry --> formats
+  entry --> objects
+  entry --> binds
+  entry --> shader
+  entry --> draw
+  entry --> upload
+  entry --> error
+  utils --> types
+  utils --> entry
+  surface --> types
+  surface --> context
+  surface --> caps
+  surface --> entry
+  context --> types
+  caps --> types
+  state --> types
+  state --> context
+  state --> objects
+  objects --> types
+  objects --> context
+  objects --> formats
+  objects --> state
+  formats --> types
+  formats --> caps
+  formats --> context
+  binds --> types
+  binds --> state
+  binds --> entry
+  binds --> objects
+  shader --> types
+  shader --> binds
+  shader --> entry
+  draw --> types
+  draw --> state
+  draw --> binds
+  draw --> context
+  draw --> entry
+  draw --> objects
+  draw --> record
+  upload --> types
+  upload --> objects
+  upload --> context
+  upload --> formats
+  upload --> entry
+  record --> entry
+  record --> draw
+  record --> upload
+  record --> objects
+  record --> binds
+  record --> types
+~~~
 
-| 文件 | 职责 |
-|---|---|
-| src/lib.rs | feature 分叉：`use_wgpu` → `pub use wgpu::*`；否则 `pub use pi_wgpu::*`。定义统一 trait `PiWgpuAdapter`（request_device 双参），声明 nightly gate。 |
-| src/pi_wgpu/mod.rs | 内部 crate root：re-export `hal::api::*`、`ExposedAdapter`、`wgc::*`、`wgt` 白名单类型/常量；定义 Label、Operations/LoadOp/StoreOp、crate 级 `Error`。 |
+说明：单 crate 内存在双向类型引用（entry↔binds/state/shader、objects↔state、surface↔entry），按「无功能调用环」判定不计环。所有芯经 context_inner::with_gl 取驱动入口，经 state::BIND_SLOTS 共享槽常量。
 
-### 2.2 wgt（类型层）
+## 3. 公开对象与内部数据结构
 
-- `wgt/mod.rs`：单文件（~7400 行）fork 自 wgpu-types：Backend/Backends、Features/Limits、TextureFormat 及能力位、各 `*Descriptor`、ShaderStages、IndexFormat、SurfaceCapabilities、`Gles3MinorVersion`、常量族（COPY_BUFFER_ALIGNMENT 等）。上层 wgc/hal 均以其为唯一词汇表。
-
-### 2.3 wgc（API 层）
-
-| 文件 | 职责 |
-|---|---|
-| instance.rs | `Instance`（Share<hal::Instance>）；`request_adapter` 按 DeviceType + PowerPreference 排序挑选（不支持软件 adapter，断言 force_fallback 为 false）；`create_surface`（Window/Canvas/OffscreenCanvas → RawHandle，内部 unsafe 延拓生命周期）。 |
-| surface.rs | `SurfaceTarget`、辅助 trait `WindowHandle`、`Surface`.configure/get_current_texture/get_capabilities、`SurfaceTexture`+present、`SurfaceError`、`CreateSurfaceError`。 |
-| adapter.rs | `Adapter` 封装 hal::Adapter：`request_device`（同步包装成 ready future）、capabilities 查询族、特有 `unmake_current`。实现 crate 根 `PiWgpuAdapter`。 |
-| device.rs | `Device`：create_* 全族 + `reset_state`；single_thread 分支。 |
-| queue.rs | `Queue`：write_buffer / write_texture（实现为**直接 GL 调用**，非文档所述「调度到下次 submit」）；submit 空；`write_texture_jsbuffer`（wasm 专用）。 |
-| command.rs | `CommandEncoder.finish`（空）、`begin_render_pass`、`RenderPass`（Drop → end_render_pass；set_*/draw* 转发并携带 `AdapterContextLock`）、RenderPassDescriptor/Attachment、QuerySet 仅占位。 |
-| buffer / texture / sampler / shader_module / bind_group(_layout) / pipeline_layout / render_pipeline / common_pipeline | 对象句柄封装 + `from_hal/into_hal`；持有 Share 强引用形成 §3 的生命周期链。 |
-
-### 2.4 hal（GL 后端层）
-
-| 文件 | 职责 |
-|---|---|
-| api.rs | `Api`/`HalApi` 关联类型 trait + 零尺寸标记 `GL`：对齐 wgpu-hal 形态，使上层（含未来多后端可能）以类型参数而非动态分发绑定实现。 |
-| mod.rs | hal 根：`ExposedAdapter`、公共对象 re-export、`PrivateCapabilities`/`ShaderID`/`PiBindingType` 等胶水类型。 |
-| instance.rs | `InstanceFlags`（DEBUG/VALIDATION/DISCARD_HAL_LABELS…）；Instance 仅持有一个共享 `AdapterContext`；EGL 枚举 = 系统默认显卡（只返回 1 个 adapter）。 |
-| egl_impl.rs | **`AdapterContext`（核心）**：`lock: ReentrantMutexWrap + reentrant_count`、egl(EGL Display/Surface)、glow Context；能力探测（PrivateCapabilities）→ features/limits/downlevel；IS_QUALCOMM 特判；`make_current_with_surface / unmake_current`（见 design.md §4）与 try_lock_for 包装。 |
-| adapter.rs | expose（读 info/caps）、open（产出 hal (Device,Queue)）、surface_capabilities。 |
-| device.rs | 资源创建编排：buffer/texture/sampler/shader/bind group/layout/pipeline。 |
-| gl_state.rs | **全局状态机**：GLStateImpl 缓存 blend/depth/stencil/raster/vb/attributes/program/rt/UBO/sampler 槽等；每次 set/draw 前做全量比较（gl_state.rs 头注释）；is_ios18 特判；驱动 `gl_cache`。 |
-| gl_cache.rs | 全局**状态缓冲表**：以哈希 key 缓存 VBO/VAO/RBO/纹理/program 等 GL 资产（pi_assets `Asset/Size/Garbageer`），分配先查表、命中比较指针，超时回收（含 VaoGarbage）。 |
-| command.rs / queue.rs | pass 录制（begin/end、FBO 绑定、blit resolve）、写缓冲/纹理。 |
-| buffer / texture / sampler / bind_group / pipeline / shader_module | 对象到 GL handle/描述的转换；pipeline 维护 set/binding↔GL location 映射（`PiBindingType` 扩展 reflection）；shader_module 调 naga → GLSL300es 编译与链接。 |
-| gl_conv.rs | wgt ↔ glow 枚举转换器。 |
-| gles.rs | GL 侧常量与上限：**MAX_SAMPLERS/MAX_TEXTURE_SLOTS/MAX_VERTEX_ATTRIBUTES = 16**；blend/raster/depth 等 GL 语义描述结构。 |
-| shaders/blit.{vert,frag} | 内部 blit/resolve 着色器源码（离屏 RT → 呈现）。 |
-| （egl 绑定 | 外部 crate `pi_egl` + `raw-window-handle` 转接） |
-
-### 2.5 util
-
-| 文件 | 职责 |
-|---|---|
-| device.rs | `BufferInitDescriptor`、`TextureDataOrder`（LayerMajor=DDS 密度序 / MipMajor=KTX 密度序）、`DeviceExt`（create_buffer_init / create_texture_with_data）。 |
-| init.rs | env 助手：backend_bits_from_env（恒 GL）、power_preference_from_env（WGPU_POWER_PREF）、dx12_shader_compiler_from_env 占位、parse_backends_from_comma_list(wasm→GL)。 |
-| mutex.rs | `ReentrantMutexWrap/GuardWrap`：`single_thread` 时整体替换为空实现（零开销）。 |
-
-## 3. 对象关系与生命周期
-
-```text
-Share 跨线程共享所有权；引用方向（强）：
-BindGroup ─▶ {Buffer, TextureView(→Texture), Sampler}
-RenderPipeline ─▶ ShaderModule(program) ；BindGroupLayout / PipelineLayout 持有映射表
-RenderPass ─▶ (借用) CommandEncoder + AdapterContextLock ⇒ Drop 前资源不可销毁
-Queue ─▶ AdapterContext（锁） ；Surface ─▶ AdapterContext + 窗口句柄
-```
-
-销毁时序（README §2.02 的设计落点）：
-1. wgc 对象 drop → 对应 GL 资源先入 `GLCache` 超时队列，而非立即 delete；
-2. `RenderPass` Drop 之后其引用资源方可进入回收；
-3. 被 BindGroup 握住的资源必须与 BindGroup 一同 drop（防止悬空槽位重绑）。
-
-## 4. 关键机制设计
-
-### 4.1 Set/Binding → GL 槽位映射（design.md §1/§2 落地）
-
-- pipeline_layout.bind_group_layouts 下标 = shader `set`（硬件约定 0..3）。
-- 全局映射表以 `(set, binding) 类型` 为键在 AdapterContext 存活期内分配 UBO 槽 / Sampler 槽（上限 16/16）。
-- 同程序同 buffer 尽量重合槽位；每个 RenderPipeline 维护 reorder 数组，把 program 实际布局重排到 layout 声明（允许不同 pipeline 复用同一 program 而拥有不同 layout）。
-- 动态偏移：`set_bind_group(set, bg, &dyn_offsets)` 按 layout 中 `has_dynamic_offset` 条目顺序消耗数组元素。
-
-### 4.2 状态机 + 全局缓冲表（FR-11）
-
-调用侧 → GLState 全量字段比较（仅差异值下发）；资源侧 → GLCache 哈希表（同配置命中同一 handle，指针对比），配合 pi_assets 延迟回收；目标是驱动调用数显著低于 wgpu-rs。
-
-### 4.3 着色器编译链（FR-08）
-
-`create_shader_module` → naga parse（WGSL/GLSL）+ validate → `back::glsl`（Version 300 es + std140 + 无 #define）→ program/link → 反射出 (set,binding)↔uniform 名 / attrib location 登记表（`ReflectionInfo`/`PiBindingType`）。错误经 codespan-reporting 格式化输出。
-
-### 4.4 录制-提交流（FR-12/13）
-
-- 所有 wgc 方法 = 取 AdapterContext 锁后的即时 GL 调用；submit/finish 空；`single_thread` 省锁。
-- 跨线程：`AdapterContext::unmake_current()` 把 context 从他线程解绑；lock 支持超时获取。
-
-### 4.5 Surface 与交换链（FR-14/NFR）
-
-- configure 触发 EGL Surface 绑定 swapchain 语义（Fifo/Opaque 唯一合法组合），Web 平台无跨 surface context ⇒ 一切 device 使用后置。
-- get_current_texture 直接返回可写纹理（suboptimal 恒 true），present = swapBuffers。
-
-## 5. 线程与数据流
-
-```text
-创建期（多线程允许）：
-  thread A ─ device.create_texture ─▶ GLCache 分配 ─▶ queue.write_texture（即时）
-录制/提交期（单线程约定）：
-  thread Main ─ encoder.begin_render_pass ─ set_*/draw* ─▶ GLState 差异 ─▶ draw ─▶ present
-回收期：
-  drop(资源) ─▶ GLGarbage 队列 ─(超时/GC)─▶ 回收线程安全 delete（锁内）
-```
-
-## 6. 依赖关系
-
-| 外部 crate | 用途 | 使用者 |
+| 结构 | 位置 | 关键字段 / 不变量 |
 |---|---|---|
-| pi_glow（glow） | GL/GLES/WebGL 统一函数入口 | hal 全局 |
-| pi_egl | EGL Display/Context/Surface | egl_impl |
-| naga（本地 fork patch） | WGSL/GLSL→GLSL300es 编译与反射 | shader_module、gl_state、pipeline |
-| pi_share | Share/ShareCell/Weak 跨线程共享所有权 | 各层对象 |
-| pi_assets | GPU 资源记账分配 + 超时 GC（Asset/Size/Garbageer） | buffer/texture/gl_cache |
-| pi_hash / twox-hash | XHashMap/XHashSet（高速哈希表） | gl_cache/gl_state/env |
-| pi_time | Instant 超时回收计时 | gl_cache |
-| thiserror/bitflags/lazy_static/ordered-float/derive_more | 基础支撑 | 各层 |
-| raw-window-handle 0.6 | 三平台窗口句柄统一 | surface |
-| log + profiling + codespan-reporting | 诊断 | 各层 |
-| wasm-bindgen/web-sys/js-sys（wasm） | Canvas/OffscreenCanvas/ImageBitmap | surface/queue |
-| wgpu（可选） | 对照实现（use_wgpu） | lib.rs |
-| ndk-glue（android） | 应用生命周期 | examples |
+| Instance | entry/mod.rs | _attach: AttachmentSlot（唯一附着槽）；创建期完成附着与探测。 |
+| Adapter | entry/mod.rs | _caps: Caps（不可变能力快照）；可反复 request_device，失败无副作用。 |
+| DeviceInner | entry/mod.rs | state / cache / slots / error_state 四把 std Mutex；锁序：state 先、with_gl 后。 |
+| Device | entry/mod.rs | Share<DeviceInner>；编码器可克隆共享。 |
+| Queue | entry/mod.rs | _dev: Option<Device>；submit 回放命令，write_* 即时。 |
+| CommandEncoder | entry/mod.rs | _opened_pass 守卫 + _commands: Vec<Command>；至多一个开启通道。 |
+| CommandBuffer | entry/mod.rs | 命令表；submit 按参数顺序回放。 |
+| Buffer | entry/mod.rs | _h: DirectHandle + size + _usage；PartialEq 按活名+size。 |
+| Texture | entry/mod.rs | _h + GlParams + _target/_dim/_layers + _size/_mip/_samples/_format/_usage + _surface 标记。 |
+| TextureView | entry/mod.rs | {_tex: Option<Texture>, _target, _dim}；帧视图=无宿主且 target=0。 |
+| Sampler | entry/mod.rs | _h: DirectHandle。 |
+| BindGroupLayout | entry/mod.rs | _entries: Vec<BindGroupLayoutEntry>（创建期已校验）。 |
+| BindGroup | entry/mod.rs | _bound: Vec<BoundEntry>（声明序，持资源强引用）。 |
+| PipelineLayout | entry/mod.rs | _bgls: Vec<BindGroupLayout>（成员强链）。 |
+| RenderPipeline | entry/mod.rs | _program/_vao: Reusable + _vertex/_topology/_depth_stencil/_blend/_primitive/_color_writes/_alpha_to_coverage/_slots。 |
+| ShaderModule | entry/mod.rs | _refl: ReflectionTable + _compiled: CompiledEs300。 |
+| RenderPass<'pass> | draw/mod.rs | _enc: &mut CommandEncoder + 通道态（_vertex/_pipe_set/_vao/_fbo/_hold_color/_hold_depth/_resolve/_clear/_slots/_vbinds/_index_*）。 |
+| DirectHandle | objects/mod.rs | Share<DirectHandleState{kind, handle: ShareU64, generation}>；Clone 共享名，末引用删。 |
+| Reusable | objects/mod.rs | key: ReuseKey + handle: Option<GlHandle> + refcount 快照。 |
+| HandleCache | objects/mod.rs | XHashMap<ReuseKey, Vec<Reusable>>（pi_hash）。 |
+| StateMirror | state/mod.rs | 全字段期望态 + water + generation + epoch_seen + readback_frame。 |
+| Water | state_inner.rs | 非回读组「上次实际下发」原语快照（u64/元组/数组）。 |
+| SlotTable | binds/mod.rs | ubo/tex/smp: [Option<u32>; 24] + alias；分配上限：UBO 24、纹理 16、采样器 16。 |
+| BoundEntry | binds/mod.rs | binding/domain/handle/offset/size/dynamic/target。 |
+| CompiledEs300 | shader/mod.rs | hash + Vec<ShaderIr{module, info}>；出码延到管线创建。 |
+| ReflectionTable | shader/mod.rs | Vec<RefEntry{group,binding,kind,name}>。 |
+| Surface | surface/mod.rs | _target + _cfg + _attach + _creation + _stage。 |
+| SurfaceTexture | surface/mod.rs | pub texture + pub suboptimal + presented 哨兵 + _view；present 按值自消费。 |
+| Attachment | context/mod.rs | 代号读数载体；真实附着驻留 context 芯全局槽。 |
+| Caps | caps/mod.rs | 版本对 + qualcomm/ios18 标志 + 扩展位掩码（含形态位）。 |
+| Command | record.rs | Begin/End/SetPipeline/SetBindGroup/SetVertex/SetIndex/SetViewport/SetScissor/SetStencilRef/SetBlendConstant/Draw/DrawIndexed/CopyT2B/CopyB2T/CopyT2T。 |
 
-## 7. 扩展与维护注意点
+## 4. 生命周期与引用链
 
-- 新增纹理格式：wgt::TextureFormat → gl_conv → GLCache 尺寸/mipmap 表 → Adapter::texture_format_features。
-- 新增平台特判：统一放 AdapterContext 能力位（PrivateCapabilities / IS_* 原子），避免在算法文件散落 cfg。
-- 对齐新 wgpu 版本：以 `wgt/mod.rs` 逐字段 diff 移植；公开层优先保持方法签名不变，语义缩减必须同步更新 api.md 与 README 矩阵。
-- 与 README §2.0x 矩阵保持同步：该矩阵是功能需求验收的真相源（本 crate 无独立 CI 测试套件时尤其重要）。
+~~~text
+BindGroup ──强──▶ Buffer / Texture(─▶TextureView) / Sampler（DirectHandle 共享计数）
+RenderPipeline ──强──▶ Program(Reusable) + VAO(Reusable)
+CommandBuffer ──强──▶ RetainedPipeline(program/vao 计数+1) / RetainedBindGroup(句柄 clone) / 附件宿主 Texture
+RenderPass ──借用──▶ CommandEncoder + 设备 state/cache 锁
+Queue ──▶ DeviceInner（Share）
+Surface ──▶ AttachmentSlot + ShareCell 配置/屏幕纹理
+~~~
+
+销毁规则：
+
+1. Buffer/Texture/Sampler：末引用 Drop 即调驱动删除 + note_removed 登记死名。
+2. Program/RBO：全局计数归零即删 + 死名登记。
+3. FBO/VAO：归零**不删**（驻留），ensure 命中同名行直接复用；VAO 另有组合缓存 256 上限 + LRU（本帧使用保护）。
+4. 纹理删除同步摘 ROW_ATT 签名（GL 会从 FBO 自动剥离附件）。
+5. RenderPipeline Drop 释放 program/vao；命令表的持行体在命令销毁时成对 release。
+
+## 5. 线程与锁
+
+~~~text
+录制（编码器）：不触 GL；只写命令表（持资源强引用）
+提交（Queue::submit）：回放线程逐条触 GL
+创建/销毁/写：可跨线程，经 context_inner::with_gl
+with_gl = claim_and_attach() → f(glow) → release_one_layer()
+  同线程重入=计层快路；异线程等待上限 5s（超时 trace + 断言）
+  single_thread feature：锁步与 make/unmake current 整体退化
+~~~
+
+- 包裹锁用 std::sync::Mutex（poison 用 unwrap_or_else(into_inner)）。
+- 锁序：state → cache → with_gl；binds 应用期持 state 后再 bind_*。
+- 状态 epoch：任一线程完成一次下发即 +1；其他编码器的水位跨世代作废，整组强发。
+
+## 6. 错误归属
+
+| 模块 | 策略 |
+|---|---|
+| entry | 三个 Result 面（request_device/create_surface/get_current_texture）+ 创建族断言（短码 + label） |
+| surface | configure=log 短码（SurfaceErr/SurfaceOpErr），失败不写 _cfg；取帧=五态 Result |
+| draw | 合同违反断言（嵌套通道/死句柄/参数级），断言前无副作用 |
+| binds | 计数不符/槽满/死句柄=断言，且在任何 bind 之前预检 |
+| upload | log::error!(UploadErr)；debug 不下发，release 留痕后下发 |
+| shader | Result<_, ShaderErr> + log 诊断原文 |
+| caps/formats | 探测无效/格式无表/能力未确证=断言（短码） |
+| context | 锁超时=断言 + trace；附着缺失=断言 |
+| error | 作用域捕获/未捕获回调/log 降级 |
+
+## 7. 文件结构
+
+~~~text
+src/
+  lib.rs lib_inner.rs record.rs crash_diag.rs
+  types/mod.rs
+  entry/{mod.rs, entry_inner.rs}
+  surface/{mod.rs, surface_inner.rs}
+  context/{mod.rs, context_inner.rs}
+  caps/{mod.rs, caps_inner.rs}
+  state/{mod.rs, state_inner.rs}
+  objects/{mod.rs, objects_inner.rs, gid.rs}
+  formats/{mod.rs, formats_inner.rs}
+  binds/{mod.rs, binds_inner.rs}
+  shader/{mod.rs, shader_inner.rs}
+  draw/{mod.rs, draw_inner.rs}
+  upload/{mod.rs, upload_inner.rs}
+  utils/{mod.rs, utils_inner.rs}
+  error/{mod.rs, error_inner.rs, tests.rs}
+design/               设计册（pi-wgpu-rebuild / desc-align-wgpu25 / sampler-unit-assign）
+documents/            本套文档
+examples/             hello_triangle, textured_quad, clear, alpha_blend, d32_iso, rtt_probe, shadow_cube, upload_probe
+web_case/             浏览器案例包（build.ps1 + src + index.html）
+~~~

@@ -1,192 +1,234 @@
-# pi_wgpu 接口文档（导出面）
+# pi_wgpu 接口文档（v0.4.1 导出面）
 
-> v0.3.7。除注明外，所有类型名/字段名与 wgpu-rs 25.x 同名（wgt 层个别类型名保留了早期版本命名，见 §7）；本文与 README §2.0x 矩阵、[requirements.md](requirements.md)、[module-design.md](module-design.md) 配套。
+> 权威文本在各壳 mod.rs 注释；本文按使用顺序汇总。
+> 目标：写了 wgpu 25 子集代码的人能直接查「这里有没有、形状是否一样、哪里会被拒」。
 
 ## 1. 构建与启用
 
-| 事项 | 说明 |
-|---|---|
-| 工具链 | 内建实现使用 `#![feature(hash_extract_if)]` → **nightly** 编译。 |
-| Windows 运行 | exe 运行目录需放置仓库 `bin/` 的两个 dll（EGL/GL 运行时，见 README 顶部提示）。 |
-| 依赖源 | `pi_egl`、`pi_glow` 取自私有 registry `yn`；开发仓库带 `[patch.crates-io] naga = { path = "../wgpu/naga" }`，作为依赖使用时需自备 naga 改动或移除 patch。 |
-| feature | 见 §2。 |
+~~~toml
+[dependencies]
+pi_wgpu = { version = "0.4", features = ["gl"] }          # 自产实现（默认）
+# pi_wgpu = { version = "0.4", features = ["use_wgpu"] }  # 官方 wgpu 薄壳对照
+~~~
+
+- 默认 feature = gl；use_wgpu 与 gl 互斥（同时开启 = compile_error），切 use_wgpu 需 --no-default-features。
+- 工具链：nightly（依赖 naga fork 等）；edition 2021。
+- pi_egl / pi_glow 来自私有 registry「yn」；开发仓 [patch.crates-io] 指向本地 ../wgpu/naga。
 
 ## 2. Feature 开关
 
-| feature | 效果（据源码可考项） |
-|---|---|
-| `gl`（默认） | 选择内建 GL 实现的清单开关；src 内未检索到 `cfg(feature="gl")` 分支。 |
-| `use_wgpu` | lib 直接 re-export 真实 wgpu，`PiWgpuAdapter` 转为对原生 `Adapter::request_device(desc)` 的适配（trace_path 忽略）。 |
-| `single_thread` | 去掉 AdapterContext 重入锁与 make_current 搬运（`ReentrantMutexWrap` 空实现、device/egl 路径），要求全部调用同线程。 |
-| `geterror` | wasm 路径纹理操作追加 glGetError 检查（hal/texture.rs 三处）。 |
-| `webgl` / `webgpu` | 供源码中裸 `cfg(any(webgl, webgpu))`（Canvas/OffscreenCanvas、部分 texture 接口）判定；按当前 Cargo 定义不会自动开启该 cfg，需要 `--cfg webgl/--cfg webgpu` 注入。 |
-| `webgl_context` | 源码存在 `cfg(feature="webgl_context")` 分支（gl_state/pipeline，WebGL 上下文行为）。 |
-| `serde`（未启用项） | `Operations/LoadOp/StoreOp` 上有 `trace/replay` 占位属性，对应字段当前不存在，预留。 |
+| feature | 作用 | 现状 |
+|---|---|---|
+| gl | 自产 GL 实现 | 默认开 |
+| use_wgpu | 整面 re-export wgpu 25 + PiWgpuAdapter | 与 gl 互斥 |
+| single_thread | 锁与上下文搬运退化零开销 | 已接线（context 芯） |
+| loose_upload | 接受 bytes_per_row 非 4 倍数 | 已接线（upload 芯） |
+| geterror | wasm 纹理路径 glGetError 探针 | 已声明，src 内无消费者 |
+| webgl / webgl_context | 平台行为分支 | 已声明，src 内无消费者 |
+| webgpu | — | 已删除（非 GL 系后端，OUT） |
 
 ## 3. 根模块导出
 
-```rust
-// src/lib.rs
-pub use wgpu::*;            // cfg(feature="use_wgpu")
-pub use pi_wgpu::*;         // 否则：内建实现根导出
-pub trait PiWgpuAdapter { /* 统一两参 request_device */ }
-```
+~~~text
+pi_wgpu::
+  ├─ types 模块（pub use wgpu_types::*）与引用式别名
+  ├─ entry::*（Instance/Adapter/Device/Queue/Encoder/Buffer/Texture/Sampler/...
+  │            BindGroup/BindGroupLayout/PipelineLayout/RenderPipeline/ShaderModule
+  │            QuerySet/PipelineCache 占位、RequestDeviceError/CreateSurfaceError）
+  ├─ RenderPass
+  ├─ Surface / SurfaceTarget / SurfaceTexture / SurfaceError / SurfaceCapabilities
+  ├─ Backends / BufferUsages / Extent3d / PredefinedColorSpace / TextureFormat
+  ├─ DeviceExt / BufferInitDescriptor
+  ├─ backend_bits_from_env / power_preference_from_env / parse_backends_from_comma_list
+  ├─ util::{TextureDataOrder, DeviceExt, ...}
+  ├─ Error / ErrorFilter / ErrorSource / UncapturedErrorHandler
+  └─ PiWgpuAdapter（双参 request_device 的伞面 trait）
+~~~
 
-`pi_wgpu::\*` 再导出面：`hal::api::{Api,HalApi,GL}` + `ExposedAdapter` + `wgc::*`（下列对象）+ `wgt` 白名单：适配器/限制/格式/位标志/描述符（完整列表见 src/pi_wgpu/mod.rs）+ 常量（COPY_BUFFER_ALIGNMENT、VERTEX_STRIDE_ALIGNMENT…）+`util::TextureDataOrder`、Label、`Operations/LoadOp/StoreOp`、`Error`。
+Web（wasm32）额外：CopyExternalImageDestInfo / ExternalImageSource / ImageCopyExternalImage（旧名形）。
 
-## 4. 初始化流程（必须顺序）
+## 4. 初始化顺序
 
-```text
-Instance::new → create_surface(window) → request_adapter(...{compatible_surface})
-  → adapter.request_device → Surface::configure(device, cfg)
-    ⇒ 此后才允许 Device/Queue 的一切操作（Web 平台无跨 Surface Context）
-```
+~~~text
+Instance::new(&InstanceDescriptor { backends: Backends::GL, .. })
+  → instance.create_surface(target)?        // Web：此步注入 WebGL2 入口
+  → adapter = instance.request_adapter(&RequestAdapterOptions{
+        compatible_surface: Some(&surface), .. }).await.expect(...)
+  → (device, queue) = adapter.request_device(&DeviceDescriptor{..}, None).await?
+  → surface.configure(&device, &SurfaceConfiguration{..})
+  ⇒ 此后才可使用 Device / Queue
+~~~
 
-```rust
-use pi_wgpu::{Instance, InstanceDescriptor, RequestAdapterOptions,
-            Backends, PowerPreference, PiWgpuAdapter};
+要点：
 
-let instance = Instance::new(&InstanceDescriptor { backends: Backends::GL, ..Default::default() });
-// 可统一用 trait 名（原生 wgpu 同形）：Instance::default()
-let surface = instance.create_surface(&window)?;          // impl Into<SurfaceTarget>
-let adapter = pollster::block_on(instance.request_adapter(&RequestAdapterOptions {
-    compatible_surface: Some(&surface),
-    power_preference: PowerPreference::HighPerformance,
-    force_fallback_adapter: false,                        // 软件 adapter 直接 assert 拒绝
-})).expect("no adapter");
-let (device, queue) = pollster::block_on(adapter.request_device(&device_desc, None)).unwrap();
-surface.configure(&device, &config);
-```
+- 单 adapter（EGL 系统默认卡）；软件 adapter 不支持。
+- Web 形态必须先建 surface 再 request_adapter（无跨 surface 上下文）。
+- request_device 失败返回 Err，设备未建，Adapter 可重试。
+- trace 词位仅保持形状：DeviceDescriptor.trace / trace_path 均无效果、不拒止。
 
-## 5. 对象接口
+## 5. Instance / Adapter
 
-### 5.1 Instance / Adapter / PiWgpuAdapter
-
-- `Instance::new(&InstanceDescriptor) -> Self`；`Default`（backends=GL）。
-- `request_adapter(&RequestAdapterOptions) -> impl Future<Output = Option<Adapter>> + Send`（内部同步实现；按设备类型与 power 偏好排序挑选第一个可呈现 surface 的 adapter）。
-- `create_surface(impl Into<SurfaceTarget>) -> Result<Surface, CreateSurfaceError>`。
-- `enumerate_adapters`：**未提供**（EGL 枚举恒为系统默认显卡）。
-- `Adapter::request_device(&self, desc: &DeviceDescriptor, trace_path: Option<&Path>) -> impl Future<Output=Result<(Device, Queue), RequestDeviceError>> + Send`：与原生 wgpu 25 的一参签名不同 —— 通过 trait `PiWgpuAdapter` 统一；两种 feature 下均可写 `adapter.request_device(&desc, None)`。
-- Adapter 其余：`features/limits/get_info/get_downlevel_capabilities/is_surface_supported/get_texture_format_features`；特有 `unmake_current()`（将 GL context 释放给其他线程）。
-
-### 5.2 Surface / SurfaceTarget / 呈现
-
-- `SurfaceTarget`（non_exhaustive）：`Window(Box<dyn WindowHandle>)`；Canvas/OffscreenCanvas 分支受 `cfg(any(webgl,webgpu))` + wasm 门控；任意实现 `HasWindowHandle+HasDisplayHandle` 的类型 `Into` 之。
-- `Surface::configure(&Device, &SurfaceConfiguration)`；config 约束：**present_mode 仅 Fifo，alpha_mode 仅 Opaque**；`SurfaceConfiguration = wgt::SurfaceConfiguration<Vec<TextureFormat>>`。
-- `get_current_texture() -> Result<SurfaceTexture, SurfaceError>`（**suboptimal 恒为 true** 的当前实现事实）；`SurfaceError::{Timeout,Outdated,Lost,OutOfMemory}`。
-- `SurfaceTexture::present(self)`：在 submit 记录后执行 swap。
-- `get_capabilities(&Adapter) -> SurfaceCapabilities`：源码已提供（README §2.07 的 × 记录已过时，见 §7）。
-- `get_default_config`：无。
-
-### 5.3 Device
-
-签名与 wgpu 对齐：`features/limits`；create_*：`create_shader_module(desc) → ShaderModule`、`create_command_encoder(&desc) → CommandEncoder`、`create_bind_group_layout &create_bind_group`、`create_pipeline_layout`、`create_render_pipeline(&RenderPipelineDescriptor)`（**layout 字段必须 Some**；单颜色目标；无 bundle）、`create_buffer &create_texture &create_sampler`；特有 `reset_state()`（重置驱动状态机缓存，处理外部 GL 干扰）；不支持矩阵见 README §2.09。
-
-### 5.4 Queue
-
-- `write_buffer(&Buffer, offset, &[u8])`、`write_texture(ImageCopyTexture, &[u8], ImageDataLayout, Extent3d)`：**实现即时生效**（直接下发 GL，不是「下次 submit 起效」；与 wgpu 文档描述的语义差异，无错误路径 —— 越界即 log+行为未定义，由 GL 兜底）。
-- `submit`（空）、`write_texture_jsbuffer`（wasm 私有扩展，接收 js 纹理对象）。
-- 不支持：write_buffer_with / on_submitted_work_done / 时间戳 / copy_external_image。
-
-### 5.5 CommandEncoder / CommandBuffer / RenderPass
-
-- `begin_render_pass(&RenderPassDescriptor) -> RenderPass`：descriptor 字段与 wgpu 同形；color_attachments 仅支持一个 Some 项；occlusion/timestamp 字段存在但无能力（QuerySet 为占位类型）。
-- `finish(self) -> CommandBuffer`：空；CommandBuffer 空类型。
-- `RenderPass<'pass>`：`set_pipeline/set_vertex_buffer/set_index_buffer/set_bind_group(set,&bg,&[DynamicOffset])/set_viewport（wgpu Y 向下坐标，内部翻转换算）/set_scissor_rect/set_stencil_reference/set_blend_constant/draw/draw_indexed`；`draw*_indirect、multi_draw*、execute_bundles、debug 系列、write_timestamp = ×`。**drop（离开作用域）即结束 pass**，与新版 wgpu 无 end() 一致。
-- 参数级约束：`first_instance == 0`、`base_vertex == 0`。
-
-### 5.6 资源与管线对象
-
-| 对象 | 支持方法 | 约束 |
-|---|---|---|
-| Buffer | size/usage/as_entire_binding/as_entire_buffer_binding/slice | 无 map；生命周期受 BindGroup；创建初始化用 util::DeviceExt::create_buffer_init |
-| Texture / TextureView | create_view、as_image_copy、尺寸/格式/usage 查询族 | 无 destroy/as_hal；mipmap 自动生成；DDS/ASTC 压缩纹理 |
-| Sampler |（仅描述符构造） | 不可用 sampler compare/reduction 类型于 WebGL2；被 BindGroup 握住 |
-| BindGroup(Layout) |（描述符构造） | layout 条目受 16-slot 上限；BindingType::Buffer 仅 Uniform |
-| ShaderModule | 构造自 `ShaderModuleDescriptor`（WGSL/GLSL Source） | 经 naga→GLSL300es；无 define 宏（§2.19） |
-| RenderPipeline | 构造 + set_pipeline | layout Some；单目标；无 bundle/depth-clip |
-
-### 5.7 util 扩展
-
-```rust
-use pi_wgpu::util::{DeviceExt, BufferInitDescriptor, TextureDataOrder};
-device.create_buffer_init(&BufferInitDescriptor { label, contents, usage });
-device.create_texture_with_data(&queue, &tex_desc, TextureDataOrder::LayerMajor, &data);
-// env 助手（与 wgpu util 同名，含义按 pi 版简化）：
-util::backend_bits_from_env();   // 恒 Some(Backends::GL)，WGPU_BACKEND 不生效
-util::power_preference_from_env();// WGPU_POWER_PREF=low|high
-util::parse_backends_from_comma_list(s); // wasm→GL
-```
-
-## 6. 错误与诊断
-
-- 根 `Error::{OutOfMemory{source}, Validation{source,description}}`：thiserror/Display；用于 request_device/创建失败路径。
-- `RequestDeviceError`、`CreateSurfaceError`（当前无字段）、`SurfaceError`（§5.2）。
-- 多数不支持路径是 assert!/panic（录制即执行），错误经 `log::trace!` 全量伪代码留痕；`geterror` 用于 WebGL 排错。
-
-## 7. 与 wgpu-rs 差异汇总（迁移必读）
-
-| 差异 | 详情 |
+| 方法 | 说明 |
 |---|---|
-| Adapter::request_device | 双参（trace_path）→ 统一经 `PiWgpuAdapter`，见 §5.1。 |
-| Queue::submit | 空实现：录制即执行，无法在 submit 前校验/回滚。 |
-| write_buffer 注释 | 「下次 submit 前排队」的表述在本实现中不成立（即时下发）。 |
-| Buffer map 族（map_async/get_mapped_range） | 缺失；GPU→CPU 读回走 `copy_texture_to_buffer` + `Buffer::get_sub_data`（同步读，有意差异，见 §8.1）。 |
-| copy_* 传输族 | 已实现 texture→buffer / buffer→texture / texture→texture（行序同 wgpu，不翻转）；其余变体缺失。 |
-| Compute/QuerySet/Indirect/Bundle/Spirv/push constants | 缺失（需求方需降级或放弃对应特性）。 |
-| 多颜色目标 / 多重采样 | begin_render_pass 仅单目标（MSAA 内部经 blit resolve 支持离屏）。 |
-| surface.configure 时序 | **强制前置条件**（Web 平台无跨 surface context；见 §4）。 |
-| 类型命名遗留 | `ImageCopyTexture/ImageDataLayout` 等保留早期命名；个别常量/描述符字段有增删（编译期即暴露，逐项查 `wgt/mod.rs`）。 |
-| Surface::get_capabilities | README §2.07 标记 ×，当前代码已有实现（返回格式/模式能力；configure 校验依据）—— 属文档滞后项。 |
-| 生命周期 | §5.6「被 BindGroup 握住」「draw 之后才可销毁」两条硬规则。 |
-| 线程 | 录制非多线程安全；资源多线程创建需要锁（single_thread 省略）。 |
+| Instance::new(&InstanceDescriptor) | backends 必须是 GL 的子集；附着+探测在此完成（Web 推迟到 request_adapter）。 |
+| create_surface(target) -> Result<Surface, CreateSurfaceError> | 目标类型不符/无附着=Err；无半附着。 |
+| request_adapter(&opts).await -> Option<Adapter> | 单卡；失败 None 无副作用；Lost 重建可对同一 Instance 再调用。 |
+| Adapter::request_device(desc, trace_path).await -> Result<(Device, Queue), RequestDeviceError> | 36 项 Limits + Features 全量对照。 |
+| features() / limits() / get_info() / get_downlevel_capabilities() / get_texture_format_features() / is_surface_supported() | 纯读快照，不失败。 |
+| unmake_current() | 让出当前线程 GL 附着（跨线程搬运底座），私有差异。 |
 
-## 8. 着色器与坐标约定（产品端必读）
+## 6. Surface
 
-本章规定「产品端如何写」：**只写一套 WebGPU 语义的着色器与数据，坐标差异全部由后端翻译到 GL**。
-与 §7 的差异清单互补——§7 讲接口缺什么，本章讲语义该怎么给。
+| 方法 | 说明 |
+|---|---|
+| configure(&device, &cfg) | 非 Result。校验：宽高>0、usage 非空、present_mode=Fifo、alpha_mode ∈ {Auto, PreMultiplied, Opaque}。失败 log 短码且不写配置。平台表面只附着一次。 |
+| get_current_texture() -> Result<SurfaceTexture, SurfaceError> | 未 configure=Outdated；成功返回屏幕纹理租约（suboptimal=false）。 |
+| get_capabilities(&adapter) -> SurfaceCapabilities | 桌面报 BGRA/RGBA 四格式；Web 报 RGBA 两格式；present=Fifo；alpha 三值。 |
 
-### 8.1 契约与落地位置
+SurfaceTexture：
 
-| 环节 | 后端行为 | 实现位置 |
-|---|---|---|
-| 顶点输出 | 后端在 `gl_Position` 末尾翻 Y，并把 z 从 [0,1] 映到 GL 的 [-1,1] | `src/shader/shader_inner.rs:337`（`ADJUST_COORDINATE_SPACE`） |
-| 正面绕序 | 按 wgpu 语义声明 `FrontFace::Ccw/Cw`，后端反向后下发（Y 翻使窗口绕序镜像） | `src/state/state_inner.rs:264` |
-| 上传行序 | `write_texture` 数据第 0 行 → 纹理行 0（图像顶行） | `src/upload/upload_inner.rs` |
-| 读回行序 | `copy_texture_to_buffer` 首行 = 纹理行 0，不翻转 | `src/upload/upload_inner.rs:471` |
-| 上屏 | `surface` 帧 view 为离屏纹理，`present` 做一次翻转 blit | `src/surface/surface_inner.rs:218` |
+| 成员 | 说明 |
+|---|---|
+| texture: Texture | 帧背板（真实屏幕纹理）。 |
+| suboptimal: bool | 本层恒 false（按真实语义）。 |
+| view() -> &TextureView | 颜色附件用视图。 |
+| present(self) | 翻转 blit 上屏 + 换帧 + 推进帧号；租约消费。未 present 即 Drop=丢弃（debug log）。 |
 
-### 8.2 产品必须遵守的 shader 语义
+SurfaceError：Timeout / Outdated / Lost / OutOfMemory / Other。
 
-1. **投影矩阵输出 z∈[0,1]**（WebGPU 约定）。SwiftShader/GL 风格的 `(f+n)/(n-f)`、`2fn/(n-f)` 会把 z 送出范围，后端再映只会得到 [-3,1]；请使用 `pi_scene_math` 的 `perspective_lh` / `orthographic_lh`（已含 `half_z_range`）。
-2. **纹理坐标 v=0 表示图像顶行**。由 NDC 反推 UV 用 `vec2(x*0.5+0.5, 0.5-y*0.5)`；顶点属性 UV 按「顶=0」摆放。不要写 GL 习惯的 `0.5+0.5y`。
-3. **深度/阴影比较直接用 NDC z**（已是 [0,1]），不要再 `z*0.5+0.5`；深度附件清除值 1.0、比较函数按 wgpu 语义给。
-4. **纹理上传按图像行序写入**（第 0 行=顶行），不要为 GL 预翻；压缩纹理/DDS 同理按 wgpu 的层与行列语义给 `origin`。
-5. **不手翻顶点 y**：矩阵、`look_at`、NDC 都按 y 向上给；若自行取反会与后端翻转叠加成倒置。
-6. **视口/剪刀按 wgpu 语义给**（y 从帧缓冲顶部算）。本后端与 wgpu-hal GL 一致地原样下发，全屏视口无差异；偏置/分屏视口需自测。
-7. **单颜色目标**限定见 §7；MSAA 仅离屏经 blit resolve 支持；`copy_*` 三形在场，CPU 读回走 `copy_texture_to_buffer` + `get_sub_data`（同步读），map_async 映射族仍缺失。
-8. **着色语言**：优先 WGSL（唯一可跨后端移植的源）；GLSL 450 经 naga 前端按 WebGPU 语义解释，属便利入口，不承诺与原生 GL 语义一致。
+## 7. Device 创建面
 
-### 8.3 后端未适配的已知差异（产品需规避）
+共同合同：即时创建、描述符在边界一次性全量校验；违约=断言（短码 + label），断言前不发驱动调用、无半建对象。
 
-| 差异 | 影响 | 规避建议 |
-|---|---|---|
-| `@builtin(position)` / `gl_FragCoord` 仍为 GL 底原点 | 屏幕空间特效（描边、SSAO、边缘检测）上下反 | 改用 varying 传 uv；或对 position.y 自行 `1-y` 处理。wgpu-hal GL 后端同样存在此缺口 |
-| flat 插值取末顶点（GLES 无 `glProvokingVertex`），WebGPU 规定首顶点 | flat varying / 顶点色可能不一致 | 不依赖诱发顶点，或每顶点复制同值 |
-| 立方体贴图面内轴向未用真 GL 用例钉死 | 天空盒/IBL 可能出现面内旋转或镜像 | 接入时用 6 面可辨识图样比对 wgpu 参考实现 |
-| 视口/剪刀 y 原样下发 | 偏置视口 Y 方向与 wgpu 语义不符 | 限全屏视口，或自测校正 |
+| 方法 | 关键约束 |
+|---|---|
+| create_buffer(&BufferDescriptor) -> Buffer | usage 非空且在 COPY_DST/VERTEX/INDEX/UNIFORM/COPY_SRC 内；size>0 且 4 字节倍数。Web 不允许 VERTEX+INDEX 双用。 |
+| create_texture(&TextureDescriptor) -> Texture | 宽高≥1、层≥1、mip≥1、samples∈{1,4}；MSAA 仅 D2 单层无 mip；格式在支持表且被 caps 放行；view_formats 同族。 |
+| create_sampler(&SamplerDescriptor) -> Sampler | anisotropy_clamp≥1；非 1 时三过滤全 Linear；compare 可选。 |
+| create_shader_module(desc) -> ShaderModule | WGSL/GLSL → naga 校验。源错=log 短码+降级（空产物），不 panic；真错延后到管线创建。 |
+| create_bind_group_layout(desc) -> BindGroupLayout | binding 域合法、visibility 非空、数组长度>0、类型在子集内。 |
+| create_bind_group(desc) -> BindGroup | 与布局逐条对表；资源活态；缓冲偏移 4 对齐且界内；动态条目数登记。 |
+| create_pipeline_layout(desc) -> PipelineLayout | 成员 ≤4、set 0..3、不重复；push_constant_ranges 非空=ErrPushRange 断言。 |
+| create_render_pipeline(desc) -> RenderPipeline | layout 必须 Some；multiview/cache 必须 None；compilation_options 必须默认；顶点步长/偏移 4 对齐；顶点格式在域内；双源混合因子拒止。 |
+| create_command_encoder(desc) -> CommandEncoder | 仅置守卫，零驱动调用。 |
+| features() / limits() | 读快照。 |
+| reset_state() | 外部 GL 干扰后丢弃镜像并按驱动真态重同步（幂等）。 |
+| on_uncaptured_error(handler) / push_error_scope(filter) / pop_error_scope().await | 错误通道；缺省未捕获=log 降级（上游默认 panic，差异登记）。 |
 
-### 8.4 接入自检清单
+## 8. Queue
 
-1. 画一个上下不对称的图形（如左上红、右下蓝），确认窗口内**正立**。
-2. 渲到离屏 RT 后读回（`copy_texture_to_buffer`），确认**首行 = 视觉顶**。
-3. 阴影/深度比较使用 `ndc.z` 直接比对，确认无漏光/错位。
-4. 若 shader 使用 `gl_FragCoord`/`position`，确认特效未上下翻转（见 8.3）。
+| 方法 | 说明 |
+|---|---|
+| write_buffer(&Buffer, offset, &[u8]) | 即时；offset 4 对齐、界内；违约 log(UploadErr)，debug 不下发。 |
+| write_texture(TexelCopyTextureInfo, data, TexelCopyBufferLayout, size) | 即时；矩形/面/层按创建期快照预校验；bytes_per_row 0=紧凑，否则须 256 倍数（loose_upload 放宽 4）。 |
+| submit(iter of CommandBuffer) | 按参数顺序回放各命令表；空列表=no-op。 |
+| write_texture_jsbuffer(texture, JsValue) [wasm] | 位图零字节直传；仅主线程。 |
+| copy_external_image_to_texture(src, dst, size) [wasm] | img/canvas/bitmap/video → 纹理；单层 2D；主线程。 |
 
-### 8.5 仓内示例的约定状态
+## 9. CommandEncoder / CommandBuffer / RenderPass
 
-- `examples/shadow_cube`：已按本章迁移（投影 z∈[0,1]、阴影 UV、合成 UV）。
-- `examples/alpha_blend`：按本章约定编写；含离屏读回三点混合数值对账（红 0.5 叠白=[255,128,128]，再叠蓝=[128,64,192]）。
-- `examples/rtt_probe`：`quad.vert` 与 `off.frag` 仍为旧 GL 约定（三色带上下与注释相反），属历史示例，勿作写法参照。
-- `examples/textured_quad`：顶点属性 UV 仍为旧 GL 约定；因渐变为水平方向而不可见。
-- 结论：旧示例只用于验证链路通断；产品代码一律以 8.1–8.3 为准。
+CommandEncoder：
+
+| 方法 | 说明 |
+|---|---|
+| begin_render_pass(&RenderPassDescriptor) -> RenderPass | 记录 Begin；通道借用编码器；至多一个开启通道。 |
+| copy_texture_to_buffer(source, destination, extent) | 记录拷贝命令；submit 时执行（PBO+glFinish）。约束：活名、COPY_SRC/COPY_DST、aspect=All、非深度族/数组、mip 域内。 |
+| copy_buffer_to_texture(source, destination, extent) | 同上；目标单层、mip 域内、bytes_per_row 0=256 对齐紧凑或 256 倍数。 |
+| copy_texture_to_texture(source, destination, extent) | CPU 中转两程；双方单层同像素宽、非深度族。 |
+| finish() -> CommandBuffer | 交出命令表，无执行。 |
+
+RenderPass（Drop = 记录 End；回放时执行）：
+
+| 方法 | 约束 |
+|---|---|
+| set_pipeline(&RenderPipeline) | 程序/VAO/深度/混合/图元/写掩码随管线差异下发；死句柄=断言。 |
+| set_bind_group(set, &BindGroup, &[DynamicOffset]) | set 0..3；偏移数=声明数；槽/句柄/类型预检失败=断言且不改绑定。 |
+| set_vertex_buffer(slot, BufferSlice) | 步长由管线布局决定；记录槽位供组合 VAO。 |
+| set_index_buffer(BufferSlice, IndexFormat) | 记录格式与有效区间；draw_indexed 校验。 |
+| set_viewport(x,y,w,h,dn,up) | 存原始值（负尺寸=断言）；Y 翻换由汇合层处理（当前版本存原始值，待目标尺寸面）。 |
+| set_scissor_rect(x,y,w,h) | 存原始值。 |
+| set_stencil_reference(u32) | 差异才下发。 |
+| set_blend_constant(Color) | 差异才下发。 |
+| set_push_constants(offset, &[u8]) | 恒拒止（断言，GL 无 push constants）。 |
+| draw(vertices, instances) | 管线+属性就绪；instances.start 必须 0；glDrawArraysInstanced。 |
+| draw_indexed(indices, base_vertex, instances) | base_vertex 必须 0；索引已绑；区间在界内；instances.start=0；glDrawElementsInstanced。 |
+
+RenderPassDescriptor 约束：
+
+- color_attachments 中 Some ≤1（0=纯深度通道）；深度槽不接受帧视图；色槽拒深度族。
+- timestamp_writes / occlusion_query_set = Some 恒拒（QuerySet 无构造面）。
+- color view 宿主必须活到通道结束（通道持行强引用）。
+- MSAA resolve：附件 sample=4，resolve 目标 sample=1、D2、单层、同格式。
+
+## 10. 资源对象
+
+Buffer：slice(RangeBounds) / as_entire_buffer_binding() / as_entire_binding() / usage() / get_sub_data(offset,size)（同步读回，替代 map_async）。Clone/PartialEq（活名+size）。
+
+Texture：create_view(&TextureViewDescriptor)（Cube/CubeArray 需宿主目标匹配；base/count 切片暂不生效）、destroy()（即刻删+死名）、size/width/height/depth_or_array_layers/mip_level_count/sample_count/dimension/format/usage。
+
+Sampler：无方法。
+
+TextureView：纯值；帧视图无宿主、target=0（不可用于绑定组）。
+
+BindGroupLayout / BindGroup / PipelineLayout / ShaderModule：无公开查询方法；生命周期靠强引用。
+
+RenderPipeline：无公开方法；Drop 释放 program/VAO。
+
+QuerySet / PipelineCache：占位类型，无构造路径；词汇在场、给值=断言。
+
+## 11. util
+
+| 项 | 说明 |
+|---|---|
+| DeviceExt::create_buffer_init(&BufferInitDescriptor) | create_buffer + write_buffer 组合。 |
+| DeviceExt::create_texture_with_data(&Queue, &TextureDescriptor, TextureDataOrder, &[u8]) | create_texture + mip0 单段写入；order 多段排布未实现（登记差异）。 |
+| DeviceExt::create_compress_texture_with_data_jsdata(...) [wasm] | 压缩纹理按 mip/层逐段 ArrayBufferView 零拷贝直灌。 |
+| backend_bits_from_env() | 恒 Some(Backends::GL)；WGPU_BACKEND 不生效。 |
+| power_preference_from_env() | WGPU_POWER_PREF=low/high；单卡不选路。 |
+| parse_backends_from_comma_list(s) | 只识别 gl，其余忽略。 |
+
+## 12. 错误面
+
+~~~rust
+pub enum Error {
+    OutOfMemory { source: ErrorSource },
+    Validation { source: ErrorSource, description: String },
+    Internal   { source: ErrorSource, description: String },
+}
+pub type ErrorSource = String;   // 差异：上游是 dyn Error 盒
+pub enum ErrorFilter { OutOfMemory, Validation, Internal }
+pub trait UncapturedErrorHandler: Fn(Error) + Send + 'static {}
+~~~
+
+- 作用域栈：push 开层，捕获按最内匹配层；pop 取回首条。
+- 缺省未捕获 = log 降级；不 panic（上游默认 panic，差异登记）。
+- 三个显式 Result 面之外的创建违约仍走断言（短码+label），尚未全部迁移为 Error 通道（登记）。
+
+## 13. 着色器与坐标约定（产品端必读）
+
+1. 输入：WGSL 单串，或 GLSL 按阶段单源（ShaderStage::Vertex/Fragment），#version 由源码自承载。
+2. 输出：GLSL ES 3.0；ADJUST_COORDINATE_SPACE 生效 → 顶点 y 取反、z 映射到 [-1,1]。
+3. 正面绕序：库内已按镜像反向映射；业务侧按 wgpu 约定设置 FrontFace 即可。
+4. 上屏：present 自动翻转；不要在业务 shader 里再翻 y。
+5. 纹理坐标：与 wgpu 一致（行 0=顶）；上传数据不要预翻。
+6. entry_point：建议显式给；None 时按该 stage 唯一入口选，多入口会断言。
+7. bind group：set 仅 0..3；WGSL @group(n) 与 Rust set 参数必须一致；每 stage 的 binding 由 naga 反射自动定位，无需手写 location。
+8. 组合采样器：WGSL 的 texture+sampler 会合并为 GLSL sampler2D；库按 IR 配对把采样器绑到纹理单元，业务无需干预。
+
+## 14. 已知差异速查（详见 migration.md）
+
+| 项 | 现状 |
+|---|---|
+| submit 语义 | v4 起按提交序回放；write_*/copy_* 仍即时。 |
+| Buffer 映射 | 不移植 map_async/get_mapped_range；用 get_sub_data 同步读。 |
+| polygonMode | Web 恒填充；非 Fill 只 warn 一次。 |
+| sample_mask | 仅镜像记录，无驱动下发面。 |
+| Clear | CLEAR_SCISSORED 默认开，按裁剪框延后清（非标准）。 |
+| 默认帧缓冲通道 | 不复位 viewport/scissor（无尺寸来源）。 |
+| 多颜色目标 | 不支持（Some ≤1）。 |
+| 多采样 resolve | CPU readPixels 中转（滤波采样），非精确 blit。 |
+| 存储缓冲/纹理 | 不支持；WebGL2 统一 UBO 建模。 |
+| 间接绘制/多 draw | 不支持；未合并 WEBGL_multi_draw。 |
+| OffscreenCanvas | 构造可达，create_surface 暂拒。 |
+| Android | 编译链就绪，真机未验。 |
+| 错误通道 | 仅三处 Result；其余断言（短码+label）。 |

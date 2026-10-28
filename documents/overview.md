@@ -1,160 +1,143 @@
-# pi_wgpu 设计总览 — 目标 · 架构 · 运行流程 · 特性
+# pi_wgpu 设计总览（v0.4.1）
 
-> 版本基线 v0.3.7。本文为项目设计内容的单篇总纲，提炼自 README 与 documents/{requirements, module-design, design, api, exported-api} 及 design/pi-wgpu-rebuild/plan/；各单篇文档仍为真相源。
+> 本文是当前分支（v4）的单篇总纲，面向「第一次接触本库」的读者。
+> 权威细节：模块契约在 src/**/mod.rs 头注释；重大机制在 design/ 三册（pi-wgpu-rebuild、desc-align-wgpu25、sampler-unit-assign）；
+> 具体接口与差异见 documents/api.md、documents/migration.md、documents/module-design.md、documents/design.md。
 
-## 1. 项目定位与设计目标
+## 1. 定位
 
-**一句话定位**：在 OpenGL 3.3 / GLES 3.0 / WebGL2 驱动之上，以「单线程、录制即执行」模型实现 WebGPU（wgpu-rs 25.x 大版本兼容子集）API 的渲染实现，让上层引擎只维护一套 wgpu 风格代码，同时编译运行于 Windows / Android / Web(小程序) 三大平台。
+在 OpenGL 3.3 / GLES 3.0 / WebGL2 之上，实现 **wgpu 25 兼容子集** 的渲染库：
 
-**为什么不直接用原生 wgpu-rs**：Vulkan / 原生 WebGPU 短期内无法广泛覆盖目标平台 —— 微信小游戏仅提供 WebGL2，iPhone 上 WebGL2 要求 iOS ≥ 15.5，存量 Android / Windows 设备主力仍是 GL 驱动栈。
+~~~text
+上层引擎（wgpu 风格代码）
+        │
+        ├── feature = use_wgpu → 整面 re-export 官方 wgpu（A/B 对照）
+        └── feature = gl（默认）→ pi_wgpu 自产实现
+                                  │
+                     OpenGL 3.3+ / GLES 3.0+ / WebGL2
+~~~
 
-设计目标（对应需求文档 FR 编号）：
-1. **API 兼容子集**（FR-01）：Instance / Adapter / Device / Queue / CommandEncoder / RenderPass / Buffer / Texture / Sampler / BindGroup(Layout) / Pipeline(Layout) / ShaderModule / Surface 及描述符结构同名同形。
-2. **无缝切换**（FR-02）：`use_wgpu` feature 下本 crate 直接 re-export 原生 wgpu，同一份上层代码可在内建实现与参考实现间 A/B 对照。
-3. **三平台贯通**（FR-03/04/05）：Windows 走 EGL+OpenGL 3.3+；Android 走 GLES 3.0+（ndk-glue 生命周期）；Web 走 WebGL2（HtmlCanvas / OffscreenCanvas）。
-4. **性能**（FR-11）：GLState 全状态比较 + GLCache 资源表，同场景下发 GL 指令数量 ≤ wgpu-rs。
-5. **极简语义**（FR-13）：submit / finish 为空壳，录制即执行；无 wgpu-core 的 Context Hub / 验证层 / 命令队列。
-6. **渲染特性子集**（FR-06/07/08/09）：单颜色目标 + 深度模板附件、blend / depth / stencil / cull、viewport（wgpu Y 向下坐标，内部翻 Y）、VAO 批处理、UBO-纹理-sampler 绑定与动态偏移、WGSL/GLSL → GLSL 300 es、mipmap 自动生成、DDS/ASTC 压缩纹理。
-7. **资源治理**（FR-10/12）：pi_assets 记账分配 + 超时延迟回收（含 VAO 垃圾）；资源创建/销毁允许跨线程。
+选择理由：微信小游戏只提供 WebGL2（iOS 需 ≥ 15.5），存量 Android/Windows 设备主力仍是 GL 驱动栈；Vulkan/原生 WebGPU 短期内覆盖不了。
 
-**明确不做（Out of Scope）**：Compute（Pipeline/Pass）、QuerySet / 时间戳、RenderBundle、copy_* 传输族、Buffer map/unmap（无 GPU→CPU 回读）、indirect 绘制、多渲染目标、push constants、SPIR-V 输入、poll 与捕获调试面。
+## 2. 当前架构（13 个功能模块 + 3 个支撑模块）
 
-## 2. 架构分层
+~~~text
+src/
+├── lib.rs / lib_inner.rs     feature 分叉、根导出、PiWgpuAdapter 双参适配
+├── record.rs                 渲染命令录制与提交序回放（录制订阅）
+├── types/                    公开词汇面：pub use wgpu_types::* + 引用式描述符别名
+├── entry/                    公开对象面：Instance/Adapter/Device/Queue/Encoder/资源对象
+├── surface/                  呈现：configure / get_current / present（离屏屏幕纹理 + 翻转 blit）
+├── context/                  全库唯一上下文附着点（重入锁、跨线程搬运、代号）
+├── caps/                     能力探测 + 特判表（Qualcomm / iOS18）
+├── state/                    驱动状态镜像（可回读档 / 整发档 / 死名表 / 帧门 / 世代）
+├── objects/                  GL 句柄层：1:1 直建三类 + 四类可复用对象
+├── formats/                  格式→驱动参数表 + mipmap 链 + 纹理目标选择
+├── binds/                    绑定槽表：UBO / 纹理单元 / 采样器单元三族
+├── shader/                   naga 转译（WGSL/GLSL→ES300）+ 反射
+├── draw/                     渲染通道：begin/set/draw/end、组合 VAO、RTT、清屏
+├── upload/                   即时写入、拷贝、读回、Web 图像直传
+├── utils/                    DeviceExt 便捷构造 + 环境助手
+├── error/                    错误面（Error/ErrorFilter/UncapturedErrorHandler）
+└── objects/gid.rs            GlHandle(u64) 与 glow 句柄值唯一闸口
+~~~
 
-```text
-应用代码（wgpu-rs 风格 API）
-┌────────────────────────────────────────────────┐
-│ src/lib.rs ── use_wgpu? 转发真实 wgpu : 内建实现    │
-├────────────────────────────────────────────────┤
-│ wgc ── 对外 API 对象层                             │
-│   Instance/Adapter/Device/Queue/Encoder/Pass/资源  │
-│   hal 结构的直接薄封装：调用即执行                  │
-├────────────────────────────────────────────────┤
-│ wgt ── 纯类型层（fork 自 wgpu-types）              │
-│   描述符/位标志/Limits/TextureFormat/常量，唯一词汇表│
-├────────────────────────────────────────────────┤
-│ hal ── GL 后端层                                   │
-│   AdapterContext：EGL/Context + 重入锁 + make_current│
-│   GLState：全状态机镜像，差异才下发                 │
-│   GLCache：哈希资源表，handle 复用 + 超时回收        │
-│   pi_glow：GL / GLES / WebGL 统一函数入口            │
-├────────────────────────────────────────────────┤
-│ 驱动：OpenGL 3.3+ │ GLES 3.0+ │ WebGL2             │
-└────────────────────────────────────────────────┘
- 纵向支撑：util（DeviceExt/env 助手/锁包装）· pi_egl（EGL 绑定）· naga（着色器编译）
-```
+每个模块 = **壳**（src/<mod>/mod.rs：类型/方法声明 + 契约注释）+ **芯**（*_inner.rs：实现）。
+壳头注释必带「设计：<slug>」；改壳/设计册需走 dev-design-lite 流程。
 
-Feature 开关：
+## 3. 执行模型（v4 关键变化）
 
-| feature | 作用 |
-|---|---|
-| gl（默认） | 选择内建 GL 实现 |
-| use_wgpu | lib 直接 re-export 原生 wgpu（参考实现 / A/B 对照） |
-| single_thread | 去除重入锁与 make_current 搬运，要求全部调用同线程（零开销） |
-| geterror | wasm 纹理路径插入 glGetError（排障） |
-| webgl / webgpu | 驱动 Canvas/OffscreenCanvas 等 cfg 分支；按 Cargo 定义不会自动开启，需 --cfg 注入 |
-| webgl_context | WebGL 上下文下的 gl_state / pipeline 行为分支 |
+~~~text
+录制期（可多编码器）
+  encoder.begin_render_pass(desc)  → 校验 + 记 Begin（含附件/清除参数）
+  pass.set_pipeline/set_bind_group/set_* / draw* → 只入命令表（持资源强引用）
+  pass Drop                         → 记 End（不触驱动）
+  encoder.finish()                  → CommandBuffer { commands }
+提交期（Queue::submit）
+  按 submit 参数顺序逐 CommandBuffer 回放
+  通道内逐条执行：Begin → set/draw → End（此时才真正下发 GL）
+~~~
 
-## 3. 运行流程
+- **写路径仍是即时**：Queue::write_buffer / write_texture / copy_* 在调用点生效（不等 submit）。
+- **present 才换帧**：渲染落在离屏「屏幕纹理」，present 做一次 y 反向 blit 到默认帧缓冲，再推进帧号。
+- 多线程并行编码因此获得「提交序」语义；通道资源在命令表存活期内被强引用，不会被提前删。
 
-### 3.1 初始化（必须顺序）
+## 4. 三档状态治理
 
-```text
-Instance::new(Backends::GL)
- → create_surface(window / canvas)      # SurfaceTarget: raw-window-handle 0.6 / Canvas / OffscreenCanvas
- → request_adapter(compatible_surface)  # EGL 枚举 = 系统默认显卡，仅 1 个 adapter；软件 adapter assert 拒绝
- → adapter.request_device(desc, None)   # 双参签名经 PiWgpuAdapter trait 与原生 wgpu 统一
- → Surface::configure(device, cfg)      # present_mode 仅 Fifo、alpha_mode 仅 Opaque
- ⇒ 此后才允许一切 Device / Queue 使用（Web 平台无跨 Surface Context）
-```
-
-### 3.2 每帧流程（录制即执行，无队列层）
-
-```text
-surface.get_current_texture()            # acquire 后缓冲；当前实现 suboptimal 恒 true
-encoder = device.create_command_encoder  # 轻量对象
-pass = encoder.begin_render_pass(desc)   # 绑定 FBO、执行 clear/load
-  pass.set_pipeline / set_bind_group / set_vertex_buffer / set_index_buffer / set_viewport ··
-      # 每次调用：取 AdapterContext 锁 → GLState 全量比较 → 仅差异下发 GL
-  pass.draw / draw_indexed               # VAO 批处理属性，立即绘制；first_instance=0, base_vertex=0
-Drop(pass)                             # 离开作用域 = end_render_pass（新版 wgpu 无 end() 一致）
-encoder.finish() / queue.submit()      # 空壳，无实际动作
-frame.present()                        # eglSwapBuffers + GLFence 记位；重复 present = panic
-```
-
-### 3.3 资源生命周期
-
-```text
-创建   device.create_* → GLCache 哈希查表（同配置命中同一 handle）→ 绑定槽分配
-       （(set,binding) → UBO/Sampler 全局槽，上限 16/16/16attributed，满了 label panic）
-上传   queue.write_buffer / write_texture → 即时生效（直接下发 GL；非「下次 submit 起效」）
-编译   ShaderSource(WGSL/GLSL) → naga parse+validate → GLSL 300 es（std140，无 #define）
-       → program 编译链接 → 反射登记 (set,binding)↔uniform 名 / attrib location
-回收   drop(资源) → GLCache 超时队列（pi_assets Garbageer）→ 锁内延迟 delete
-硬规则×3：资源须 draw 之后方可销毁；RenderPass 绑定资源须 pass Drop 之后；被 BindGroup 握住的资源与 BindGroup 同弃
-```
-
-### 3.4 线程与上下文（单线程内核 + 可选跨线程资源）
-
-```text
-录制/执行（单线程合同）：main 线程 lock → make_current → GL 调用 → 解锁
-创建/销毁（允许多线程）：AdapterContext 重入锁 ReentrantMutexWrap + egl make/unmake_current 搬运
-                       Adapter::unmake_current() 主动把 context 让给其他线程
-single_thread feature：锁与搬运整体退化为空实现（零开销）
-锁内纪律：禁止 await / 回调再入锁（死锁）
-```
-
-## 4. 核心特性与机制要点
-
-| 特性 | 机制 | 关联 |
+| 档 | 覆盖 | 判据 |
 |---|---|---|
-| GL 指令量优化 | GLState 全字段镜像比较，差异才下发；GLCache 以哈希 key 缓存 VBO/VAO/RBO/纹理/program，指针对比命中复用 | FR-11 |
-| 绑定模型 | pipeline_layout 下标 = shader set（硬件约定 0..3）；全局 (set,binding)→槽 映射；每个 RenderPipeline 持 reorder 数组，同一 program 可供不同 layout 的 pipeline 复用 | design.md §1/§2 |
-| 动态偏移 | set_bind_group(set, bg, offsets) 按 layout 中 has_dynamic_offset 条目声明顺序消耗 | design.md §3 |
-| 离屏与合成 | render_target 支持；MSAA 经内部 blit resolve（shaders/blit.vert/frag）离屏落地 | examples |
-| 格式与压缩 | RGBA8 / RGBA16F / RG / BGRA / Depth24·32+stencil8 / BC / ASTC；mipmap 自动生成；DDS/ASTC 直载 | FR-09 |
-| 驱动特判 | iOS18（GLState::is_ios18）、Qualcomm（IS_QUALCOMM）、小米 9 debug flag 规避；iOS 14~15.3 VB/IB 共享偏移性能告警 | FR-16 |
-| 可诊断性 | trace 级日志按伪代码记录每一步调用；geterror 检查；debug 构建默认 VALIDATION 标志 | FR-15 |
-| 外部 GL 干扰恢复 | Device::reset_state() 重建状态机缓存 | api.md §5.3 |
-| 显存记账 | pi_assets Asset/Size/Garbageer 统一分配与超时回收（含 VaoGarbage） | FR-10 |
+| 可回读档 | 活动纹理单元、各能力开关、深度函数、视口/裁剪框 | 每帧一次向驱动回读比对（帧门），差异才重发 |
+| 整发档 | program / VAO / FBO / PIXEL_UNPACK / UBO 槽 / 纹理槽 / 采样器槽 / 混合 / 模板 / 图元 / 写掩码等 | 与「上次实际下发水位」water 比对，差异才发 |
+| 直发路 | set_* 组 helper | 下发后**同点回写水位**，否则下一轮 flush 判失配重发 |
 
-## 5. 平台支持与限制
+附加约束：
 
-| 平台 | 图形基线 | 关键约束与注意事项 |
+- 能力开关只能 isEnabled 回读（getParameter + cap pname = INVALID_ENUM）。
+- 死名表非空 → 镜像丢掉指向死名的期望，整发档强发一轮后销记（GL 名可复用，不能拿名字当存活证据）。
+- 每通道起始复位 viewport/scissor/depthRange 为全附件（有宿主尺寸时）；默认帧缓冲通道无尺寸来源，不复位（已登记）。
+- 状态下发世代（epoch）变化 → 本地水位整组作废。
+
+## 5. 对象与生命周期
+
+| 类别 | 对象 | 生命周期 |
 |---|---|---|
-| Windows | OpenGL 3.3+ | 不支持 Geometry Shader；运行目录需携带 bin/ 下两个 dll（EGL/GL 运行时）；pi_egl 创建 Display/Context |
-| Android | GLES 3.0+ | ndk-glue 生命周期；cargo apk 构建；部分纹理格式需扩展支持 |
-| Web / 微信小游戏 | WebGL2 | iPhone/iPad 需 iOS ≥ 15.5；wasm-pack test --chrome 验证；私有扩展 write_texture_jsbuffer；无跨 surface context ⇒ configure 必须前置 |
-| 通用 | — | set 仅 0..3；UBO/Sampler 槽 ≤16；WebGL2 无 Storage Buffer 统一按 UBO 建模；viewport 为 wgpu 坐标内部翻 Y |
+| 1:1 直建 | Buffer / Texture / Sampler | Share 共享计数；末引用 Drop 即删 + 登记死名 |
+| 键复用 | Program / VAO / FBO / RBO | 全局计数表；键=配置哈希 |
+| 驻留复用 | FBO / VAO | 计数归零**不删**，ensure 沿名复用（跨帧稳定） |
+| 归零删除 | Program / RBO | 计数归零物理删 + 死名登记 |
+| 纯值 | TextureView / 描述符 / BindingResource | 随宿主复制消亡 |
 
-## 6. 错误与失败语义
+三条使用方硬规则（库不兜底、不校验）：资源须在该资源最后一次 draw 之后销毁；RenderPass 绑定资源须等通道结束（Drop）后销毁；被 BindGroup 持有的资源与 BindGroup 同弃。
 
-- Result 面仅三处：request_device → RequestDeviceError、create_surface → CreateSurfaceError、get_current_texture → SurfaceError{Timeout/Outdated/Lost/OutOfMemory}。
-- 其余不支持/越界路径 = assert!/panic + 清晰 label（与「调用即生效」的错误呈现方式一致）；写越界不报错，靠 GL 兜底 + log。
-- 根 Error::{OutOfMemory, Validation}（thiserror/Display）。
+## 6. 绑定模型
 
-## 7. 工程要点与依赖
+- set 域 0..3；每管线持有**自己那份** SlotTable（创建期定格），设备级槽表只作「最近一次分配」的查询面。
+- 三族独立紧凑编号；槽表定长 BIND_SLOTS = 24，实际分配上限：UBO 24，纹理 16，采样器 16（GLES3 保底）：
+  - ubo[i]：glBindBufferBase/Range 的绑定点号；
+  - tex[i] / smp[i]：同一 GL 纹理单元空间的两个对象槽；
+  - 值 = (set<<16 | binding) 打包键；索引即 GL 点/单元号。
+- 组合采样器：出码期从 IR 收集「纹理↔采样器」配对，应用期把采样器对象绑到配对纹理单元（alias 表）。
+- 动态偏移：偏移个数必须等于布局中 has_dynamic_offset 条目数；按声明序消耗，叠加静态偏移。
+- UBO 块指位与采样器 uniform 指位是**程序对象持久态**：建管线时一次下发，之后随 useProgram 天然携带，切换零参与。
 
-- 工具链：内建实现使用 `#![feature(hash_extract_if)]`，当前需 **nightly**（README 的 Rust-1.65+ 徽章与之不符，待确认）。
-- 私有环境：pi_egl / pi_glow 来自私有 registry `yn`；开发仓库 `[patch.crates-io] naga = { path = "../wgpu/naga" }`，发布或外部使用前需自备该 fork 或移除 patch。
-- 关键依赖：naga（WGSL/GLSL→GLSL300es 编译与反射）、pi_share（跨线程共享所有权）、pi_assets（GPU 资源记账+GC）、pi_hash/twox-hash（高速哈希）、raw-window-handle 0.6（三平台窗口句柄）、wgpu（仅 use_wgpu 对照）。
-- 版本对齐策略：以 wgt/mod.rs 为唯一词汇表逐字段 diff 移植 wgpu-types 新版；公开层优先保持方法签名不变，语义缩减同步更新 api.md 与 README §2.0x 矩阵（验收真相源）。
+## 7. 着色器与坐标
 
-## 8. 验证与验收矩阵
+- 输入：WGSL 单串，或 GLSL 按阶段单源（#version 由源码自承载）；SpirV/Naga 变体不移植。
+- 输出：naga glsl-out → #version 300 es，binding_map 按槽表定位。
+- 关键 writer flag：ADJUST_COORDINATE_SPACE（等价 wgpu GL 后端）：gl_Position.y 取反 + z 从 [0,1] 映到 [-1,1]。
+- 连带：正面绕序映射按镜像反向（Ccw↔GL_CCW 的常规表反过来用）；上屏用反向源矩形 blit 翻正，copy 路径不做行翻。
+- entry_point=None：该 stage 唯一入口自动选；缺失/歧义 = 出码失败（管道创建期断言）。
 
-| 场景 | 样例 | 平台/方式 |
-|---|---|---|
-| 平台冒烟 | triangle / hello / clear | Win: cargo run · Android: cargo apk run · Web: wasm-pack test --chrome |
-| 离屏 RT / 深度 | render_target | 全平台 |
-| 纹理全格式 / 压缩 | image · compress_texture（Cargo example test=true） | 全平台 |
-| UI 高频动态 UBO | gui_demo | 全平台 |
-| GL 指令量对照 | webgl_spector 抓帧 vs use_wgpu 同样例 | Web / Win（FR-11） |
+## 8. 纹理与上传
 
-## 9. 文档导航
+- 格式表：22 个显式条目（R/RG/RGBA 未压缩族 + 深度族 + BC1/2/3 + ETC2 四型）+ ASTC 参数族（14 种块尺寸 × Unorm/UnormSrgb，Hdr 表外）；能力门控经 caps 最近快照；表外格式=断言拒止，不做近似替换。
+- 目标：D1/D2（层=1）→ TEXTURE_2D；D2 层>1：cube 兼容（宽=高、层%6=0、sample=1）→ CUBE_MAP / CUBE_MAP_ARRAY，否则 2D_ARRAY；D3 → TEXTURE_3D。
+- 压缩纹理：块行行距判据 + 逐块行喂；Web 忽略 UNPACK_ROW_LENGTH，故按块行处理。
+- mipmap：全量上传后整链重生成（无「仅刷一级」路径，成本=全链）。
+- Web 专面：write_texture_jsbuffer / copy_external_image_to_texture / create_compress_texture_with_data_jsdata 零字节直传（仅主线程）。
+- 读回：Buffer::get_sub_data 是上游 map_async/get_mapped_range 的同步投影替代；copy_texture_to_buffer 内部 glFinish 收敛 PBO。
 
-- [requirements.md](requirements.md) — 功能需求 FR-N/NFR/验收矩阵（真相源）
-- [module-design.md](module-design.md) — 源码分层、模块职责、对象生命周期与依赖
-- [design.md](design.md) — 设计论证笔记（绑定模型 / 槽复用 / 多线程）
-- [api.md](api.md) — 导出接口全表 + 与 wgpu-rs 差异汇总（迁移必读）+ §8 着色器与坐标约定（产品端必读）
-- [exported-api.md](exported-api.md) — 全部 pub 导出符号清单（v0.3.7 自动扫描）
-- ../README.md — 快速开始、平台支持矩阵、§2.0x 支持度
+## 9. 诊断与错误
+
+- 三个显式 Result 面：request_device / create_surface / get_current_texture；其余创建族违约=断言（短码 + label），断言前不发驱动调用。
+- 非 Result 写路径：log::error!(UploadErr 等短码)；debug 不下发、release 留痕后下发（不谎报）。
+- 错误作用域：on_uncaptured_error / push_error_scope / pop_error_scope 已接；缺省未捕获 = log 降级（上游默认 panic，差异登记）。
+- 诊断探针：frame churn configure/tex_new/tex_del、rack 重挂、组合 VAO 表满、测试计数器 probe(0/1/2)。
+
+## 10. 验证
+
+~~~bash
+cargo test --lib
+cargo check --lib --target wasm32-unknown-unknown
+cargo check --all-targets
+powershell -ExecutionPolicy Bypass -File .\web_case\build.ps1
+python -m http.server 8731 -d web_case
+~~~
+
+样例：examples/{hello_triangle, textured_quad, clear, alpha_blend, d32_iso, rtt_probe, shadow_cube, upload_probe}；web_case 为浏览器案例包。
+
+## 11. 当前状态与已知缺口
+
+- 版本 0.4.1；v4 分支已完成：WebGL2 装配、u64 身份层、描述符对齐 wgpu 25、采样器/UBO 指位、提交序回放、RTT 形状键驻留、组合 VAO、每通道默认态复位、延后子区域清屏。
+- 已知缺口：默认帧缓冲通道不复位 viewport/scissor；CLEAR_SCISSORED 非标准清除语义（默认开）；Web 无 polygonMode；sample_mask 仅镜像记录；多 draw 未合并；Android 真机链路待验；OffscreenCanvas 面未接；Limits 为静态保底表（非逐项真探）。
+- documents/ 旧版（v0.3.7）已删除；本套文档按 v4 源码重写。

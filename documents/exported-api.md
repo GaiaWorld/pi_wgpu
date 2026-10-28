@@ -1,121 +1,129 @@
-# pi_wgpu 导出接口清单（v0.3.7）
+# pi_wgpu 导出面索引（v0.4.1）
 
-> 自动扫描全仓 `pub` 顶层声明生成（explorer 读取 + 声明提取，说明取声明上方 rustdoc 首行）。
-> 使用方式/约束见 `documents/api.md`；「支持矩阵」真相源为 README §2.0x（注意 §2.07 对 `Surface::get_capabilities` 记录已滞后）。
-> 启用 `use_wgpu` 时整份导出面由 `pub use wgpu::*` 替换（原生 wgpu），仅 `PiWgpuAdapter` 来自本 crate。
+> 人工整理的公开符号索引；契约细节与约束见 api.md，源码权威在各 mod.rs 壳注释。
+> 只列公开面；*_inner.rs 中的 pub(crate) 不计。
 
-## 1. crate 根 `pi_wgpu`
+## 1. 根导出（lib.rs）
 
-| 符号 | 类别 | 来源文件 | 说明 |
-|---|---|---|---|
-| `PiWgpuAdapter` | trait | lib.rs | — |
-| `Label` | type | pi_wgpu/mod.rs | Object debugging label. |
-| `Operations` | struct | pi_wgpu/mod.rs | Pair of load and store operations for an attachment aspect. |
-| `StoreOp` | enum | pi_wgpu/mod.rs | Operation to perform to the output attachment at the end of a render pass. |
-| `LoadOp` | enum | pi_wgpu/mod.rs | Operation to perform to the output attachment at the start of a render pass. |
-| `Error` | enum | pi_wgpu/mod.rs | Error type |
-| *re-exports* | wgc::* / hal api::* / ExposedAdapter / util::TextureDataOrder | | 见对应小节 |
-| *wasm 追加* | `ImageCopyExternalImage`, `ExternalImageSource` | | `#[cfg(target_arch = "wasm32")] pub use wgt::{…}` |
+| 类别 | 符号 |
+|---|---|
+| 模块 | types、entry、surface、draw、upload、utils、error、util |
+| 对象 | Instance、Adapter、Device、Queue、CommandEncoder、CommandBuffer、RenderPass |
+| 资源 | Buffer、BufferSlice、Texture、TextureView、Sampler、BindGroup、BindGroupLayout、PipelineLayout、RenderPipeline、ShaderModule |
+| 占位 | QuerySet、PipelineCache（无构造路径） |
+| 表面 | Surface、SurfaceTarget、SurfaceTexture、SurfaceError、SurfaceCapabilities |
+| 错误 | RequestDeviceError、CreateSurfaceError、Error、ErrorFilter、ErrorSource、UncapturedErrorHandler |
+| 词汇 | Backends、BufferUsages、Extent3d、PredefinedColorSpace、TextureFormat、AstcBlock、AstcChannel |
+| 便捷 | DeviceExt、BufferInitDescriptor、backend_bits_from_env、power_preference_from_env、parse_backends_from_comma_list |
+| trait | PiWgpuAdapter、WindowHandle |
+| Web 专面 | CopyExternalImageDestInfo、ExternalImageSource、ImageCopyExternalImage（wasm32） |
 
-## 2. WebGPU API 对象层（wgc —— 随 `pi_wgpu::*` 并入根）
+## 2. types（词汇面）
 
-| 符号 | 类别 | 定义模块 | 说明 |
-|---|---|---|---|
-| `Instance` | struct | wgc/instance | Context for all other wgpu objects. Instance of wgpu. |
-| `RawHandle` | struct | wgc/instance | The window/canvas/surface/swap-chain/etc. a surface is attached to, for use with unsafe surface creation. |
-| `RequestAdapterOptions` | type | wgc/adapter | Additional information required when requesting an adapter. |
-| `Adapter` | struct | wgc/adapter | Handle to a physical graphics and/or compute device. |
-| `InvalidAdapter` | struct | wgc/adapter | — |
-| `RequestAdapterError` | enum | wgc/adapter | — |
-| `SurfaceTarget` | enum | wgc/surface | — |
-| `WindowHandle` | trait | wgc/surface | — |
-| `Surface` | struct | wgc/surface | Handle to a presentable surface. |
-| `SurfaceTexture` | struct | wgc/surface | Surface texture that can be rendered to. |
-| `SurfaceError` | enum | wgc/surface | Result of an unsuccessful call to [`Surface::get_current_texture`]. |
-| `CreateSurfaceError` | struct | wgc/surface | [`Instance::create_surface()`] or a related function failed. |
-| `SurfaceConfiguration` | type | wgc/surface | Describes a [`Surface`]. |
-| `Device` | struct | wgc/device | Open connection to a graphics and/or compute device. |
-| `DeviceDescriptor` | type | wgc/device | Describes a [`Device`]. |
-| `MemoryHints` | type | wgc/device | — |
-| `Trace` | type | wgc/device | — |
-| `RequestDeviceError` | struct | wgc/device | Requesting a device failed. |
-| `DeviceError` | enum | wgc/device | — |
-| `Maintain` | type | wgc/device | Passed to [`Device::poll`] to control how and if it should block. |
-| `ShaderModuleDescriptorImpl` | struct | wgc/device | — |
-| `Queue` | struct | wgc/queue | Handle to a command queue on a device. |
-| `SubmissionIndex` | struct | wgc/queue | Identifier for a particular call to [`Queue::submit`]. Can be used |
-| `BufferDescriptor` | type | wgc/buffer | Describes a [`Buffer`]. |
-| `Buffer` | struct | wgc/buffer | Handle to a GPU-accessible buffer. |
-| `BufferSlice` | struct | wgc/buffer | Slice into a [`Buffer`]. |
-| `BufferBinding` | struct | wgc/buffer | Describes the segment of a buffer to bind. |
-| `Texture` | struct | wgc/texture | Handle to a texture on the GPU. |
-| `TextureView` | struct | wgc/texture | Handle to a texture view. |
-| `TextureViewDescriptor` | struct | wgc/texture | Describes a [`TextureView`]. |
-| `TextureDescriptor` | type | wgc/texture | Describes a [`Texture`]. |
-| `ImageCopyTexture` | type | wgc/texture | View of a texture which can be used to copy to/from a buffer/texture. |
-| `ImageCopyTextureTagged` | type | wgc/texture | — |
-| `Sampler` | struct | wgc/sampler | Handle to a sampler. |
-| `SamplerDescriptor` | struct | wgc/sampler | Describes a [`Sampler`]. |
-| `ShaderModule` | struct | wgc/shader_module | Handle to a compiled shader module. |
-| `ShaderSource` | enum | wgc/shader_module | Source of a shader module. |
-| `ShaderModuleDescriptor` | struct | wgc/shader_module | Descriptor for use with [`Device::create_shader_module`]. |
-| `ShaderModuleDescriptorSpirV` | struct | wgc/shader_module | Descriptor for a shader module given by SPIR-V binary, for use with |
-| `BindGroup` | struct | wgc/bind_group | Handle to a binding group. |
-| `BindGroupDescriptor` | struct | wgc/bind_group | Describes a group of bindings and the resources to be bound. |
-| `BindGroupEntry` | struct | wgc/bind_group | An element of a [`BindGroupDescriptor`], consisting of a bindable resource |
-| `BindingResource` | enum | wgc/bind_group_layout | Resource that can be bound to a pipeline. |
-| `BindGroupLayout` | struct | wgc/bind_group_layout | Handle to a binding group layout. |
-| `BindGroupLayoutDescriptor` | struct | wgc/bind_group_layout | Describes a [`BindGroupLayout`]. |
-| `PipelineLayout` | struct | wgc/pipeline_layout | Handle to a pipeline layout. |
-| `PipelineLayoutDescriptor` | struct | wgc/pipeline_layout | Describes a [`PipelineLayout`]. |
-| `RenderPipeline` | struct | wgc/render_pipeline | Handle to a rendering (graphics) pipeline. |
-| `RenderPipelineDescriptor` | struct | wgc/render_pipeline | Describes a render (graphics) pipeline. |
-| `VertexState` | struct | wgc/render_pipeline | Describes the vertex processing in a render pipeline. |
-| `VertexBufferLayout` | struct | wgc/render_pipeline | Describes how the vertex buffer is interpreted. |
-| `FragmentState` | struct | wgc/render_pipeline | Describes the fragment processing in a render pipeline. |
-| `PipelineCompilationOptions` | struct | wgc/common_pipeline | Advanced options for use when a pipeline is compiled |
-| `PipelineCacheDescriptor` | struct | wgc/common_pipeline | Describes a pipeline cache, which allows reusing compilation work |
+### 2.1 直接再导出
 
-## 3. `pi_wgpu::util`（显式公开模块）
+pub use wgpu_types::*（wgpu-types 25.0.0 全量）。
 
-| 符号 | 类别 | 文件 | 说明 |
-|---|---|---|---|
-| `BufferInitDescriptor` | struct | device.rs | Describes a [Buffer](super::super::Buffer) when allocating. |
-| `TextureDataOrder` | enum | device.rs | Order in which TextureData is laid out in memory. |
-| `DeviceExt` | trait | device.rs | Utility methods not meant to be in the main API. |
-| `parse_backends_from_comma_list` | fn | init.rs | Always returns WEBGPU on wasm over webgpu. |
-| `backend_bits_from_env` | fn | init.rs | Get a set of backend bits from the environment variable WGPU_BACKEND. |
-| `power_preference_from_env` | fn | init.rs | Get a power preference from the environment variable WGPU_POWER_PREF |
-| `dx12_shader_compiler_from_env` | fn | init.rs | Choose which DX12 shader compiler to use from the environment variable `WGPU_DX12_COMPILER`. |
+### 2.2 别名（api 层引用式）
 
-> `util/mutex.rs`（ReentrantMutexWrap 等）为 pub(crate)，不属导出面。
+| 别名 | 定义 |
+|---|---|
+| Label<'a> | Option<&'a str> |
+| BufferDescriptor<'a> | wgpu_types::BufferDescriptor<Label<'a>> |
+| TextureDescriptor<'a> | wgpu_types::TextureDescriptor<Label<'a>, &'a [TextureFormat]> |
+| SamplerDescriptor<'a> | wgpu_types::SamplerDescriptor<Label<'a>> |
+| DeviceDescriptor<'a> | wgpu_types::DeviceDescriptor<Label<'a>> |
+| CommandEncoderDescriptor<'a> | wgpu_types::CommandEncoderDescriptor<Label<'a>> |
+| SurfaceConfiguration | wgpu_types::SurfaceConfiguration<Vec<TextureFormat>> |
+| TextureViewDescriptor<'a> | wgpu_types::TextureViewDescriptor<Label<'a>> |
+| TexelCopyTextureInfo<'a> | wgpu_types::TexelCopyTextureInfo<&'a Texture> |
+| ImageCopyTexture<'a> | 同上（旧名，deprecated） |
 
-## 4. wgt 类型白名单再导出（共 85 个项，均自 `pi_wgpu/wgt/mod.rs`，语义对齐 wgpu-types）
+### 2.3 自建结构 / 别名
 
-**枚举/类型（77）**：
+| 符号 | 说明 |
+|---|---|
+| TexelCopyBufferInfo<'a> | { buffer: &'a Buffer, layout: TexelCopyBufferLayout } |
+| BindGroupLayoutDescriptor<'a> | { label, entries } |
+| BufferBinding<'a> | { buffer, offset, size } |
+| BindingResource<'a> | Buffer(BufferBinding) / Sampler(&Sampler) / TextureView(&TextureView) |
+| BindGroupEntry<'a> | { binding, resource } |
+| BindGroupDescriptor<'a> | { label, layout, entries } |
+| RenderPassColorAttachment<'tex> | { view, resolve_target, ops } |
+| RenderPassDepthStencilAttachment<'tex> | { view, depth_ops, stencil_ops } |
+| RenderPassTimestampWrites<'a> | { query_set, beginning_of_pass_write_index, end_of_pass_write_index } |
+| RenderPassDescriptor<'a> | 五字段（label/color/depth/timestamp/occlusion） |
+| PipelineLayoutDescriptor<'a> | { label, bind_group_layouts, push_constant_ranges } |
+| VertexBufferLayout<'a> | { array_stride, step_mode, attributes } |
+| PipelineCompilationOptions<'a> | { constants, zero_initialize_workgroup_memory } |
+| VertexState<'a> | { module, entry_point, compilation_options, buffers } |
+| FragmentState<'a> | { module, entry_point, compilation_options, targets } |
+| RenderPipelineDescriptor<'a> | { label, layout, vertex, primitive, depth_stencil, multisample, fragment, multiview, cache } |
+| ShaderModuleDescriptor<'a> | { label, source } |
+| ShaderSource<'a> | Wgsl(Cow) / Glsl { shader, stage, defines } |
+| CullMode | Option<Face> |
+| ShaderStage | pub use naga::ShaderStage |
 
-`AdapterInfo`, `AddressMode`, `AstcBlock`, `AstcChannel`, `Backend`, `Backends`, `BindGroupLayoutEntry`, `BindingType`, `BlendComponent`, `BlendFactor`, `BlendOperation`, `BlendState`, `BufferAddress`, `BufferBindingType`, `BufferSize`, `BufferUsages`, `Color`, `ColorTargetState`, `ColorWrites`, `CommandBufferDescriptor`, `CompareFunction`, `CompositeAlphaMode`, `DepthBiasState`, `DepthStencilState`, `DeviceType`, `DownlevelCapabilities`, `DownlevelFlags`, `Dx12Compiler`, `DynamicOffset`, `Extent3d`, `Face`, `Features`, `FilterMode`, `FrontFace`, `ImageDataLayout`, `ImageSubresourceRange`, `IndexFormat`, `InstanceDescriptor`, `Limits`, `MultisampleState`, `Origin2d`, `Origin3d`, `PipelineStatisticsTypes`, `PolygonMode`, `PowerPreference`, `PredefinedColorSpace`, `PresentMode`, `PresentationTimestamp`, `PrimitiveState`, `PrimitiveTopology`, `PushConstantRange`, `QueryType`, `RenderBundleDepthStencil`, `SamplerBindingType`, `SamplerBorderColor`, `ShaderLocation`, `ShaderModel`, `ShaderStages`, `StencilFaceState`, `StencilOperation`, `StencilState`, `StorageTextureAccess`, `SurfaceCapabilities`, `SurfaceStatus`, `TextureAspect`, `TextureDimension`, `TextureFormat`, `TextureFormatFeatureFlags`, `TextureFormatFeatures`, `TextureSampleType`, `TextureUsages`, `TextureViewDimension`, `VertexAttribute`, `VertexFormat`, `VertexStepMode`, `InstanceFlags`, `Gles3MinorVersion`
+## 3. entry
 
-**常量（8）** —— 上传/绑定地址对齐约束：
+### 3.1 Instance
 
-`COPY_BUFFER_ALIGNMENT`, `COPY_BYTES_PER_ROW_ALIGNMENT`, `MAP_ALIGNMENT`, `PUSH_CONSTANT_ALIGNMENT`, `QUERY_RESOLVE_BUFFER_ALIGNMENT`, `QUERY_SET_MAX_QUERIES`, `QUERY_SIZE`, `VERTEX_STRIDE_ALIGNMENT`
+| 方法 | 签名 |
+|---|---|
+| new | fn new(&InstanceDescriptor) -> Self |
+| create_surface | fn create_surface(impl Into<SurfaceTarget>) -> Result<Surface, CreateSurfaceError> |
+| request_adapter | async fn request_adapter(&RequestAdapterOptions) -> Option<Adapter> |
 
-## 5. 内部再导出声明明细（pub use，影响导出面的透传）
+### 3.2 Adapter
 
-```text
-src/lib.rs: pub use wgpu::*;
-src/lib.rs: pub use pi_wgpu::*;
-pi_wgpu/mod.rs: pub mod util;
-pi_wgpu/mod.rs: pub use hal:: api::*, ExposedAdapter ;
-pi_wgpu/mod.rs: pub use wgc::*;
-pi_wgpu/mod.rs: pub use wgt:: ImageCopyExternalImage, ExternalImageSource ;
-pi_wgpu/mod.rs: pub use util::TextureDataOrder;
-wgc/device.rs: pub use wgt::Maintain as MaintainBase;
-wgc/texture.rs: pub use super::super::wgt::ImageCopyTexture as ImageCopyTextureBase;
-wgc/texture.rs: pub use super::super::wgt::ImageCopyTextureTagged as ImageCopyTextureTaggedBase;
-```
+request_device（双参，返回 impl Future<Result<(Device, Queue), RequestDeviceError>>）、features、limits、get_info、get_downlevel_capabilities、get_texture_format_features、is_surface_supported、unmake_current。
 
-## 6. 维护说明
+### 3.3 Device
 
-- 新增顶层 `pub` 项或调整 `mod.rs` / `lib.rs` re-export 时，以本文件为 diff 基线；语义变更须同步 `documents/api.md` 与 README 矩阵。
-- 建议核对脚本化：重跑「读取上述文件 → 提取列 0 的 `pub (struct|enum|trait|type|const|fn|use)`」即可再生成本清单（扫描器未入库，可在会话内再生）。
+create_buffer、create_texture、create_sampler、create_shader_module、create_bind_group_layout、create_bind_group、create_pipeline_layout、create_render_pipeline、create_command_encoder、features、limits、reset_state、on_uncaptured_error、push_error_scope、pop_error_scope。
+
+### 3.4 Queue
+
+submit、write_buffer、write_texture；wasm32：write_texture_jsbuffer、copy_external_image_to_texture。
+
+### 3.5 CommandEncoder
+
+begin_render_pass、copy_texture_to_buffer、copy_buffer_to_texture、copy_texture_to_texture、finish。
+
+### 3.6 资源对象
+
+Buffer：slice、as_entire_buffer_binding、as_entire_binding、usage、get_sub_data。
+
+Texture：as_image_copy、create_view、destroy、size、width、height、depth_or_array_layers、mip_level_count、sample_count、dimension、format、usage。
+
+BufferSlice：get_buffer、get_offset、get_size、get_range、slice。
+
+SurfaceTexture：view、present。
+
+## 4. draw::RenderPass
+
+set_pipeline、set_bind_group、set_vertex_buffer、set_index_buffer、set_viewport、set_scissor_rect、set_stencil_reference、set_blend_constant、set_push_constants（恒拒）、draw、draw_indexed；Drop=End。
+
+## 5. surface
+
+Surface：configure、get_current_texture、get_capabilities。
+
+SurfaceTexture：texture、suboptimal、view、present。
+
+SurfaceError：Timeout / Outdated / Lost / OutOfMemory / Other。
+
+SurfaceTarget：Window / Canvas(wasm) / OffscreenCanvas(wasm)；SurfaceTarget::canvas / offscreen_canvas（wasm）。
+
+## 6. utils
+
+DeviceExt：create_buffer_init、create_texture_with_data、（wasm）create_compress_texture_with_data_jsdata。
+
+自由函数：backend_bits_from_env、power_preference_from_env、parse_backends_from_comma_list。
+
+## 7. error
+
+Error { OutOfMemory / Validation / Internal }、ErrorSource = String、ErrorFilter { OutOfMemory / Validation / Internal }、UncapturedErrorHandler。
+
+## 8. 未导出（内部）
+
+context、caps、state、objects、formats、binds、shader、record、gid 全部为 pub(crate)；SurfaceErr、UploadErr、ShaderErr、SurfaceOpErr 等短码枚举不公开。
