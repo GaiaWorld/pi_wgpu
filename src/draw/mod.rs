@@ -40,6 +40,9 @@ pub struct RenderPass<'pass> {
     pub(crate) _resolve: Option<(crate::entry::Texture, crate::entry::Texture)>,
     /// 回放通道标记：true=提交流回放的执行体（Drop 走执行芯），false=录制体（Drop 只入表）。
     pub(crate) _replay: bool,
+    /// 延后清屏（子区域清屏实验）：Begin 暂存清除参数、首个 draw / 通道结束时按当时裁剪框执行；
+    /// None=走 wgpu 语义的全附件清除（已在下发时执行完）。
+    pub(crate) _clear: Option<crate::draw_inner::PendingClear>,
     /// 当前管线布局的槽分配（set_pipeline 时从管线拷入）：查槽必须与所用管线同源——
     /// 设备级槽表会被后来建的任何管线整体覆盖，唯有管线自带那份与该管线出码一致。
     pub(crate) _slots: crate::binds::SlotTable,

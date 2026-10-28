@@ -145,8 +145,25 @@ fn has_removed() -> bool {
 /// 帧序号：present 每次换帧推进一格（可回读档帧门的钟）。
 static FRAME: AtomicU32 = AtomicU32::new(0);
 
+/// 帧内 churn 计数（诊断用）：0=configure 次数、1=纹理新建、2=纹理删除。
+/// 只在非零时于帧边界打一行 warn——用来定位「谁在每帧重建资源」。
+static CHURN: [AtomicU32; 3] = [AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)];
+
+/// churn 计数自增（0=configure / 1=tex_new / 2=tex_del）。
+pub(crate) fn churn_add(slot: usize) {
+    if let Some(a) = CHURN.get(slot) {
+        a.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// 推进帧号（surface.present 换帧时调用）——回读帧门的唯一推进点。
 pub(crate) fn bump_frame() {
+    let cfg: u32 = CHURN[0].swap(0, Ordering::Relaxed);
+    let tnew: u32 = CHURN[1].swap(0, Ordering::Relaxed);
+    let tdel: u32 = CHURN[2].swap(0, Ordering::Relaxed);
+    if cfg != 0 || tnew != 0 || tdel != 0 {
+        log::warn!("frame churn configure={cfg} tex_new={tnew} tex_del={tdel}");
+    }
     FRAME.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -669,6 +686,29 @@ pub(crate) fn set_viewport(m: &mut StateMirror, v: [f32; 6]) {
     with_gl(|gl| unsafe {
         gl.viewport(v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32);
         gl.depth_range_f32(v[4], v[5]);
+    });
+}
+
+/// 通道起始默认态（WebGPU 语义：viewport/scissor/depth-range 每 pass 复位为全附件）。
+/// GL 的视口与裁剪是全局态、不随 FBO 切换复位——上通道的小视口（如 12×18 字形通道）
+/// 会被后续通道继承，表现为「只渲染一角、其余是清屏色」的闪黑（产品 trace 实证）。
+/// 镜像先落值与 GL 下发同源，回读档据此比对不再重发。
+pub(crate) fn reset_pass_state(m: &mut StateMirror, w: u32, h: u32) {
+    let vp: [f32; 6] = [0.0, 0.0, w as f32, h as f32, 0.0, 1.0];
+    let sc: [i32; 4] = [0, 0, w as i32, h as i32];
+    let same: bool =
+        m.viewport == Some(vp) && m.scissor == Some(sc) && m.scissor_test == Some(true);
+    m.viewport = Some(vp);
+    m.scissor = Some(sc);
+    m.scissor_test = Some(true);
+    if same {
+        return;
+    }
+    with_gl(|gl| unsafe {
+        gl.viewport(0, 0, w as i32, h as i32);
+        gl.depth_range_f32(0.0, 1.0);
+        set_enable(gl, GL_SCISSOR_TEST, true);
+        gl.scissor(0, 0, w as i32, h as i32);
     });
 }
 

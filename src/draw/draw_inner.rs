@@ -149,6 +149,75 @@ pub(crate) fn layout_hash(v: &[VertexLayout]) -> u64 {
 
 /// 非零包装（活句柄≥1；零=合同违反）。
 
+/// 子区域清屏开关（**暂留缺口**，默认开）：开=清屏推迟到本通道首个 draw，按当时裁剪框清子区域。
+/// 由来：上层「每元素一 pass + Clear」结构下，wgpu 语义的全附件清除会让同目标内容互相覆盖（画面闪）；
+/// 改按绘制框清后实机不再闪（2026-10-28 产品验证）。语义偏离 wgpu（Clear 本应与裁剪无关），
+/// 故仅作本库既定行为登记，勿据此外推清除语义。
+static CLEAR_SCISSORED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// 读实验开关。
+pub(crate) fn clear_scissored_enabled() -> bool {
+    CLEAR_SCISSORED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 待执行清屏参数（Begin 暂存 → 首个 draw / 通道结束执行）。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PendingClear {
+    /// 清除掩码（COLOR/DEPTH/STENCIL 位或）。
+    pub(crate) mask: u32,
+    /// 颜色清值（None=不清色）。
+    pub(crate) color: Option<crate::types::Color>,
+    /// 深度清值（None=不清深）。
+    pub(crate) depth: Option<f32>,
+    /// 模板清值（None=不清模板）。
+    pub(crate) stencil: Option<u32>,
+}
+
+/// 子区域清屏执行：**不动裁剪框**（当前框即清除范围），只临时开写掩码、关 sRGB，清毕归还。
+/// 与全附件清除的差别仅在于不 disable(SCISSOR_TEST)——实验语义，非 wgpu 合同。
+pub(crate) fn run_pending_clear(p: &crate::draw::RenderPass<'_>, pc: &PendingClear) {
+    if pc.mask == 0 {
+        return;
+    }
+    let (cw_bits, dw_expected) = {
+        let m = p._enc._inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            m.color_writes.map(|w| w.bits()).unwrap_or(0xF),
+            m.depth_write_enabled.unwrap_or(true),
+        )
+    };
+    with_gl(|gl| unsafe {
+        #[cfg(not(target_arch = "wasm32"))]
+        let srgb_on = gl.is_enabled(GL_FRAMEBUFFER_SRGB);
+        #[cfg(target_arch = "wasm32")]
+        let srgb_on = false;
+        gl.color_mask(true, true, true, true);
+        gl.depth_mask(true);
+        if srgb_on {
+            gl.disable(GL_FRAMEBUFFER_SRGB);
+        }
+        if let Some(c) = pc.color {
+            gl.clear_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32);
+        }
+        if let Some(v) = pc.depth {
+            #[cfg(not(target_arch = "wasm32"))]
+            gl.clear_depth_f64(v as f64);
+            #[cfg(target_arch = "wasm32")]
+            gl.clear_depth_f32(v as f32);
+        }
+        if let Some(v) = pc.stencil {
+            gl.clear_stencil(v as i32);
+        }
+        gl.clear(pc.mask);
+        gl.color_mask(cw_bits & 1 != 0, cw_bits & 2 != 0, cw_bits & 4 != 0, cw_bits & 8 != 0);
+        gl.depth_mask(dw_expected);
+        if srgb_on {
+            gl.enable(GL_FRAMEBUFFER_SRGB);
+        }
+    });
+}
+
 /// 借设备状态镜像（锁序：state 先、with_gl 后）。
 fn lock_state<'a>(p: &'a RenderPass<'_>) -> std::sync::MutexGuard<'a, StateMirror> {
     p._enc
@@ -274,6 +343,14 @@ pub(crate) fn exec_begin_impl<'p>(
     // 自纠=双保险；模板写掩码全库无下发面=恒初值，不动）。视口与 glClear 无涉、不设默认
     // （登记差异：上游 pass 起始重置全屏视口，本层通道未显式 set 者延续上通道，render_core
     // 每通道必设全屏=无暴露）。
+    // 子区域清屏实验：开则清屏推迟到首个 draw（按那时的裁剪框清），此处不执行。
+    let pc = PendingClear {
+        mask,
+        color: col,
+        depth: dep,
+        stencil: ste,
+    };
+    let defer_clear: bool = pc.mask != 0 && clear_scissored_enabled();
     let do_clear = |gl: &glow::Context| {
         if mask == 0 {
             return;
@@ -352,10 +429,30 @@ pub(crate) fn exec_begin_impl<'p>(
                 crate::state_inner::flush_impl(&mut mm);
     crate::state_inner::check_err("after_flush_mm");
             }
-            let need_full: bool = match row_att_get(fk) {
+            let old_att: Option<RowAtt> = row_att_get(fk);
+            let need_full: bool = match old_att {
                 Some(old) => old != cur,
                 None => true,
             };
+            if need_full {
+                // 诊断：rack 重挂原因（每帧一条），配合 frame churn 定位逐帧重建来源。
+                static WARN_ATT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(u32::MAX);
+                let fr = crate::state_inner::frame_no();
+                if WARN_ATT.swap(fr, std::sync::atomic::Ordering::Relaxed) != fr {
+                    log::warn!(
+                        "draw: rack 重挂 fk={fk:#x} old={old_att:?} new={cur:?} color_load={}",
+                        mask & GL_COLOR_BUFFER_BIT == 0
+                    );
+                }
+            }
+            // 通道起始默认态：视口/裁剪按本通道附件尺寸复位（WebGPU 语义，防继承上通道小视口）。
+            if let Some(sz) = ctext.map(|t| (t.width(), t.height())).or_else(|| {
+                dtext.map(|t| (t.width(), t.height()))
+            }) {
+                let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
+                crate::state_inner::reset_pass_state(&mut mm, sz.0, sz.1);
+            }
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
                     GL_FRAMEBUFFER,
@@ -392,7 +489,9 @@ pub(crate) fn exec_begin_impl<'p>(
                 );
                 row_att_set(fk, cur);
                 }
-                do_clear(gl);
+                if !defer_clear {
+                    do_clear(gl);
+                }
             });
             Some(item)
         }
@@ -401,7 +500,9 @@ pub(crate) fn exec_begin_impl<'p>(
         // 默认帧通道也同步水位；绑目标与清除同段（防他线程插改绑）。
         with_gl(|gl| {
             unsafe { gl.bind_framebuffer(GL_FRAMEBUFFER, None) };
-            do_clear(gl);
+            if !defer_clear {
+                do_clear(gl);
+            }
         });
         let mut mm = e._inner.state.lock().unwrap_or_else(|x| x.into_inner());
         crate::state_inner::set_draw_fbo(&mut mm, None);
@@ -426,6 +527,7 @@ pub(crate) fn exec_begin_impl<'p>(
         _vao: None,
         _slots: crate::binds::SlotTable::default(),
         _replay: true,
+        _clear: if defer_clear { Some(pc) } else { None },
         _vbinds: Vec::new(),
         _index_ibo: None,
         _fbo: fbo,
@@ -847,6 +949,9 @@ pub(crate) fn exec_draw(
     );
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
+    if let Some(pc) = p._clear.take() {
+        run_pending_clear(p, &pc);
+    }
     let base = ins.start;
     let mode = topo(p._topology);
     let count = (v.end - v.start) as i32;
@@ -893,6 +998,9 @@ pub(crate) fn exec_draw_idx(
     assert!(p._pipe_set, "draw str-assert: 管线未设");
     assert!(p._vertex_ready, "draw str-assert: 顶点属性未就绪");
     assert!(p._index_ready, "draw str-assert: 索引未绑");
+    if let Some(pc) = p._clear.take() {
+        run_pending_clear(p, &pc);
+    }
     let (st, en) = p._index_range;
     let w = index_width(p._index_format.expect("draw str-assert: 索引格式缺失"));
     assert!(
@@ -1544,6 +1652,7 @@ pub(crate) fn begin_impl<'p>(
         _hold_depth: None,
         _resolve: None,
         _replay: false,
+        _clear: None,
         _vbinds: Vec::new(),
         _index_ibo: None,
     }

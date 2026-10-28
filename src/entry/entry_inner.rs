@@ -397,6 +397,7 @@ pub(crate) fn create_buffer_impl(_d: &Device, b: &BufferDescriptor<'_>) -> Buffe
 }
 
 pub(crate) fn create_texture_impl(d: &Device, t: &TextureDescriptor<'_>) -> Texture {
+    crate::state_inner::churn_add(1);
     assert!(
         t.size.width >= 1 && t.size.height >= 1,
         "entry 断言: 纹理宽高须≥1（field=size, label={:?}）",

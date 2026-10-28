@@ -256,6 +256,7 @@ fn delete_direct(kind: DirectKind, name: GlHandle) {
             match kind {
                 DirectKind::Buffer => gl.delete_buffer(crate::gid::buffer_from(name.0)),
                 DirectKind::Texture => {
+                    crate::state_inner::churn_add(2);
                     crate::draw_inner::row_att_drop_tex(name.0);
                     gl.delete_texture(crate::gid::texture_from(name.0))
                 }

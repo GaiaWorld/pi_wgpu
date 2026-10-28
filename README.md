@@ -23,6 +23,109 @@ pi_wgpu 是针对WebGPU API规范的轻量级OpenGL/GLES后端实现，主要特
   | Android | GLES 3.0+ | ✔️ 已验证 |
   | Web/小程序 | WebGL2 | ✔️ 已验证 |
 
+## 🧠 实现要点（GL / WebGL2 直替路线）
+
+本库把 wgpu 25 子集的调用翻译成 GL（桌面 GL 3.3 / WebGL2）。核心不是「逐条翻译」，而是**用状态镜像换掉多余驱动调用**。以下要点均由实机问题倒逼成型。
+
+### 1. 身份层：u64 柄唯一闸口
+
+- 所有 GL 对象对外只暴露 `GlHandle(u64)`，内部经 gid 映射到驱动名；Web 端含 version 位，杜绝「句柄复用=别名」。
+- 桌面端须知：GL 对象名**可被驱动复用**，所以「上次下发的名字」不能作为「驱动仍持有该对象」的证据——删除要登记死名，镜像遇死名**丢弃期望**，而不是假装已下发。
+
+### 2. 三档状态缓存
+
+| 档 | 覆盖组 | 机制 |
+|---|---|---|
+| 可回读档 | 活动单元、开关、比较函数、视口、裁剪框、深度掩码 | 每帧首次 flush 回读驱动实值，差异才重下发 |
+| 整发档 | 程序、VAO、FBO、纹理/sampler/UBO 槽 | 按「上次实际下发」水位比对，差异才发 |
+| 直发路 | `set_*` 立即下发的组 | 下发后**必须回写水位**，否则下一轮 flush 判失配重发 |
+
+三条纪律：能力开关只能 `isEnabled`（`getParameter` + cap pname = INVALID_ENUM）；名称类只能比水位不能比驱动；死名表非空时整组强发一轮。
+
+### 3. WebGPU 每通道默认态
+
+每个 render pass 起始：`viewport=(0,0,w,h)`、`depthRange=0..1`、`scissor=全附件且使能`。GL 不随 FBO 切换复位——继承上通道的小视口会表现成「只渲染一角、其余是清屏色」（产品实测闪黑）。
+
+### 4. 清除语义与守卫带
+
+`LoadOp::Clear` 清整张附件、不受裁剪影响：临时关裁剪、写掩码全开、桌面关 sRGB，清毕按镜像归还。
+
+> 现留诊断口 `CLEAR_SCISSORED`（默认开，暂留）：清屏推迟到本通道首个 draw，按当时裁剪框清子区域。用于上层「每元素一 pass + Clear」的结构（否则同一目标反复全清、内容互相覆盖 → 闪）。此为非标准语义，仅此口子使用。
+
+### 5. RTT 复用：形状键 + 驻留 + 附件差分
+
+- FBO 键 = 形状（格式哈希 × samples × 目标），纹理名不入键；release 计数归零**不删**，ensure 沿名复用（行驻留）。
+- `ROW_ATT` 维护附件签名（色名/目标、深名/目标、深度挂点），begin 时差分：签名不变只 bind，变才重挂。GL 在纹理删除时会**自动把附件摘下**，故所有纹理删除路径都必须同步摘签名。
+- 交错占用：`pick_rtt_row` 同签架优先 → 空架 → 备用架线性探测；读回路只认同签架。
+
+### 6. 顶点：组合 VAO 一次整备
+
+- 键 = 布局哈希 × 按槽 `(缓冲, 偏移 + 实例 base × stride)`；首次整备 pointer/enable/divisor，此后同组合只 `bindVertexArray`。
+- 容量 256 + LRU 淘汰（目标 7/8）+ **本帧使用保护**（`last_frame`）+ 草稿键不计容量 + 每布局草稿 VAO 兜底。
+- `set_vertex_buffer` / `set_index_buffer` 退化为纯记录，索引绑定在组合落位时写进 VAO。
+
+### 7. 上传与上屏
+
+- 压缩纹理行距按块行判据 `ceil(w/block_w) * block_bytes`，逐块行喂（WebGL2 忽略 `UNPACK_ROW_LENGTH`）。
+- 渲染落在离屏「屏幕纹理」，present 时以反向源矩形 blit 到默认帧缓冲（不可直画：自 blit 重叠=未定义）。
+
+### 8. 错误与可观测
+
+- 错误一律短码 + `log::error!`，不 `panic!`；断言仅用于「绝不该发生」的编程合同。
+- 诊断探针：`frame churn configure/tex_new/tex_del`（逐帧资源重建）、`rack 重挂`（附件差分原因）、`after_flush_*` / `f_readback`（状态组别）。
+
+## 🕳️ 经验与踩坑（症状 → 根因 → 处理）
+
+| 症状 | 根因 | 处理 |
+|---|---|---|
+| 每帧刷 `INVALID_ENUM`，帧率掉到个位数 | 用 `getParameter` 查能力开关（DEPTH_TEST/CULL_FACE/SCISSOR_TEST/BLEND/STENCIL_TEST） | 改 `isEnabled` |
+| `Polygon mode other than FILL` panic | `polygon_to_gl` 常量错位（Fill 被映射成 LINE） | 修正映射；WebGL 侧不下发 polygonMode |
+| 清屏 `INVALID_VALUE` | `gl.scissor(0,0,i32::MAX,i32::MAX)` 在 Web 走 f32 口舍入后越界 | 删除该调用 |
+| `location is not from associated program` | 程序未绑时 `uniform1i` 定位 | 采样器指位随程序切换下发 |
+| `useProgram` / `bindTexture` 每秒双发 | 直发路未回写水位 → 下轮 flush 判失配 | 直发后同步水位（已补 10+ 处） |
+| 桌面端绑定「永久悬空」 | 死名水位别名（GL 名被复用，水位与期望同值） | 死名一律丢期望 |
+| `delete/createFramebuffer` 洪水 | release 计数归零即物理删 | Fbo 域驻留，release 不删 |
+| 每 draw 重下十余条 `vertexAttribPointer` | 实例槽偏移逐批变化 | 组合 VAO 一次整备 |
+| 压缩纹理上传错位 | 行距按 `width` 估算（BC 误估 4 倍） | 块行判据 + 逐行喂 |
+| 画面闪、每个元素互相覆盖 | 上层每元素一 pass，且每 pass `Clear` 全附件 | 延后并按裁剪框清（诊断口） |
+| 只渲染一角 | pass 继承上通道小视口 | 每 pass 复位 viewport/scissor/depthRange |
+| 上层每帧重配表面、纹理逐帧重建 | `suboptimal` 恒报 true | 按真实语义报 false |
+
+## ⚠️ 已知差异与缺口登记
+
+| 项 | 现状 | 说明 |
+|---|---|---|
+| WebGL 无 `polygonMode` | Web 恒填充；非 Fill 只 warn 一次 | 语义差异登记 |
+| `sample_mask` | 无驱动下发面 | 仅镜像记录 |
+| 子区域清屏 `CLEAR_SCISSORED` | 默认开（暂留缺口） | 偏离 wgpu「全附件清除」，勿用于通用语义 |
+| 默认帧缓冲通道 | 不复位 viewport/scissor（无尺寸来源） | 上屏走 blit，暂不暴露 |
+| 管线 VAO | 仍按布局建身份位 VAO | 可退成不建 GL 对象 |
+| 多 draw 合并 | 未做 `WEBGL_multi_draw` | 需 run 判定 + 扩展缺失回退 |
+
+## ✅ 验证三轨
+
+```bash
+cargo test --lib                                        # 单元/合验
+cargo check --lib --target wasm32-unknown-unknown       # wasm 编译面
+powershell -ExecutionPolicy Bypass -File .\web_case\build.ps1   # 浏览器案例包重产
+python -m http.server 8731 -d web_case                  # 打开 index.html 实测
+```
+
+## 🧾 提交史主题索引（路线 B 实机收敛）
+
+| 提交 | 主题 |
+|---|---|
+| `591b922` | WebGL2 装配链与 u64 身份层（路线 B 起点） |
+| `b5f510a` | WebGL2 浏览器案例包 |
+| `2d69dc4` / `a84d8dd` | 管线混合接线 + 混合数值对账样例 |
+| `f6d7bd2` | WebGL2 实机差异收口与压缩格式面 |
+| `e2c6ded` | 采样器指位随程序切换、块枚举精确界定 |
+| `1db82a7` | 不可回读组直发水位补齐、死名精确清退 |
+| `3448097` | FBO 形状键行驻留、附件差分选架 |
+| `cbe3e7b` | 顶点组合 VAO 一次整备，draw 只绑不重下 |
+| `c800828` | 管线定态接线、死名丢期望、组合 VAO 容量调优 |
+| `08fd7da` | 热点接口 `#[inline]`（跨 crate / 跨 CGU） |
+
 ## 🚀 快速开始
 
 ### 依赖集成

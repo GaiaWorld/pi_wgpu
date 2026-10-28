@@ -59,6 +59,7 @@ pub(crate) fn configure_impl(s: &Surface<'_>, _d: &Device, c: &SurfaceConfigurat
             }
         }
     }
+    crate::state_inner::churn_add(0);
     *s._cfg.borrow_mut() = Some(c.clone());
     *s._creation.borrow_mut() += 1;
     // 离屏「屏幕」纹理：尺寸/格式随配置定格（旧的一路 Clone 引用计数收尾，跨帧租约仍安全）。
@@ -104,9 +105,11 @@ pub(crate) fn get_current_impl(
     let mut texture = stage;
     texture._surface = true;
     let view = crate::entry_inner::create_view_impl(&texture, &TextureViewDescriptor::default());
+    // suboptimal=「本帧面相对配置已劣化，须重配」。本层离屏屏幕纹理即配置产物、尺寸格式恒贴合，
+    // 恒报 false；旧形恒 true 会让上层每帧重新 configure（屏幕纹理逐帧重建，产品实测 RTT 跨帧变化/闪黑）。
     Ok(SurfaceTexture {
         texture,
-        suboptimal: true,
+        suboptimal: false,
         presented: false,
         _view: view,
     })

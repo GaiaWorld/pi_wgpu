@@ -319,6 +319,10 @@ fn exec_pass<'a, I: Iterator<Item = &'a Command>>(
             }
         }
     }
+    // 延后清屏兜底：通道从未 draw 时也要按 wgpu 语义把 Clear 落地。
+    if let Some(pc) = pass._clear.take() {
+        crate::draw_inner::run_pending_clear(&pass, &pc);
+    }
 }
 
 /// 单条命令执行（通道内）。
