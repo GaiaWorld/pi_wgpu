@@ -321,6 +321,10 @@ pub struct RenderPipeline {
     pub(crate) _blend: Option<crate::types::BlendState>,
     /// 图元固定功能（剔除/绕序/填充；同上发）。
     pub(crate) _primitive: crate::types::PrimitiveState,
+    /// 颜色写掩码（target[0].write_mask；set_pipeline 随管线切换下发）。
+    pub(crate) _color_writes: crate::types::ColorWrites,
+    /// 覆盖采样使能（multisample.alpha_to_coverage_enabled；同上发）。
+    pub(crate) _alpha_to_coverage: bool,
     /// 本管线布局的槽分配结果（创建期定格）：出码期的绑定号与绘制期查槽必须同源——
     /// 设备级槽表会被后续建管线整体覆盖，故管线自持一份；set_pipeline 时拷入通道。 @internal
     pub(crate) _slots: crate::binds::SlotTable,
@@ -338,6 +342,8 @@ impl RenderPipeline {
             _depth_stencil: self._depth_stencil.clone(),
             _blend: self._blend,
             _primitive: self._primitive.clone(),
+            _color_writes: self._color_writes,
+            _alpha_to_coverage: self._alpha_to_coverage,
             _slots: self._slots.clone(),
         }
     }

@@ -584,6 +584,8 @@ mod tests {
             _depth_stencil: None,
             _blend: None,
             _primitive: crate::types::PrimitiveState::default(),
+            _color_writes: crate::types::ColorWrites::ALL,
+            _alpha_to_coverage: false,
             _slots: crate::binds::SlotTable::default(),
         };
         let buf = crate::objects_inner::create_direct(crate::objects::DirectKind::Buffer);

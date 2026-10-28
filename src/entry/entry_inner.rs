@@ -1220,6 +1220,12 @@ pub(crate) fn create_rp_impl(d: &Device, p: &RenderPipelineDescriptor<'_>) -> Re
             .as_ref()
             .and_then(|f| f.targets.iter().flatten().next().and_then(|t| t.blend)),
         _primitive: p.primitive.clone(),
+        _color_writes: p
+            .fragment
+            .as_ref()
+            .and_then(|f| f.targets.iter().flatten().next().map(|t| t.write_mask))
+            .unwrap_or(crate::types::ColorWrites::ALL),
+        _alpha_to_coverage: p.multisample.alpha_to_coverage_enabled,
         _slots: own_slots,
     }
 }

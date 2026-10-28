@@ -56,6 +56,12 @@ pub(crate) struct RetainedPipeline {
     pub(crate) depth_stencil: Option<crate::types::DepthStencilState>,
     /// 管线混合定态（与管线创建期同源；随程序切换差异由 set_blend 成对下发）。
     pub(crate) blend: Option<crate::types::BlendState>,
+    /// 图元固定功能（剔除/绕序/填充）。
+    pub(crate) primitive: crate::types::PrimitiveState,
+    /// 颜色写掩码（target[0]）。
+    pub(crate) color_writes: crate::types::ColorWrites,
+    /// 覆盖采样使能。
+    pub(crate) alpha_to_coverage: bool,
     /// 槽分配。
     pub(crate) slots: crate::binds::SlotTable,
 }
@@ -69,6 +75,9 @@ impl RetainedPipeline {
             topology: p._topology,
             depth_stencil: p._depth_stencil.clone(),
             blend: p._blend,
+            primitive: p._primitive.clone(),
+            color_writes: p._color_writes,
+            alpha_to_coverage: p._alpha_to_coverage,
             slots: p._slots.clone(),
         }
     }

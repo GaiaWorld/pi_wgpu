@@ -37,6 +37,8 @@ pub(crate) struct StateMirror {
     pub(crate) scissor_test: Option<bool>,
     /// 深度组：深度测试使能。
     pub(crate) depth_test_enabled: Option<bool>,
+    /// 模板组：模板测试使能（STENCIL_TEST；回读档自纠）。
+    pub(crate) stencil_test_enabled: Option<bool>,
     /// 深度组：深度写掩码。
     pub(crate) depth_write_enabled: Option<bool>,
     /// 深度组：深度比较函数。

@@ -452,21 +452,40 @@ pub(crate) fn exec_set_pipeline_parts(
     {
         let mut m = lock_state(p);
         match x.depth_stencil.as_ref() {
-            Some(ds) => crate::state_inner::set_depth(
-                &mut m,
-                true,
-                ds.depth_write_enabled,
-                ds.depth_compare,
-            ),
-            None => crate::state_inner::set_depth(
-                &mut m,
-                false,
-                true,
-                crate::types::CompareFunction::Always,
-            ),
+            Some(ds) => {
+                crate::state_inner::set_depth(
+                    &mut m,
+                    true,
+                    ds.depth_write_enabled,
+                    ds.depth_compare,
+                );
+                crate::state_inner::set_depth_bias(&mut m, ds.bias);
+                // 模板两面接线（此前断线：func/op 从未配置、STENCIL_TEST 从未开）。
+                let st_ref = m.stencil_reference.unwrap_or(0);
+                crate::state_inner::set_stencil(&mut m, ds.stencil.front, ds.stencil.back, st_ref);
+            }
+            None => {
+                crate::state_inner::set_depth(
+                    &mut m,
+                    false,
+                    true,
+                    crate::types::CompareFunction::Always,
+                );
+                crate::state_inner::set_depth_bias(&mut m, crate::types::DepthBiasState::default());
+                crate::state_inner::set_stencil_test(&mut m, false);
+            }
         }
         // 混合随管线定态下发（2026-10-22 断线修复）：None=关混合；Some=开并双方程四因子。
         state_inner::set_blend(&mut m, x.blend);
+        // 图元定态、颜色写掩码、覆盖采样（此前未接线：字段在管线、下发链缺）。
+        state_inner::set_primitive(
+            &mut m,
+            x.primitive.cull_mode,
+            x.primitive.front_face,
+            x.primitive.polygon_mode,
+        );
+        state_inner::set_color_writes(&mut m, x.color_writes);
+        state_inner::set_alpha_to_coverage(&mut m, x.alpha_to_coverage);
     }
     p._slots = x.slots.clone();
     p._pipe_set = true;
@@ -510,6 +529,8 @@ struct ComboState {
     elem: Option<u64>,
     /// 最近使用时刻（LRU 淘汰序）。
     last: u64,
+    /// 最近使用帧号（本帧用过的条目免淘汰：防「本帧创建→本帧删除」抖动）。
+    last_frame: u32,
     /// 是否草稿（溢出共享 VAO：不参与 LRU、不置整备标记）。
     scratch: bool,
 }
@@ -518,8 +539,12 @@ struct ComboState {
 static COMBO: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<u64, ComboState>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
-/// 组合缓存上限（WebGL 驱动对 VAO 总量有上限，取保守值；超限按 LRU 真删回收）。
-const COMBO_CAP: usize = 128;
+/// 组合缓存上限（非草稿条目计数；超限按 LRU 真删回收）。
+/// 256 = 桌面/移动兼顾值（VAO 只指驱动侧输入布局，单具开销小；桌面可升 512）。
+const COMBO_CAP: usize = 256;
+
+/// 淘汰目标水位（上限的 7/8）：一次腾出批量空间，降低淘汰触发频率（旧 3/4 会「建满即抖」）。
+const COMBO_TARGET: usize = COMBO_CAP - COMBO_CAP / 8;
 
 /// 草稿键盐：每布局一具共享 VAO，每次使用都重整备（不做整备标记）。
 const COMBO_SCRATCH_SALT: u64 = 0x5C7A_7C4B_0000_0001;
@@ -563,22 +588,25 @@ fn combo_keys(p: &RenderPass<'_>, base: u32) -> (u64, u64) {
 /// 超限回收：按 LRU 淘汰非草稿组合（返回被淘汰键，供 GL 侧真删）。
 fn combo_maintain() -> Vec<u64> {
     let mut t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
-    if t.len() < COMBO_CAP {
+    // 草稿键不计入容量（旧形 t.len() 把草稿算进去→草稿越来越多、可用容量被永久蚕食）。
+    let mut live = t.values().filter(|s| !s.scratch).count();
+    if live < COMBO_CAP {
         return Vec::new();
     }
+    let fr = crate::state_inner::frame_no();
     let mut cand: Vec<(u64, u64)> = t
         .iter()
-        .filter(|(_, s)| !s.scratch)
+        .filter(|(_, s)| !s.scratch && s.last_frame != fr)
         .map(|(k, s)| (*k, s.last))
         .collect();
     cand.sort_by_key(|x| x.1);
-    let target = COMBO_CAP * 3 / 4;
     let mut out: Vec<u64> = Vec::new();
     for (k, _) in cand {
-        if t.len() <= target {
+        if live <= COMBO_TARGET {
             break;
         }
         t.remove(&k);
+        live -= 1;
         out.push(k);
     }
     out
@@ -587,30 +615,42 @@ fn combo_maintain() -> Vec<u64> {
 /// 取键：已登记=复用；未满=登记新组合；超限=草稿键（返回是否草稿）。
 fn combo_pick(full: u64, scratch: u64) -> (u64, bool) {
     let tick = COMBO_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let fr = crate::state_inner::frame_no();
     let mut t = COMBO.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = t.get_mut(&full) {
         s.last = tick;
+        s.last_frame = fr;
         return (full, false);
     }
-    if t.len() < COMBO_CAP {
+    let live = t.values().filter(|s| !s.scratch).count();
+    if live < COMBO_CAP {
         t.insert(
             full,
             ComboState {
                 settled: false,
                 elem: None,
                 last: tick,
+                last_frame: fr,
                 scratch: false,
             },
         );
         return (full, false);
     }
-    t.entry(scratch).or_insert(ComboState {
+    let s = t.entry(scratch).or_insert(ComboState {
         settled: false,
         elem: None,
         last: tick,
+        last_frame: fr,
         scratch: true,
     });
-    log::error!("draw: 组合 VAO 表满（cap={COMBO_CAP}）转草稿 key={full:#x}");
+    s.last = tick;
+    s.last_frame = fr;
+    // 表满降级路径可能每 draw 走到：同帧只登记一次，避免日志面把帧率拖垮。
+    static WARN_FRAME: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(u32::MAX);
+    if WARN_FRAME.swap(fr, std::sync::atomic::Ordering::Relaxed) != fr {
+        log::warn!("draw: 组合 VAO 表满（cap={COMBO_CAP}）转草稿 key={full:#x}");
+    }
     (scratch, true)
 }
 
@@ -819,9 +859,10 @@ pub(crate) fn exec_draw(
 
     crate::state_inner::check_fbo("draw", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
+        // 组合 VAO 先落位：set_vao 同步水位，flush 的 vao 组不再回绑旧组合（每 draw 省一条）。
+        combo_bind(p, &mut m, base, gl);
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        combo_bind(p, &mut m, base, gl);
         if icount == 1 && base == 0 {
             gl.draw_arrays(mode, v.start as i32, count);
         } else {
@@ -869,9 +910,10 @@ pub(crate) fn exec_draw_idx(
     ));
     crate::state_inner::check_fbo("draw_idx", state_inner::name_of_public(m.fbo_draw));
     with_gl(|gl| unsafe {
+        // 组合 VAO 先落位：set_vao 同步水位，flush 的 vao 组不再回绑旧组合（每 draw 省一条）。
+        combo_bind(p, &mut m, base, gl);
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
-        combo_bind(p, &mut m, base, gl);
         if icount == 1 && base == 0 {
             gl.draw_elements(mode, count, idx_type(f), off as i32)
         } else {

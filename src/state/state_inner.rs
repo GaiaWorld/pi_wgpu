@@ -38,6 +38,8 @@ const GL_ACTIVE_TEXTURE: u32 = 0x84E0;
 const GL_TEXTURE_2D: u32 = 0x0DE1;
 /// 深度开关/写掩码/比较参数号。
 const GL_DEPTH_TEST: u32 = 0x0B71;
+/// GL_STENCIL_TEST 使能枚举（回读档自纠 + 模板 set 组共用）。
+const GL_STENCIL_TEST: u32 = 0x0B90;
 const GL_DEPTH_FUNC: u32 = 0x0B74;
 /// 剔除开关与模式参数号。
 const GL_CULL_FACE: u32 = 0x0B44;
@@ -151,6 +153,11 @@ fn frame_now() -> u32 {
     FRAME.load(Ordering::Relaxed)
 }
 
+/// 帧号对外视图（组合 VAO 淘汰保护：本帧用过的条目不进候选）。
+pub(crate) fn frame_no() -> u32 {
+    frame_now()
+}
+
 /// 整发档已下发水位：非回读组「上次实际下发」的原语快照（比较基准；缺省=从未发→首轮全发）。
 /// 全字段 GL 原语型——比对即 `==`（词汇面无 PartialEq，比较一律经映射原语落水位值）。
 #[derive(Debug, Default, Clone)]
@@ -189,11 +196,6 @@ pub(crate) struct Water {
 /// 镜像字段名读数（诊断探针用）：None=0。
 pub(crate) fn name_of_public(o: Option<GlHandle>) -> u64 {
     name_of(o)
-}
-
-/// 死名判据：登记表为空时零开销（常态）；非空才查表（避免把已删名重新下发进驱动）。
-fn dead_name(pending: bool, domain: u8, name: u64) -> bool {
-    pending && name != 0 && is_removed(domain, name)
 }
 
 fn name_of(o: Option<GlHandle>) -> u64 {
@@ -273,12 +275,13 @@ fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
     }
 }
 
-/// 填充模式映射（FILL=0x1B01/LINE=0x1B02/POINT=0x1B03；非 Fill 能力断言在 draw 侧）。
+/// 填充模式映射（GL 规范值：POINT=0x1B00 / LINE=0x1B01 / FILL=0x1B02；
+/// WebGL 无语面，set/flush 两侧均按平台隔离，非 Fill 只登记差异）。
 fn polygon_to_gl(m: PolygonMode) -> u32 {
     match m {
-        PolygonMode::Fill => 0x1B01,
-        PolygonMode::Line => 0x1B02,
-        PolygonMode::Point => 0x1B03,
+        PolygonMode::Fill => 0x1B02,
+        PolygonMode::Line => 0x1B01,
+        PolygonMode::Point => 0x1B00,
     }
 }
 
@@ -735,6 +738,8 @@ pub(crate) fn set_color_writes(m: &mut StateMirror, w: ColorWrites) {
             w.contains(crate::types::ColorWrites::ALPHA),
         )
     });
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，不回写则下轮必判失配重发）。
+    m.water.color_writes = Some(w.bits());
 }
 
 /// 图元三面 set（剔除开关+模式/绕序/填充一次刷齐）。
@@ -759,10 +764,26 @@ pub(crate) fn set_primitive(
             gl.cull_face(mode);
         }
         gl.front_face(front_face_to_gl(front));
+        // WebGL 无 polygonMode（glow web 对非 FILL 直接 panic）——恒填充，非 Fill 只登记差异。
+        #[cfg(not(target_arch = "wasm32"))]
         gl.polygon_mode(GL_FRONT_AND_BACK, polygon_to_gl(polygon));
+        #[cfg(target_arch = "wasm32")]
+        {
+            if !matches!(polygon, PolygonMode::Fill) {
+                static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                if WARNED.set(()).is_ok() {
+                    log::warn!(
+                        "draw: WebGL 不支持非 Fill 多边模式（登记差异，实值 {}）",
+                        polygon_to_gl(polygon)
+                    );
+                }
+            }
+        }
         // 驱动新建上下文默认线宽≠1.0；管线固定功能切换时归一（防残留线态画面）。
         gl.line_width(1.0);
     });
+    // 填充模式属不可回读水位组（剔除/绕序走回读档自纠）。
+    m.water.polygon_mode = Some(polygon_to_gl(polygon));
 }
 
 /// 深度偏置 set（使能=任一非零；clamp 词汇位无驱动对应=不落地已登记差异）。
@@ -777,9 +798,28 @@ pub(crate) fn set_depth_bias(m: &mut StateMirror, bias: DepthBiasState) {
         set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
         gl.polygon_offset(slope, constant);
     });
+    m.water.depth_bias = Some((on, slope, constant));
 }
 
-/// 模板两面+参考值 set（前后各刷 func/op；掩码恒全 1=交集面）。
+/// 模板双面 + 参考值的下发水位形（flush 比对与 set 路回写同源）。
+fn stencil_water(fs: StencilFaceState, bs: StencilFaceState, r: u32) -> [i32; 12] {
+    [
+        GL_FRONT as i32,
+        cmp_to_gl(fs.compare) as i32,
+        r as i32,
+        stencil_op_to_gl(fs.fail_op) as i32,
+        stencil_op_to_gl(fs.depth_fail_op) as i32,
+        stencil_op_to_gl(fs.pass_op) as i32,
+        GL_BACK as i32,
+        cmp_to_gl(bs.compare) as i32,
+        r as i32,
+        stencil_op_to_gl(bs.fail_op) as i32,
+        stencil_op_to_gl(bs.depth_fail_op) as i32,
+        stencil_op_to_gl(bs.pass_op) as i32,
+    ]
+}
+
+/// 模板两面+参考值 set（开 STENCIL_TEST、前后各刷 func/op；掩码恒全 1=交集面）。
 pub(crate) fn set_stencil(
     m: &mut StateMirror,
     front: StencilFaceState,
@@ -789,13 +829,16 @@ pub(crate) fn set_stencil(
     if stencil_face_same(m.stencil_front, front)
         && stencil_face_same(m.stencil_back, back)
         && m.stencil_reference == Some(reference)
+        && m.stencil_test_enabled == Some(true)
     {
         return;
     }
     m.stencil_front = Some(front);
     m.stencil_back = Some(back);
     m.stencil_reference = Some(reference);
+    m.stencil_test_enabled = Some(true);
     with_gl(|gl| unsafe {
+        set_enable(gl, GL_STENCIL_TEST, true);
         for (face, st) in [(GL_FRONT, front), (GL_BACK, back)] {
             gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
             gl.stencil_op_separate(
@@ -806,6 +849,16 @@ pub(crate) fn set_stencil(
             );
         }
     });
+    m.water.stencil = Some(stencil_water(front, back, reference));
+}
+
+/// 模板使能 set（管线无模板态时关断；回读档自纠）。
+pub(crate) fn set_stencil_test(m: &mut StateMirror, on: bool) {
+    if m.stencil_test_enabled == Some(on) {
+        return;
+    }
+    m.stencil_test_enabled = Some(on);
+    with_gl(|gl| unsafe { set_enable(gl, GL_STENCIL_TEST, on) });
 }
 
 /// 模板参考值 set：入镜像；两面状态已知时即时重下 func（差异才发）。
@@ -820,6 +873,7 @@ pub(crate) fn set_stencil_reference(m: &mut StateMirror, reference: u32) {
                 gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
             }
         });
+        m.water.stencil = Some(stencil_water(fs, bs, reference));
     }
 }
 
@@ -830,6 +884,7 @@ pub(crate) fn set_alpha_to_coverage(m: &mut StateMirror, on: bool) {
     }
     m.sample_alpha_to_coverage = Some(on);
     with_gl(|gl| unsafe { set_enable(gl, GL_SAMPLE_ALPHA_TO_COVERAGE, on) });
+    m.water.alpha_to_coverage = Some(on);
 }
 
 /// 采样掩码值 set：本 fork glow 未暴露掩码下发面——镜像仅记录期望值（供 B10 采样合同校验），
@@ -863,7 +918,8 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             // 回读段已亲验/亲正驱动态——镜位即实态，固化免 exec 路下轮条件重发（双消耗面）。
             m.active_texture_unit = Some(exp_active);
             let exp_depth = m.depth_test_enabled.unwrap_or(false);
-            if (gl.get_parameter_i32(GL_DEPTH_TEST) != 0) != exp_depth {
+            // 能力开关必须用 isEnabled 回读（getParameter+cap pname = INVALID_ENUM，WebGL 规范）。
+            if gl.is_enabled(GL_DEPTH_TEST) != exp_depth {
                 set_enable(gl, GL_DEPTH_TEST, exp_depth);
             }
             if let Some(cmp) = m.depth_compare {
@@ -876,7 +932,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             }
             let exp_cull = cull_mode_to_gl(m.cull_mode.unwrap_or(None));
             let real_cull_mode = gl.get_parameter_i32(GL_CULL_FACE_MODE) as u32;
-            if (gl.get_parameter_i32(GL_CULL_FACE) != 0) != exp_cull.is_some() {
+            if gl.is_enabled(GL_CULL_FACE) != exp_cull.is_some() {
                 set_enable(gl, GL_CULL_FACE, exp_cull.is_some());
             }
             if let Some(mode) = exp_cull {
@@ -890,12 +946,16 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
                 }
             }
             let exp_scissor = m.scissor_test.unwrap_or(false);
-            if (gl.get_parameter_i32(GL_SCISSOR_TEST) != 0) != exp_scissor {
+            if gl.is_enabled(GL_SCISSOR_TEST) != exp_scissor {
                 set_enable(gl, GL_SCISSOR_TEST, exp_scissor);
             }
             let exp_blend = m.blend.map(|b| b.is_some()).unwrap_or(false);
-            if (gl.get_parameter_i32(GL_BLEND) != 0) != exp_blend {
+            if gl.is_enabled(GL_BLEND) != exp_blend {
                 set_enable(gl, GL_BLEND, exp_blend);
+            }
+            let exp_st = m.stencil_test_enabled.unwrap_or(false);
+            if gl.is_enabled(GL_STENCIL_TEST) != exp_st {
+                set_enable(gl, GL_STENCIL_TEST, exp_st);
             }
             // 裁剪框：镜像登记过才回读比对（未设=不发也不读——盲读不可回读的上下文 pname 会污染错误队列）。
             if let Some(b) = m.scissor {
@@ -922,21 +982,42 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         crate::state_inner::check_err("f_readback");
         // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
         if dead_pending {
-            // 精确清退（2026-10-27 产品 trace 定案）：整面清水位=全组盲强发——useProgram 双发
-            // 与贴图重绑全由它来。program/ubo/tex/smp 各组已有逐槽 dead_name 防死名下发，
-            // 水位对非死条目仍是有效记录；此处仅按号精退属性/vao 族（objects slot 号复用防撞）。
-            // 属性组合 VAO 的失效随 Vao 物理删除点整清（combo_forget），此处只退当前 VAO 镜像。
+            // 死名处理（2026-10-28 审计定案）：丢期望，不假装已下发。
+            // 驱动侧删除对象即自动解绑/复位；旧形把水位置成「死名+期望参数」——
+            // 桌面 gid=GL 对象名可复用，同名新对象会因水位相等而永久悬空。
             let dead = removed_snapshot();
-            if let Some(cur) = m.vao {
-                if dead.iter().any(|(d, n)| *d == 1 && *n == cur.0) {
-                    m.vao = None;
+            let is_dead = |d: u8, g: crate::objects::GlHandle| -> bool {
+                dead.iter().any(|(dd, n)| *dd == d && *n == g.0)
+            };
+            if m.program.map(|g| is_dead(0, g)).unwrap_or(false) {
+                m.program = None;
+            }
+            if m.vao.map(|g| is_dead(1, g)).unwrap_or(false) {
+                m.vao = None;
+            }
+            if m.fbo_draw.map(|g| is_dead(2, g)).unwrap_or(false) {
+                m.fbo_draw = None;
+            }
+            if m.pixel_unpack_buffer.map(|g| is_dead(4, g)).unwrap_or(false) {
+                m.pixel_unpack_buffer = None;
+            }
+            for i in 0..BIND_SLOTS {
+                if m.ubo_bindings[i].map(|(g, _, _)| is_dead(4, g)).unwrap_or(false) {
+                    m.ubo_bindings[i] = None;
+                    m.water.ubo[i] = None;
+                }
+                if m.texture_bindings[i].map(|(g, _)| is_dead(5, g)).unwrap_or(false) {
+                    m.texture_bindings[i] = None;
+                    m.water.tex[i] = Some(None);
+                }
+                if m.sampler_bindings[i].map(|g| is_dead(6, g)).unwrap_or(false) {
+                    m.sampler_bindings[i] = None;
+                    m.water.sampler[i] = Some(None);
                 }
             }
         }
         let prog_name = name_of(m.program);
-        if dead_name(dead_pending, 0, prog_name) {
-            m.water.program = Some(prog_name);
-        } else if m.water.program != Some(prog_name) {
+        if m.water.program != Some(prog_name) {
             apply_program(m);
             // 指位零参与切换（2026-10-27 缓存定案）：uniform1i/glUniformBlockBinding=程序对象
             // 持久态，创建期 collect 芯内已一次发，此后只随 use_program 天然携带。
@@ -944,47 +1025,28 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             probe(1);
         }
         let vao_name = name_of(m.vao);
-        if dead_name(dead_pending, 1, vao_name) {
-            m.water.vao = Some(vao_name);
-        } else if m.water.vao != Some(vao_name) {
+        if m.water.vao != Some(vao_name) {
             apply_vao(m);
             m.water.vao = Some(vao_name);
             probe(1);
         }
         let fbo_name = name_of(m.fbo_draw);
-        if dead_name(dead_pending, 2, fbo_name) {
-            m.water.fbo_draw = Some(fbo_name);
-        } else if m.water.fbo_draw != Some(fbo_name) {
+        if m.water.fbo_draw != Some(fbo_name) {
             apply_fbo(m);
             m.water.fbo_draw = Some(fbo_name);
             probe(1);
         }
         let unpack_name = name_of(m.pixel_unpack_buffer);
-        if dead_name(dead_pending, 4, unpack_name) {
-            m.water.unpack = Some(unpack_name);
-        } else if m.water.unpack != Some(unpack_name) {
+        if m.water.unpack != Some(unpack_name) {
             apply_unpack(m);
             m.water.unpack = Some(unpack_name);
             probe(1);
         }
         let mut switched = false;
         for i in 0..BIND_SLOTS {
-            // 死名槽本轮跳过下发（不触驱动报错），镜像意图保留：延后执行下无人重设。
-            let ubo_dead = matches!(m.ubo_bindings[i], Some((g, _, _)) if dead_name(dead_pending, 4, g.0));
-            let tex_dead = matches!(m.texture_bindings[i], Some((g, _)) if dead_name(dead_pending, 5, g.0));
-            let smp_dead = matches!(m.sampler_bindings[i], Some(g) if dead_name(dead_pending, 6, g.0));
-            if ubo_dead {
-                m.water.ubo[i] = m.ubo_bindings[i].map(|(g, o, z)| (g.0, o, z));
-            }
-            if tex_dead {
-                m.water.tex[i] = Some(m.texture_bindings[i].map(|(g, tg)| (g.0, tg)));
-            }
-            if smp_dead {
-                m.water.sampler[i] = Some(m.sampler_bindings[i].map(|g| g.0));
-            }
             if let Some((g, off, sz)) = m.ubo_bindings[i] {
                 let t = (g.0, off, sz);
-                if !ubo_dead && m.water.ubo[i] != Some(t) {
+                if m.water.ubo[i] != Some(t) {
                     if off == 0 && sz == 0 {
                         gl.bind_buffer_base(
                             GL_UNIFORM_BUFFER,
@@ -1012,7 +1074,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             // 复位全 24 槽扫 null=风暴噪音+Web 越界 INVALID_VALUE 残源）；仅 Some→None 发解绑。
             let tex_stale: bool =
                 !(m.water.tex[i].is_none() && tex_t.is_none()) && m.water.tex[i] != Some(tex_t);
-            if !tex_dead && tex_stale {
+            if tex_stale {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
                 switched = true;
                 match tex_t {
@@ -1027,7 +1089,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             // 同上缓存语义：未记录且期望空=一致，不发初轮 null；仅 Some→None 发解绑。
             let smp_stale: bool =
                 !(m.water.sampler[i].is_none() && smp_t.is_none()) && m.water.sampler[i] != Some(smp_t);
-            if !smp_dead && smp_stale {
+            if smp_stale {
                 match smp_t {
                     Some(n) => gl.bind_sampler(i as u32, Some(crate::gid::sampler_from(n))),
                     None => gl.bind_sampler(i as u32, None),
@@ -1079,6 +1141,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         let poly = m.polygon_mode.map(polygon_to_gl);
         if m.water.polygon_mode != poly {
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(p) = poly {
                 gl.polygon_mode(GL_FRONT_AND_BACK, p);
             }
@@ -1099,23 +1162,7 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         }
         crate::state_inner::check_err("f_blendconst");
         let stencil_t = match (m.stencil_front, m.stencil_back) {
-            (Some(fs), Some(bs)) => {
-                let r = m.stencil_reference.unwrap_or(0) as i32;
-                Some([
-                    GL_FRONT as i32,
-                    cmp_to_gl(fs.compare) as i32,
-                    r,
-                    stencil_op_to_gl(fs.fail_op) as i32,
-                    stencil_op_to_gl(fs.depth_fail_op) as i32,
-                    stencil_op_to_gl(fs.pass_op) as i32,
-                    GL_BACK as i32,
-                    cmp_to_gl(bs.compare) as i32,
-                    r,
-                    stencil_op_to_gl(bs.fail_op) as i32,
-                    stencil_op_to_gl(bs.depth_fail_op) as i32,
-                    stencil_op_to_gl(bs.pass_op) as i32,
-                ])
-            }
+            (Some(fs), Some(bs)) => Some(stencil_water(fs, bs, m.stencil_reference.unwrap_or(0))),
             _ => None,
         };
         if m.water.stencil != stencil_t {
@@ -1221,7 +1268,9 @@ mod tests {
         assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusConstant), 0x8002);
         assert_eq!(front_face_to_gl(FrontFace::Ccw), 0x0900, "NDC Y 翻后绕序反向");
         assert_eq!(front_face_to_gl(FrontFace::Cw), 0x0901);
-        assert_eq!(polygon_to_gl(PolygonMode::Fill), 0x1B01);
+        assert_eq!(polygon_to_gl(PolygonMode::Fill), 0x1B02, "GL 规范 FILL=0x1B02（Fill→LINE 曾致 WebGL FILL 断言 panic）");
+        assert_eq!(polygon_to_gl(PolygonMode::Line), 0x1B01);
+        assert_eq!(polygon_to_gl(PolygonMode::Point), 0x1B00);
         assert_eq!(stencil_op_to_gl(StencilOperation::Replace), 0x1E02);
     }
 
