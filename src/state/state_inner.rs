@@ -1,0 +1,1318 @@
+// 设计：pi-wgpu-rebuild
+//! state 芯 · 驱动状态镜像——两段式差异下发：
+//! ① set_* 组 helper（B6/B8/B10 消费）：先比对镜像期望值，相同=零下发；差异=下发、成功后落镜像（不变量执行体）。
+//! ② flush_if_changed（draw 前消费）：可回读组每帧一次向驱动实值比对、差异才重下发（帧门，present 推进帧号）；
+//!    驱动侧不可回读组（WebGL 对象绑定查询返回 JS 对象、UBO 绑定点无标量回读）按「上次已下发水位」（Water）
+//!    比对、差异才发——水位空（首轮/整面重置）或死名表非空=整组强发一轮。
+//! 死名驻留：objects 删除路径已删名登记；表非空=整发档强发，整发档末尾整面销记。
+
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
+use pi_hash::XHashSet;
+
+use glow::HasContext;
+
+use crate::context_inner::with_gl;
+use crate::objects::GlHandle;
+use crate::state::{StateMirror, BIND_SLOTS};
+use crate::types::{
+    BlendFactor, BlendOperation, BlendState, Color, ColorWrites, CompareFunction, CullMode,
+    DepthBiasState, Face, FrontFace, PolygonMode, StencilFaceState, StencilOperation,
+};
+
+/// GL_CURRENT_PROGRAM 回读参数号。
+const GL_CURRENT_PROGRAM: u32 = 0x8B8D;
+/// DRAW framebuffer 目标号与回读号（规范同源 0x8CA9）。
+const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+/// PIXEL_UNPACK_BUFFER 目标号。
+// 0x88EB is GL_PIXEL_PACK_BUFFER; unpack target is 0x88EC.
+const GL_PIXEL_UNPACK_BUFFER: u32 = 0x88EC;
+/// UNIFORM_BUFFER 目标号。
+const GL_UNIFORM_BUFFER: u32 = 0x8A11;
+/// 纹理单元基号与 ACTIVE_TEXTURE 回读参数号。
+const GL_TEXTURE0: u32 = 0x84C0;
+const GL_ACTIVE_TEXTURE: u32 = 0x84E0;
+/// TEXTURE_2D 目标号。
+const GL_TEXTURE_2D: u32 = 0x0DE1;
+/// 深度开关/写掩码/比较参数号。
+const GL_DEPTH_TEST: u32 = 0x0B71;
+/// GL_STENCIL_TEST 使能枚举（回读档自纠 + 模板 set 组共用）。
+const GL_STENCIL_TEST: u32 = 0x0B90;
+const GL_DEPTH_FUNC: u32 = 0x0B74;
+/// 剔除开关与模式参数号。
+const GL_CULL_FACE: u32 = 0x0B44;
+const GL_CULL_FACE_MODE: u32 = 0x0B45;
+/// 正面绕序参数号。
+const GL_FRONT_FACE: u32 = 0x0B46;
+/// 混合开关参数号。
+const GL_BLEND: u32 = 0x0BE2;
+/// 裁剪开关与框参数号。
+const GL_SCISSOR_TEST: u32 = 0x0C11;
+// GL_SCISSOR_BOX is 0x0C10 (0x0410 is not a valid pname -> INVALID_ENUM on every read).
+const GL_SCISSOR_BOX: u32 = 0x0C10;
+/// 视口与深度区间参数号。
+const GL_VIEWPORT: u32 = 0x0BA2;
+const GL_DEPTH_RANGE: u32 = 0x0B70;
+/// 多边形偏置开关参数号。
+// 0x8E30 is not a valid enable cap; polygon offset fill is 0x8037.
+const GL_POLYGON_OFFSET_FILL: u32 = 0x8037;
+/// 覆盖采样开关参数号。
+const GL_SAMPLE_ALPHA_TO_COVERAGE: u32 = 0x809E;
+/// 模板朝向参数号。
+const GL_FRONT: u32 = 0x0404;
+const GL_BACK: u32 = 0x0405;
+/// 双面朝向号（polygon_mode 落发用）。
+const GL_FRONT_AND_BACK: u32 = 0x0408;
+
+/// 测试构建下发观测计数器：0=useProgram 下发次数、1=flush 整组重发次数、2=回读段执行次数（产品路径不读）。
+static TEST_PROBE: Lazy<Mutex<[u32; 3]>> = Lazy::new(|| Mutex::new([0; 3]));
+
+/// 计数观测（test 构建生效；产品构建编译期为空）。
+#[cfg(test)]
+#[inline]
+fn probe(slot: usize) {
+    let mut p = TEST_PROBE.lock().unwrap_or_else(|e| e.into_inner());
+    p[slot] = p[slot].wrapping_add(1);
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn probe(_slot: usize) {}
+
+/// 读观测计数（合验用例断言用）。
+#[cfg(test)]
+#[inline]
+pub(crate) fn probe_count(slot: usize) -> u32 {
+    TEST_PROBE.lock().unwrap_or_else(|e| e.into_inner())[slot]
+}
+
+/// —— 死名刷失驻留：「镜像不假设驱动仍持有已删对象」的机制层（objects 删除路径登记）——
+/// 已删对象名登记表（域编号×名字防跨域串扰；域编号约定见 objects 芯 kind_num_* 函数注释）。
+static REMOVED_NAMES: Lazy<Mutex<XHashSet<(u8, u64)>>> =
+    Lazy::new(|| Mutex::new(XHashSet::default()));
+
+/// 登记一个被物理删除的对象名（objects 芯 mark_dead/release 删除后调用）。
+pub(crate) fn note_removed(domain: u8, name: u64) {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert((domain, name));
+}
+
+/// 查询某域对象名是否已被删除（回读比对命中=该组按驱动未知处理，强制重发）。
+pub(crate) fn is_removed(domain: u8, name: u64) -> bool {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&(domain, name))
+}
+
+/// 重下发成功后销记（GL 名可被驱动回收再用，滞留登记会误判新对象为死）。
+pub(crate) fn forget_removed(domain: u8, name: u64) {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&(domain, name));
+}
+
+/// 整面清空（invalidate_generations 路径：旧世代名集在新附着下无意义）。
+pub(crate) fn removed_snapshot() -> Vec<(u8, u64)> {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .copied()
+        .collect()
+}
+
+pub(crate) fn clear_removed() {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// 死名登记表是否非空（整发档强发判据：镜像可能仍指名已被删对象，须整组重刷一轮）。
+fn has_removed() -> bool {
+    !REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
+}
+
+/// 帧序号：present 每次换帧推进一格（可回读档帧门的钟）。
+static FRAME: AtomicU32 = AtomicU32::new(0);
+
+/// 推进帧号（surface.present 换帧时调用）——回读帧门的唯一推进点。
+pub(crate) fn bump_frame() {
+    FRAME.fetch_add(1, Ordering::Relaxed);
+}
+
+/// 当前帧号（回读帧门比较用）。
+#[inline]
+fn frame_now() -> u32 {
+    FRAME.load(Ordering::Relaxed)
+}
+
+/// 帧号对外视图（组合 VAO 淘汰保护：本帧用过的条目不进候选）。
+#[inline]
+pub(crate) fn frame_no() -> u32 {
+    frame_now()
+}
+
+/// 整发档已下发水位：非回读组「上次实际下发」的原语快照（比较基准；缺省=从未发→首轮全发）。
+/// 全字段 GL 原语型——比对即 `==`（词汇面无 PartialEq，比较一律经映射原语落水位值）。
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Water {
+    /// 程序组（对象名，0=无名绑定）。
+    pub(crate) program: Option<u64>,
+    /// 属性组（VAO 对象名，0=无绑定）。
+    pub(crate) vao: Option<u64>,
+    /// 目标组 DRAW framebuffer（对象名，0=默认帧缓冲）。
+    pub(crate) fbo_draw: Option<u64>,
+    /// 上传组 PIXEL_UNPACK_BUFFER（对象名，0=无绑定）。
+    pub(crate) unpack: Option<u64>,
+    /// uniform 槽表（名,偏移,尺寸；None=该槽从未下发过绑定）。
+    pub(crate) ubo: [Option<(u64, u32, u32)>; BIND_SLOTS],
+    /// 纹理槽表（名,目标；外层 None=未下发过、内层 None=已发过解绑）。
+    pub(crate) tex: [Option<Option<(u64, u32)>>; BIND_SLOTS],
+    /// 采样器槽表（名；外层 None=未下发过、内层 None=已发过解绑）。
+    pub(crate) sampler: [Option<Option<u64>>; BIND_SLOTS],
+    /// 混合组（等式×2+因子×4 映射值；外层 None=未设、内层 None=关混合哨兵）。
+    pub(crate) blend: Option<Option<[u32; 6]>>,
+    /// 混合常量色（RGBA）。
+    pub(crate) blend_constant: Option<[f64; 4]>,
+    /// 颜色写掩码位集。
+    pub(crate) color_writes: Option<u32>,
+    /// 填充模式（映射值）。
+    pub(crate) polygon_mode: Option<u32>,
+    /// 深度偏置（开关,斜率,常数）。
+    pub(crate) depth_bias: Option<(bool, f32, f32)>,
+    /// 模板双面（面,比较,参考,失败操作,深度失败操作,通过操作 六元 × 前/后 展平 12 元）。
+    pub(crate) stencil: Option<[i32; 12]>,
+    /// 覆盖采样使能。
+    pub(crate) alpha_to_coverage: Option<bool>,
+}
+
+/// 镜像名读数（None=驱动侧 0 名=无绑定语义）。
+/// 镜像字段名读数（诊断探针用）：None=0。
+pub(crate) fn name_of_public(o: Option<GlHandle>) -> u64 {
+    name_of(o)
+}
+
+fn name_of(o: Option<GlHandle>) -> u64 {
+    match o {
+        Some(g) => g.0,
+        None => 0,
+    }
+}
+
+// —— 枚举映射（词汇无 PartialEq：比较一律经映射原语；全表值对规范注释）——
+/// 比较函数映射（NEVER=0x0200..ALWAYS=0x0207 标准序）。
+#[inline]
+fn cmp_to_gl(c: CompareFunction) -> u32 {
+    match c {
+        CompareFunction::Never => 0x0200,
+        CompareFunction::Less => 0x0201,
+        CompareFunction::Equal => 0x0202,
+        CompareFunction::LessEqual => 0x0203,
+        CompareFunction::Greater => 0x0204,
+        CompareFunction::NotEqual => 0x0205,
+        CompareFunction::GreaterEqual => 0x0206,
+        CompareFunction::Always => 0x0207,
+    }
+}
+
+/// 混合等式映射（ADD=0x8006/SUB=0x800A/REV=0x800B/MIN=0x8007/MAX=0x8008）。
+#[inline]
+fn blend_op_to_gl(op: BlendOperation) -> u32 {
+    match op {
+        BlendOperation::Add => 0x8006,
+        BlendOperation::Subtract => 0x800A,
+        BlendOperation::ReverseSubtract => 0x800B,
+        BlendOperation::Min => 0x8007,
+        BlendOperation::Max => 0x8008,
+    }
+}
+
+/// 混合因子映射（上游全 17 值官方 enum 号；Src1 系为 ES3.2 号值——WebGL2 无此能力，
+/// 创建校验面已拒（second-source 域名外），此处仅为完备性收录，不会被下发）。
+#[inline]
+fn blend_factor_to_gl(f: BlendFactor) -> u32 {
+    match f {
+        BlendFactor::Zero => 0,
+        BlendFactor::One => 1,
+        BlendFactor::Src => 0x0300,
+        BlendFactor::OneMinusSrc => 0x0301,
+        BlendFactor::SrcAlpha => 0x0302,
+        BlendFactor::OneMinusSrcAlpha => 0x0303,
+        BlendFactor::DstAlpha => 0x0304,
+        BlendFactor::OneMinusDstAlpha => 0x0305,
+        BlendFactor::Dst => 0x0306,
+        BlendFactor::OneMinusDst => 0x0307,
+        BlendFactor::SrcAlphaSaturated => 0x0308,
+        // 上游单参考色语义 → CONSTANT_COLOR 对。
+        BlendFactor::Constant => 0x8001,
+        BlendFactor::OneMinusConstant => 0x8002,
+        BlendFactor::Src1 => 0x937D,
+        BlendFactor::OneMinusSrc1 => 0x937E,
+        BlendFactor::Src1Alpha => 0x8589,
+        BlendFactor::OneMinusSrc1Alpha => 0x883A,
+    }
+}
+
+/// 正面绕序映射（GL_CW=0x0900/GL_CCW=0x0901）。
+/// 正面绕序映射：出码侧翻 NDC Y（ADJUST_COORDINATE_SPACE）会让窗口空间绕序反向，
+/// 故此处必须反向映射，否则正面被当背面剔除（wgpu-hal gles/conv.rs 同因）。
+#[inline]
+fn front_face_to_gl(f: FrontFace) -> u32 {
+    match f {
+        FrontFace::Ccw => 0x0900,
+        FrontFace::Cw => 0x0901,
+    }
+}
+
+/// 剔除模式映射（FRONT=0x0404/BACK=0x0405；None/Undef=无剔除号=开关关）。
+#[inline]
+fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
+    match m {
+        Some(Face::Front) => Some(0x0404),
+        Some(Face::Back) => Some(0x0405),
+        None => None,
+    }
+}
+
+/// 填充模式映射（GL 规范值：POINT=0x1B00 / LINE=0x1B01 / FILL=0x1B02；
+/// WebGL 无语面，set/flush 两侧均按平台隔离，非 Fill 只登记差异）。
+#[inline]
+fn polygon_to_gl(m: PolygonMode) -> u32 {
+    match m {
+        PolygonMode::Fill => 0x1B02,
+        PolygonMode::Line => 0x1B01,
+        PolygonMode::Point => 0x1B00,
+    }
+}
+
+/// 模板操作映射（KEEP=0x1E00/ZERO=0x1E01/REPLACE=0x1E02/INCR=0x1E03/DECR=0x1E04/INVERT=0x1E05/WRAP=0x8507/0x8508）。
+#[inline]
+fn stencil_op_to_gl(op: StencilOperation) -> u32 {
+    match op {
+        StencilOperation::Keep => 0x1E00,
+        StencilOperation::Zero => 0x1E01,
+        StencilOperation::Replace => 0x1E02,
+        StencilOperation::IncrementClamp => 0x1E03,
+        StencilOperation::DecrementClamp => 0x1E04,
+        StencilOperation::Invert => 0x1E05,
+        StencilOperation::IncrementWrap => 0x8507,
+        StencilOperation::DecrementWrap => 0x8508,
+    }
+}
+
+/// 深度偏置常量与斜率下发值对（驱动侧 POLYGON_OFFSET_FACTOR=斜率/UNITS=常数）。
+#[inline]
+fn bias_pair(b: DepthBiasState) -> (f32, f32) {
+    (b.slope_scale, b.constant as f32)
+}
+
+// —— 相等比较器（全经映射/分量拆解；None=从未设 恒不等任何实值，首轮必下发）——
+/// 混合态整体相等（两等式+四因子经原语拆量；外层哨兵 Some(None)=关混合与 None=未设 可区分）。
+fn blend_same(cur: Option<Option<BlendState>>, next: Option<BlendState>) -> bool {
+    match (cur, next) {
+        (None, _) => false,
+        (Some(None), None) => true,
+        (Some(Some(a)), Some(b)) => a.color == b.color && a.alpha == b.alpha,
+        _ => false,
+    }
+}
+
+/// 颜色相等（f32 分量直较）。
+fn color_same(cur: Option<Color>, next: Color) -> bool {
+    match cur {
+        Some(c) => c.r == next.r && c.g == next.g && c.b == next.b && c.a == next.a,
+        None => false,
+    }
+}
+
+/// 深度比较函数相等（映射值比较）。
+#[inline]
+fn cmp_same(cur: Option<CompareFunction>, next: CompareFunction) -> bool {
+    match cur {
+        Some(c) => cmp_to_gl(c) == cmp_to_gl(next),
+        None => false,
+    }
+}
+
+/// 模板单面相等（比较函数+三操作拆原语）。
+#[inline]
+fn stencil_face_same(cur: Option<StencilFaceState>, next: StencilFaceState) -> bool {
+    match cur {
+        Some(a) => {
+            cmp_to_gl(a.compare) == cmp_to_gl(next.compare)
+                && stencil_op_to_gl(a.fail_op) == stencil_op_to_gl(next.fail_op)
+                && stencil_op_to_gl(a.depth_fail_op) == stencil_op_to_gl(next.depth_fail_op)
+                && stencil_op_to_gl(a.pass_op) == stencil_op_to_gl(next.pass_op)
+        }
+        None => false,
+    }
+}
+
+/// 剔除模式相等（None/未设可区分）。
+#[inline]
+fn cull_same(cur: Option<CullMode>, next: CullMode) -> bool {
+    match (cur, next) {
+        (Some(a), b) => match (cull_mode_to_gl(a), cull_mode_to_gl(b)) {
+            (Some(x), Some(y)) => x == y,
+            (None, None) => true,
+            _ => false,
+        },
+        (None, _) => false,
+    }
+}
+
+/// 正面绕序相等。
+#[inline]
+fn front_same(cur: Option<FrontFace>, next: FrontFace) -> bool {
+    match cur {
+        Some(f) => front_face_to_gl(f) == front_face_to_gl(next),
+        None => false,
+    }
+}
+
+/// 填充模式相等。
+#[inline]
+fn polygon_same(cur: Option<PolygonMode>, next: PolygonMode) -> bool {
+    match cur {
+        Some(p) => polygon_to_gl(p) == polygon_to_gl(next),
+        None => false,
+    }
+}
+
+/// 深度偏置相等（三分量）。
+#[inline]
+fn bias_same(cur: Option<DepthBiasState>, next: DepthBiasState) -> bool {
+    match cur {
+        Some(b) => {
+            b.constant == next.constant
+                && b.slope_scale == next.slope_scale
+                && b.clamp == next.clamp
+        }
+        None => false,
+    }
+}
+
+/// 写掩码相等（字节直较）。
+#[inline]
+fn writes_same(cur: Option<ColorWrites>, next: ColorWrites) -> bool {
+    match cur {
+        Some(w) => w.bits() == next.bits(),
+        None => false,
+    }
+}
+
+// —— 组下发体（把镜像当前期望刷向驱动；set helper 与 flush 整发档共用）——
+/// 程序组下发（PROBE(0)=useProgram 实际下发次数，供零下发验收观测）。
+fn apply_program(m: &StateMirror) {
+    with_gl(|gl| unsafe {
+        probe(0);
+        match m.program {
+            Some(g) => gl.use_program(Some(crate::gid::program_from(g.0))),
+            None => gl.use_program(None),
+        }
+    });
+}
+
+/// 属性组下发。
+fn apply_vao(m: &StateMirror) {
+    with_gl(|gl| unsafe {
+        match m.vao {
+            Some(g) => gl.bind_vertex_array(Some(crate::gid::vao_from(g.0))),
+            None => gl.bind_vertex_array(None),
+        }
+    });
+}
+
+/// 目标组下发。
+fn apply_fbo(m: &StateMirror) {
+    with_gl(|gl| unsafe {
+        // 通用目标 GL_FRAMEBUFFER（双端同绑；本上下文 DRAW 分绑枚举实测被拒 0x500 族）。
+        match m.fbo_draw {
+            Some(g) => gl.bind_framebuffer(GL_FRAMEBUFFER, Some(crate::gid::framebuffer_from(g.0))),
+            None => gl.bind_framebuffer(GL_FRAMEBUFFER, None),
+        };
+    });
+}
+
+/// GL_FRAMEBUFFER：通用帧缓冲目标（双端同绑；本上下文 DRAW 分绑被拒实测）。
+const GL_FRAMEBUFFER: u32 = 0x8D40;
+
+/// 上传组下发。
+fn apply_unpack(m: &StateMirror) {
+    with_gl(|gl| unsafe {
+        match m.pixel_unpack_buffer {
+            Some(g) => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, Some(crate::gid::buffer_from(g.0))),
+            None => gl.bind_buffer(GL_PIXEL_UNPACK_BUFFER, None),
+        }
+    });
+}
+
+/// 开/关统一下发体（调用者在 gl 门禁内）。
+/// UBO 区间下发的驱动对齐粒度（GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT）。
+const GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: u32 = 0x8A34;
+/// 当前 FBO 绑定查询名。
+const GL_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+/// 帧缓冲完备态。
+const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+
+/// 驱动 UBO 区间对齐粒度缓存（首次查询；零值回落 256，WebGL2 合同值）。
+static UBO_ALIGN: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// wgpu 只要求绑定偏移 4 对齐，GL 的 bindBufferRange 却要求偏移对齐到
+/// UNIFORM_BUFFER_OFFSET_ALIGNMENT（本机/WebGL2=256）——向下取整并把窗口扩回原区间，
+/// 可见字节集合不变。
+fn ubo_range(off: u32, size: u32) -> (i32, i32) {
+    let align = *UBO_ALIGN.get_or_init(|| {
+        crate::context_inner::with_gl(|gl| unsafe {
+            let a = gl.get_parameter_i32(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT) as u32;
+            if a == 0 { 256 } else { a }
+        })
+    });
+    let aligned = off - off % align;
+    (aligned as i32, (size + (off - aligned)) as i32)
+}
+
+/// Env-gated framebuffer completeness tap (PI_GL_CHECK=1): logs an incomplete FBO before a draw.
+pub(crate) fn check_fbo(tag: &str, expect: u64) {
+    if std::env::var_os("PI_GL_CHECK").is_none() {
+        return;
+    }
+    crate::context_inner::with_gl(|gl| unsafe {
+        let st = gl.check_framebuffer_status(GL_FRAMEBUFFER);
+        if st == GL_FRAMEBUFFER_COMPLETE {
+            return;
+        }
+        let fbo = gl.get_parameter_i32(GL_FRAMEBUFFER_BINDING);
+        let mut vp = [0i32; 4];
+        gl.get_parameter_i32_slice(GL_VIEWPORT, &mut vp);
+        log::error!(
+            "glfbo tag={} status={:#x} fbo={} expect={} viewport={:?} tid={:?}",
+            tag, st, fbo, expect, vp, std::thread::current().id()
+        );
+    });
+}
+
+/// Env-gated GL error tap (PI_GL_CHECK=1): logs pending errors with a call-site tag.
+/// Diagnostics only; drains the queue so it must stay off in production runs.
+pub(crate) fn check_err(tag: &str) {
+    if std::env::var_os("PI_GL_CHECK").is_none() {
+        return;
+    }
+    crate::context_inner::with_gl(|gl| unsafe {
+        let mut n = 0;
+        loop {
+            let e = gl.get_error() as u32;
+            if e == 0 || n > 4 {
+                break;
+            }
+            log::error!("glcheck tag={} err={:#x} tid={:?}", tag, e, std::thread::current().id());
+            n += 1;
+        }
+    });
+}
+
+#[inline]
+unsafe fn set_enable(gl: &glow::Context, group: u32, on: bool) {
+    if on {
+        gl.enable(group);
+    } else {
+        gl.disable(group);
+    }
+}
+
+// —— set_* 组 helper（消费端=B6/B8/B10；差异才下发）——
+/// 程序组 set：同值零下发；差异→下发→落镜像。
+pub(crate) fn set_program(m: &mut StateMirror, name: GlHandle) {
+    if m.program == Some(name) {
+        return;
+    }
+    m.program = Some(name);
+    apply_program(m);
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，set 路发过=驱动态
+// 已是该值，不回写则下轮 flush 必判失配重发同一组——产品 trace 双 useProgram/双 bindTexture 根。
+    m.water.program = Some(name.0);
+}
+
+/// 属性组 set（None=解绑回无名状态）。
+pub(crate) fn set_vao(m: &mut StateMirror, name: Option<GlHandle>) {
+    if m.vao == name {
+        return;
+    }
+    m.vao = name;
+    apply_vao(m);
+    m.water.vao = Some(name.map_or(0, |g| g.0));
+}
+
+/// 目标组 set。
+pub(crate) fn set_draw_fbo(m: &mut StateMirror, name: Option<GlHandle>) {
+    if m.fbo_draw == name {
+        return;
+    }
+    m.fbo_draw = name;
+    apply_fbo(m);
+    m.water.fbo_draw = Some(name.map_or(0, |g| g.0));
+}
+
+/// 上传组 set。
+pub(crate) fn set_pixel_unpack_buffer(m: &mut StateMirror, name: Option<GlHandle>) {
+    if m.pixel_unpack_buffer == name {
+        return;
+    }
+    m.pixel_unpack_buffer = name;
+    apply_unpack(m);
+    m.water.unpack = Some(name.map_or(0, |g| g.0));
+}
+
+/// uniform 槽 set：差异才重绑（键=名+偏移+尺寸）；无偏移无尺寸走 bindBufferBase，带偏移/尺寸走 bindBufferRange；
+/// 解绑走 bindBufferRange(None) 低频路径。带偏移但未声明尺寸=断言（range 需合法 size）。
+pub(crate) fn bind_ubo(
+    m: &mut StateMirror,
+    index: u32,
+    name: Option<GlHandle>,
+    offset: u32,
+    size: u32,
+) {
+    let idx = index as usize;
+    if idx >= BIND_SLOTS {
+        panic!("state 断言: UBO 槽 {index} 超上限 {BIND_SLOTS}");
+    }
+    if name.is_some() && offset != 0 && size == 0 {
+        panic!("state 断言: UBO 槽 {index} 带偏移 {offset} 但未声明尺寸（range 需合法 size）");
+    }
+    let key = name.map(|g| (g, offset, size));
+    if m.ubo_bindings[idx] == key {
+        return;
+    }
+    m.ubo_bindings[idx] = key;
+    with_gl(|gl| unsafe {
+        match (name, offset, size) {
+            (Some(g), 0, 0) => {
+                gl.bind_buffer_base(GL_UNIFORM_BUFFER, index, Some(crate::gid::buffer_from(g.0)))
+            }
+            (Some(g), off, sz) => {
+                let (a_off, a_sz) = ubo_range(off, sz);
+                gl.bind_buffer_range(
+                    GL_UNIFORM_BUFFER,
+                    index,
+                    Some(crate::gid::buffer_from(g.0)),
+                    a_off,
+                    a_sz,
+                )
+            }
+            (None, _, _) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
+        };
+    });
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，set 路发过=驱动态
+// 已是该值，不回写则下轮 flush 必判失配重发同一组——产品 trace 双 useProgram/双 bindTexture 根。 flush 记录形同=裸 (name,off,sz)。
+    m.water.ubo[idx] = name.map(|g| (g.0, offset, size));
+}
+
+/// 纹理槽 set：必要时先切 ACTIVE_TEXTURE（单元号比对防冗余切换），再绑定并落槽表。
+pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, target: u32, name: Option<GlHandle>) {
+    let idx = unit as usize;
+    if idx >= BIND_SLOTS {
+        panic!("state 断言: 纹理单元 {unit} 超上限 {BIND_SLOTS}");
+    }
+    let want = name.map(|g| (g, target));
+    if m.texture_bindings[idx] == want {
+        return;
+    }
+    m.texture_bindings[idx] = want;
+    with_gl(|gl| unsafe {
+        if m.active_texture_unit != Some(unit) {
+            gl.active_texture(GL_TEXTURE0 + unit);
+            m.active_texture_unit = Some(unit);
+        }
+        match name {
+            Some(g) => gl.bind_texture(target, Some(crate::gid::texture_from(g.0))),
+            None => gl.bind_texture(target, None),
+        };
+    });
+    m.water.tex[idx] = Some(want.map(|(g, tg)| (g.0, tg)));
+}
+
+/// 采样器槽 set（绑定到单元；WebGL2 兼容面）。
+pub(crate) fn bind_sampler(m: &mut StateMirror, unit: u32, name: Option<GlHandle>) {
+    let idx = unit as usize;
+    if idx >= BIND_SLOTS {
+        panic!("state 断言: 采样器单元 {unit} 超上限 {BIND_SLOTS}");
+    }
+    if m.sampler_bindings[idx] == name {
+        return;
+    }
+    m.sampler_bindings[idx] = name;
+    with_gl(|gl| unsafe {
+        match name {
+            Some(g) => gl.bind_sampler(unit, Some(crate::gid::sampler_from(g.0))),
+            None => gl.bind_sampler(unit, None),
+        };
+    });
+    m.water.sampler[idx] = Some(name.map(|g| g.0));
+}
+
+/// 视口组 set（六元组=draw 汇合层内翻后的最终下发值；交集面=GLint 视口+f32 深度区间两段下发，比对防冗余）。
+pub(crate) fn set_viewport(m: &mut StateMirror, v: [f32; 6]) {
+    if m.viewport == Some(v) {
+        return;
+    }
+    m.viewport = Some(v);
+    with_gl(|gl| unsafe {
+        gl.viewport(v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32);
+        gl.depth_range_f32(v[4], v[5]);
+    });
+}
+
+/// 裁剪组 set（框+使能一次落齐）。
+pub(crate) fn set_scissor(m: &mut StateMirror, box4: [i32; 4], enabled: bool) {
+    if m.scissor == Some(box4) && m.scissor_test == Some(enabled) {
+        return;
+    }
+    m.scissor = Some(box4);
+    m.scissor_test = Some(enabled);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_SCISSOR_TEST, enabled);
+        gl.scissor(box4[0], box4[1], box4[2], box4[3]);
+    });
+}
+
+/// 深度三面 set（整体比对、一次刷齐；使能/写掩码/比较函数）。
+pub(crate) fn set_depth(m: &mut StateMirror, enabled: bool, write: bool, compare: CompareFunction) {
+    if m.depth_test_enabled == Some(enabled)
+        && m.depth_write_enabled == Some(write)
+        && cmp_same(m.depth_compare, compare)
+    {
+        return;
+    }
+    m.depth_test_enabled = Some(enabled);
+    m.depth_write_enabled = Some(write);
+    m.depth_compare = Some(compare);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_DEPTH_TEST, enabled);
+        gl.depth_mask(write);
+        gl.depth_func(cmp_to_gl(compare));
+    });
+}
+
+/// 混合组 set（哨兵面：Some(None)=关混合；enable+方程+因子一次刷）。
+pub(crate) fn set_blend(m: &mut StateMirror, blend: Option<BlendState>) {
+    if blend_same(m.blend, blend) {
+        return;
+    }
+    m.blend = Some(blend);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_BLEND, blend.is_some());
+        if let Some(bs) = blend {
+            gl.blend_equation_separate(
+                blend_op_to_gl(bs.color.operation),
+                blend_op_to_gl(bs.alpha.operation),
+            );
+            gl.blend_func_separate(
+                blend_factor_to_gl(bs.color.src_factor),
+                blend_factor_to_gl(bs.color.dst_factor),
+                blend_factor_to_gl(bs.alpha.src_factor),
+                blend_factor_to_gl(bs.alpha.dst_factor),
+            );
+        }
+    });
+    m.water.blend = Some(blend.map(|bs| [
+        blend_op_to_gl(bs.color.operation),
+        blend_op_to_gl(bs.alpha.operation),
+        blend_factor_to_gl(bs.color.src_factor),
+        blend_factor_to_gl(bs.color.dst_factor),
+        blend_factor_to_gl(bs.alpha.src_factor),
+        blend_factor_to_gl(bs.alpha.dst_factor),
+    ]));
+}
+
+/// 混合常量色 set。
+pub(crate) fn set_blend_constant(m: &mut StateMirror, c: Color) {
+    if color_same(m.blend_constant, c) {
+        return;
+    }
+    m.blend_constant = Some(c);
+    with_gl(|gl| unsafe { gl.blend_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32) });
+    m.water.blend_constant = Some([c.r, c.g, c.b, c.a]);
+}
+
+/// 写掩码 set（位拆四 bool）。
+pub(crate) fn set_color_writes(m: &mut StateMirror, w: ColorWrites) {
+    if writes_same(m.color_writes, w) {
+        return;
+    }
+    m.color_writes = Some(w);
+    with_gl(|gl| unsafe {
+        gl.color_mask(
+            w.contains(crate::types::ColorWrites::RED),
+            w.contains(crate::types::ColorWrites::GREEN),
+            w.contains(crate::types::ColorWrites::BLUE),
+            w.contains(crate::types::ColorWrites::ALPHA),
+        )
+    });
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，不回写则下轮必判失配重发）。
+    m.water.color_writes = Some(w.bits());
+}
+
+/// 图元三面 set（剔除开关+模式/绕序/填充一次刷齐）。
+pub(crate) fn set_primitive(
+    m: &mut StateMirror,
+    cull: CullMode,
+    front: FrontFace,
+    polygon: PolygonMode,
+) {
+    if cull_same(m.cull_mode, cull)
+        && front_same(m.front_face, front)
+        && polygon_same(m.polygon_mode, polygon)
+    {
+        return;
+    }
+    m.cull_mode = Some(cull);
+    m.front_face = Some(front);
+    m.polygon_mode = Some(polygon);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_CULL_FACE, cull.is_some());
+        if let Some(mode) = cull_mode_to_gl(cull) {
+            gl.cull_face(mode);
+        }
+        gl.front_face(front_face_to_gl(front));
+        // WebGL 无 polygonMode（glow web 对非 FILL 直接 panic）——恒填充，非 Fill 只登记差异。
+        #[cfg(not(target_arch = "wasm32"))]
+        gl.polygon_mode(GL_FRONT_AND_BACK, polygon_to_gl(polygon));
+        #[cfg(target_arch = "wasm32")]
+        {
+            if !matches!(polygon, PolygonMode::Fill) {
+                static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                if WARNED.set(()).is_ok() {
+                    log::warn!(
+                        "draw: WebGL 不支持非 Fill 多边模式（登记差异，实值 {}）",
+                        polygon_to_gl(polygon)
+                    );
+                }
+            }
+        }
+        // 驱动新建上下文默认线宽≠1.0；管线固定功能切换时归一（防残留线态画面）。
+        gl.line_width(1.0);
+    });
+    // 填充模式属不可回读水位组（剔除/绕序走回读档自纠）。
+    m.water.polygon_mode = Some(polygon_to_gl(polygon));
+}
+
+/// 深度偏置 set（使能=任一非零；clamp 词汇位无驱动对应=不落地已登记差异）。
+pub(crate) fn set_depth_bias(m: &mut StateMirror, bias: DepthBiasState) {
+    if bias_same(m.depth_bias, bias) {
+        return;
+    }
+    m.depth_bias = Some(bias);
+    let on = bias.constant != 0 || bias.slope_scale != 0.0;
+    let (slope, constant) = bias_pair(bias);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
+        gl.polygon_offset(slope, constant);
+    });
+    m.water.depth_bias = Some((on, slope, constant));
+}
+
+/// 模板双面 + 参考值的下发水位形（flush 比对与 set 路回写同源）。
+fn stencil_water(fs: StencilFaceState, bs: StencilFaceState, r: u32) -> [i32; 12] {
+    [
+        GL_FRONT as i32,
+        cmp_to_gl(fs.compare) as i32,
+        r as i32,
+        stencil_op_to_gl(fs.fail_op) as i32,
+        stencil_op_to_gl(fs.depth_fail_op) as i32,
+        stencil_op_to_gl(fs.pass_op) as i32,
+        GL_BACK as i32,
+        cmp_to_gl(bs.compare) as i32,
+        r as i32,
+        stencil_op_to_gl(bs.fail_op) as i32,
+        stencil_op_to_gl(bs.depth_fail_op) as i32,
+        stencil_op_to_gl(bs.pass_op) as i32,
+    ]
+}
+
+/// 模板两面+参考值 set（开 STENCIL_TEST、前后各刷 func/op；掩码恒全 1=交集面）。
+pub(crate) fn set_stencil(
+    m: &mut StateMirror,
+    front: StencilFaceState,
+    back: StencilFaceState,
+    reference: u32,
+) {
+    if stencil_face_same(m.stencil_front, front)
+        && stencil_face_same(m.stencil_back, back)
+        && m.stencil_reference == Some(reference)
+        && m.stencil_test_enabled == Some(true)
+    {
+        return;
+    }
+    m.stencil_front = Some(front);
+    m.stencil_back = Some(back);
+    m.stencil_reference = Some(reference);
+    m.stencil_test_enabled = Some(true);
+    with_gl(|gl| unsafe {
+        set_enable(gl, GL_STENCIL_TEST, true);
+        for (face, st) in [(GL_FRONT, front), (GL_BACK, back)] {
+            gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
+            gl.stencil_op_separate(
+                face,
+                stencil_op_to_gl(st.fail_op),
+                stencil_op_to_gl(st.depth_fail_op),
+                stencil_op_to_gl(st.pass_op),
+            );
+        }
+    });
+    m.water.stencil = Some(stencil_water(front, back, reference));
+}
+
+/// 模板使能 set（管线无模板态时关断；回读档自纠）。
+pub(crate) fn set_stencil_test(m: &mut StateMirror, on: bool) {
+    if m.stencil_test_enabled == Some(on) {
+        return;
+    }
+    m.stencil_test_enabled = Some(on);
+    with_gl(|gl| unsafe { set_enable(gl, GL_STENCIL_TEST, on) });
+}
+
+/// 模板参考值 set：入镜像；两面状态已知时即时重下 func（差异才发）。
+pub(crate) fn set_stencil_reference(m: &mut StateMirror, reference: u32) {
+    if m.stencil_reference == Some(reference) {
+        return;
+    }
+    m.stencil_reference = Some(reference);
+    if let (Some(fs), Some(bs)) = (m.stencil_front, m.stencil_back) {
+        with_gl(|gl| unsafe {
+            for (face, st) in [(GL_FRONT, fs), (GL_BACK, bs)] {
+                gl.stencil_func_separate(face, cmp_to_gl(st.compare), reference as i32, !0);
+            }
+        });
+        m.water.stencil = Some(stencil_water(fs, bs, reference));
+    }
+}
+
+/// 覆盖采样使能 set。
+pub(crate) fn set_alpha_to_coverage(m: &mut StateMirror, on: bool) {
+    if m.sample_alpha_to_coverage == Some(on) {
+        return;
+    }
+    m.sample_alpha_to_coverage = Some(on);
+    with_gl(|gl| unsafe { set_enable(gl, GL_SAMPLE_ALPHA_TO_COVERAGE, on) });
+    m.water.alpha_to_coverage = Some(on);
+}
+
+/// 采样掩码值 set：本 fork glow 未暴露掩码下发面——镜像仅记录期望值（供 B10 采样合同校验），
+/// 不产生驱动下发；差异登记见设计登记（词汇有能力、交集驱动面无=保守不谎报）。
+pub(crate) fn set_sample_mask(m: &mut StateMirror, mask: u64) {
+    m.sample_mask = Some(mask);
+}
+
+// 1. 可回读档：单元/开关/函数/视口/裁剪框——帧门内（每帧首次 flush）与驱动实值比对，差异才重下发镜像期望。
+//    帧门：present 推进帧号，同帧内后续 draw 不再回读（帧内状态变化由 set_* 直发与整发档水位保证）。
+// 2. 整发档：句柄绑定类在 WebGL 面不可回读 + UBO 槽无标量回读——按上次下发水位（water）比对、差异才发；
+//    水位空（首轮/整面重置）或死名表非空（镜像可能仍指名被删对象）=整组强发一轮。
+// 3. 下发后镜像不动（镜像即期望）、水位更新为实际下发值；死名表在整发档末尾整面清空。
+pub(crate) fn flush_impl(m: &mut StateMirror) {
+    with_gl(|gl| unsafe {
+        // 世代判据：他线程/他编码器上次下发过后，本镜像水位不能证明驱动态仍为己——整组强发。
+        if m.epoch_seen != crate::context_inner::state_epoch() {
+            m.water = Water::default();
+        }
+        let dead_pending = has_removed();
+        let exp_active = m.active_texture_unit.unwrap_or(0);
+        let rb_frame = frame_now();
+        if m.readback_frame != Some(rb_frame) {
+            m.readback_frame = Some(rb_frame);
+            probe(2);
+            let real_active =
+                (gl.get_parameter_i32(GL_ACTIVE_TEXTURE) as u32).wrapping_sub(GL_TEXTURE0);
+            if exp_active != real_active {
+                gl.active_texture(GL_TEXTURE0 + exp_active);
+            }
+            // 回读段已亲验/亲正驱动态——镜位即实态，固化免 exec 路下轮条件重发（双消耗面）。
+            m.active_texture_unit = Some(exp_active);
+            let exp_depth = m.depth_test_enabled.unwrap_or(false);
+            // 能力开关必须用 isEnabled 回读（getParameter+cap pname = INVALID_ENUM，WebGL 规范）。
+            if gl.is_enabled(GL_DEPTH_TEST) != exp_depth {
+                set_enable(gl, GL_DEPTH_TEST, exp_depth);
+            }
+            if let Some(cmp) = m.depth_compare {
+                if (gl.get_parameter_i32(GL_DEPTH_FUNC) as u32) != cmp_to_gl(cmp) {
+                    gl.depth_func(cmp_to_gl(cmp));
+                }
+            }
+            if let Some(wr) = m.depth_write_enabled {
+                gl.depth_mask(wr);
+            }
+            let exp_cull = cull_mode_to_gl(m.cull_mode.unwrap_or(None));
+            let real_cull_mode = gl.get_parameter_i32(GL_CULL_FACE_MODE) as u32;
+            if gl.is_enabled(GL_CULL_FACE) != exp_cull.is_some() {
+                set_enable(gl, GL_CULL_FACE, exp_cull.is_some());
+            }
+            if let Some(mode) = exp_cull {
+                if mode != real_cull_mode {
+                    gl.cull_face(mode);
+                }
+            }
+            if let Some(f) = m.front_face {
+                if (gl.get_parameter_i32(GL_FRONT_FACE) as u32) != front_face_to_gl(f) {
+                    gl.front_face(front_face_to_gl(f));
+                }
+            }
+            let exp_scissor = m.scissor_test.unwrap_or(false);
+            if gl.is_enabled(GL_SCISSOR_TEST) != exp_scissor {
+                set_enable(gl, GL_SCISSOR_TEST, exp_scissor);
+            }
+            let exp_blend = m.blend.map(|b| b.is_some()).unwrap_or(false);
+            if gl.is_enabled(GL_BLEND) != exp_blend {
+                set_enable(gl, GL_BLEND, exp_blend);
+            }
+            let exp_st = m.stencil_test_enabled.unwrap_or(false);
+            if gl.is_enabled(GL_STENCIL_TEST) != exp_st {
+                set_enable(gl, GL_STENCIL_TEST, exp_st);
+            }
+            // 裁剪框：镜像登记过才回读比对（未设=不发也不读——盲读不可回读的上下文 pname 会污染错误队列）。
+            if let Some(b) = m.scissor {
+                let mut box4 = [0i32; 4];
+                gl.get_parameter_i32_slice(GL_SCISSOR_BOX, &mut box4);
+                if Some(box4) != Some(b) {
+                    gl.scissor(b[0], b[1], b[2], b[3]);
+                }
+            }
+            if let Some(v) = m.viewport {
+                let mut vp = [0i32; 4];
+                gl.get_parameter_i32_slice(GL_VIEWPORT, &mut vp);
+                let mut dr = [0f32; 2];
+                gl.get_parameter_f32_slice(GL_DEPTH_RANGE, &mut dr);
+                let want = [v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32];
+                if vp != want {
+                    gl.viewport(v[0] as i32, v[1] as i32, v[2] as i32, v[3] as i32);
+                }
+                if dr != [v[4], v[5]] {
+                    gl.depth_range_f32(v[4], v[5]);
+                }
+            }
+        }
+        crate::state_inner::check_err("f_readback");
+        // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
+        if dead_pending {
+            // 死名处理（2026-10-28 审计定案）：丢期望，不假装已下发。
+            // 驱动侧删除对象即自动解绑/复位；旧形把水位置成「死名+期望参数」——
+            // 桌面 gid=GL 对象名可复用，同名新对象会因水位相等而永久悬空。
+            let dead = removed_snapshot();
+            let is_dead = |d: u8, g: crate::objects::GlHandle| -> bool {
+                dead.iter().any(|(dd, n)| *dd == d && *n == g.0)
+            };
+            if m.program.map(|g| is_dead(0, g)).unwrap_or(false) {
+                m.program = None;
+            }
+            if m.vao.map(|g| is_dead(1, g)).unwrap_or(false) {
+                m.vao = None;
+            }
+            if m.fbo_draw.map(|g| is_dead(2, g)).unwrap_or(false) {
+                m.fbo_draw = None;
+            }
+            if m.pixel_unpack_buffer.map(|g| is_dead(4, g)).unwrap_or(false) {
+                m.pixel_unpack_buffer = None;
+            }
+            for i in 0..BIND_SLOTS {
+                if m.ubo_bindings[i].map(|(g, _, _)| is_dead(4, g)).unwrap_or(false) {
+                    m.ubo_bindings[i] = None;
+                    m.water.ubo[i] = None;
+                }
+                if m.texture_bindings[i].map(|(g, _)| is_dead(5, g)).unwrap_or(false) {
+                    m.texture_bindings[i] = None;
+                    m.water.tex[i] = Some(None);
+                }
+                if m.sampler_bindings[i].map(|g| is_dead(6, g)).unwrap_or(false) {
+                    m.sampler_bindings[i] = None;
+                    m.water.sampler[i] = Some(None);
+                }
+            }
+        }
+        let prog_name = name_of(m.program);
+        if m.water.program != Some(prog_name) {
+            apply_program(m);
+            // 指位零参与切换（2026-10-27 缓存定案）：uniform1i/glUniformBlockBinding=程序对象
+            // 持久态，创建期 collect 芯内已一次发，此后只随 use_program 天然携带。
+            m.water.program = Some(prog_name);
+            probe(1);
+        }
+        let vao_name = name_of(m.vao);
+        if m.water.vao != Some(vao_name) {
+            apply_vao(m);
+            m.water.vao = Some(vao_name);
+            probe(1);
+        }
+        let fbo_name = name_of(m.fbo_draw);
+        if m.water.fbo_draw != Some(fbo_name) {
+            apply_fbo(m);
+            m.water.fbo_draw = Some(fbo_name);
+            probe(1);
+        }
+        let unpack_name = name_of(m.pixel_unpack_buffer);
+        if m.water.unpack != Some(unpack_name) {
+            apply_unpack(m);
+            m.water.unpack = Some(unpack_name);
+            probe(1);
+        }
+        let mut switched = false;
+        for i in 0..BIND_SLOTS {
+            if let Some((g, off, sz)) = m.ubo_bindings[i] {
+                let t = (g.0, off, sz);
+                if m.water.ubo[i] != Some(t) {
+                    if off == 0 && sz == 0 {
+                        gl.bind_buffer_base(
+                            GL_UNIFORM_BUFFER,
+                            i as u32,
+                            Some(crate::gid::buffer_from(g.0)),
+                        );
+                    } else {
+                        let (a_off, a_sz) = ubo_range(off, sz);
+                        gl.bind_buffer_range(
+                            GL_UNIFORM_BUFFER,
+                            i as u32,
+                            Some(crate::gid::buffer_from(g.0)),
+                            a_off,
+                            a_sz,
+                        );
+                    }
+                    m.water.ubo[i] = Some(t);
+                    probe(1);
+                }
+            }
+            crate::state_inner::check_err("f_ubo");
+            let tex_t = m.texture_bindings[i].map(|(g, tg)| (g.0, tg));
+            // 全局状态缓存语义（2026-10-27 用户定案）：水位 None=未记录，驱动该槽初值
+            // 即未绑定——期望 None 且未记录=天然一致，不发 null 断言（旧形首轮/每代附着
+            // 复位全 24 槽扫 null=风暴噪音+Web 越界 INVALID_VALUE 残源）；仅 Some→None 发解绑。
+            let tex_stale: bool =
+                !(m.water.tex[i].is_none() && tex_t.is_none()) && m.water.tex[i] != Some(tex_t);
+            if tex_stale {
+                gl.active_texture(GL_TEXTURE0 + i as u32);
+                switched = true;
+                match tex_t {
+                    Some((n, tg)) => gl.bind_texture(tg, Some(crate::gid::texture_from(n))),
+                    None => gl.bind_texture(GL_TEXTURE_2D, None),
+                };
+                m.water.tex[i] = Some(tex_t);
+                probe(1);
+            }
+            crate::state_inner::check_err("f_tex");
+            let smp_t = m.sampler_bindings[i].map(|g| g.0);
+            // 同上缓存语义：未记录且期望空=一致，不发初轮 null；仅 Some→None 发解绑。
+            let smp_stale: bool =
+                !(m.water.sampler[i].is_none() && smp_t.is_none()) && m.water.sampler[i] != Some(smp_t);
+            if smp_stale {
+                match smp_t {
+                    Some(n) => gl.bind_sampler(i as u32, Some(crate::gid::sampler_from(n))),
+                    None => gl.bind_sampler(i as u32, None),
+                };
+                m.water.sampler[i] = Some(smp_t);
+                probe(1);
+            }
+        }
+        crate::state_inner::check_err("f_sampler");
+        if switched {
+            gl.active_texture(GL_TEXTURE0 + exp_active);
+        }
+        let blend6 = m.blend.map(|b| {
+            b.map(|bs| {
+                [
+                    blend_op_to_gl(bs.color.operation),
+                    blend_op_to_gl(bs.alpha.operation),
+                    blend_factor_to_gl(bs.color.src_factor),
+                    blend_factor_to_gl(bs.color.dst_factor),
+                    blend_factor_to_gl(bs.alpha.src_factor),
+                    blend_factor_to_gl(bs.alpha.dst_factor),
+                ]
+            })
+        });
+        if m.water.blend != blend6 {
+            if let Some(Some(b6)) = blend6 {
+                gl.blend_equation_separate(b6[0], b6[1]);
+                gl.blend_func_separate(b6[2], b6[3], b6[4], b6[5]);
+            }
+            m.water.blend = blend6;
+            probe(1);
+        }
+        crate::state_inner::check_err("f_blend");
+        let bconst = m.blend_constant.map(|c| [c.r, c.g, c.b, c.a]);
+        if m.water.blend_constant != bconst {
+            if let Some(c) = bconst {
+                gl.blend_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
+            }
+            m.water.blend_constant = bconst;
+            probe(1);
+        }
+        let writes = m.color_writes.map(|w| w.bits());
+        if m.water.color_writes != writes {
+            if let Some(w) = writes {
+                gl.color_mask(w & 1 != 0, w & 2 != 0, w & 4 != 0, w & 8 != 0);
+            }
+            m.water.color_writes = writes;
+            probe(1);
+        }
+        let poly = m.polygon_mode.map(polygon_to_gl);
+        if m.water.polygon_mode != poly {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(p) = poly {
+                gl.polygon_mode(GL_FRONT_AND_BACK, p);
+            }
+            m.water.polygon_mode = poly;
+            probe(1);
+        }
+        let bias_t = m.depth_bias.map(|b| {
+            let (slope, constant) = bias_pair(b);
+            (constant != 0.0 || slope != 0.0, slope, constant)
+        });
+        if m.water.depth_bias != bias_t {
+            if let Some((on, slope, constant)) = bias_t {
+                set_enable(gl, GL_POLYGON_OFFSET_FILL, on);
+                gl.polygon_offset(slope, constant);
+            }
+            m.water.depth_bias = bias_t;
+            probe(1);
+        }
+        crate::state_inner::check_err("f_blendconst");
+        let stencil_t = match (m.stencil_front, m.stencil_back) {
+            (Some(fs), Some(bs)) => Some(stencil_water(fs, bs, m.stencil_reference.unwrap_or(0))),
+            _ => None,
+        };
+        if m.water.stencil != stencil_t {
+            if let Some(st) = stencil_t {
+                for f in 0..2 {
+                    let o = f * 6;
+                    gl.stencil_func_separate(st[o] as u32, st[o + 1] as u32, st[o + 2], !0);
+                    gl.stencil_op_separate(
+                        st[o] as u32,
+                        st[o + 3] as u32,
+                        st[o + 4] as u32,
+                        st[o + 5] as u32,
+                    );
+                }
+            }
+            m.water.stencil = stencil_t;
+            probe(1);
+        }
+        if m.water.alpha_to_coverage != m.sample_alpha_to_coverage {
+            if let Some(on) = m.sample_alpha_to_coverage {
+                set_enable(gl, GL_SAMPLE_ALPHA_TO_COVERAGE, on);
+            }
+            m.water.alpha_to_coverage = m.sample_alpha_to_coverage;
+            probe(1);
+        }
+        clear_removed();
+        m.epoch_seen = crate::context_inner::state_epoch_bump();
+    });
+}
+
+// 1. 引用该句柄名的全部镜像字段置「未知」（None）——不发任何驱动调用。
+// 2. 后续 flush 对这些组按未知处理重同步=强制重下发；幂等（重复调用同单次）。
+pub(crate) fn invalidate_impl(m: &mut StateMirror, dead: GlHandle) {
+    let hit = |o: &mut Option<GlHandle>| {
+        if o.map(|g| g == dead).unwrap_or(false) {
+            *o = None;
+        }
+    };
+    hit(&mut m.program);
+    hit(&mut m.vao);
+    hit(&mut m.fbo_draw);
+    hit(&mut m.pixel_unpack_buffer);
+    let hit_buf = |o: &mut Option<(GlHandle, u32, u32)>| {
+        if o.map(|(g, _, _)| g == dead).unwrap_or(false) {
+            *o = None;
+        }
+    };
+    for slot in m.ubo_bindings.iter_mut() {
+        hit_buf(slot);
+    }
+    let hit_tex = |o: &mut Option<(GlHandle, u32)>| {
+        if o.map(|(g, _)| g == dead).unwrap_or(false) {
+            *o = None;
+        }
+    };
+    for slot in m.texture_bindings.iter_mut() {
+        hit_tex(slot);
+    }
+    for slot in m.sampler_bindings.iter_mut() {
+        hit(slot);
+    }
+}
+
+/// 调试读口（仅测试）：程序域死名登记查询。
+#[cfg(test)]
+pub(crate) fn dbg_removed_program(name: u64) -> bool {
+    is_removed(0, name)
+}
+
+/// 整面重置（invalidate_generations 显式清理路径：全部期望值丢弃，下轮 flush 即重探测基线）。
+/// 幂等；generation 由调用侧随新附着落值。
+pub(crate) fn reset_all(m: &mut StateMirror) {
+    *m = StateMirror::default();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 映射表完整性：每枚举全臂可映射即覆盖（值对规范见各表注释；此处验证穷举与抽查）。
+    #[test]
+    fn enum_maps_test() {
+        assert_eq!(cmp_to_gl(CompareFunction::Never), 0x0200);
+        assert_eq!(cmp_to_gl(CompareFunction::Always), 0x0207);
+        assert_eq!(blend_op_to_gl(BlendOperation::Add), 0x8006);
+        assert_eq!(blend_op_to_gl(BlendOperation::Subtract), 0x800A);
+        assert_eq!(blend_op_to_gl(BlendOperation::ReverseSubtract), 0x800B);
+        assert_eq!(blend_op_to_gl(BlendOperation::Min), 0x8007);
+        assert_eq!(blend_op_to_gl(BlendOperation::Max), 0x8008);
+        // 半透明主力因子逐值对规范（Zero/One/Src 系/Alpha 系/饱和/常量色）。
+        assert_eq!(blend_factor_to_gl(BlendFactor::Zero), 0);
+        assert_eq!(blend_factor_to_gl(BlendFactor::One), 1);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Src), 0x0300);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusSrc), 0x0301);
+        assert_eq!(blend_factor_to_gl(BlendFactor::SrcAlpha), 0x0302);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusSrcAlpha), 0x0303);
+        assert_eq!(blend_factor_to_gl(BlendFactor::DstAlpha), 0x0304);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusDstAlpha), 0x0305);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Dst), 0x0306);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusDst), 0x0307);
+        assert_eq!(blend_factor_to_gl(BlendFactor::SrcAlphaSaturated), 0x0308);
+        assert_eq!(blend_factor_to_gl(BlendFactor::Constant), 0x8001);
+        assert_eq!(blend_factor_to_gl(BlendFactor::OneMinusConstant), 0x8002);
+        assert_eq!(front_face_to_gl(FrontFace::Ccw), 0x0900, "NDC Y 翻后绕序反向");
+        assert_eq!(front_face_to_gl(FrontFace::Cw), 0x0901);
+        assert_eq!(polygon_to_gl(PolygonMode::Fill), 0x1B02, "GL 规范 FILL=0x1B02（Fill→LINE 曾致 WebGL FILL 断言 panic）");
+        assert_eq!(polygon_to_gl(PolygonMode::Line), 0x1B01);
+        assert_eq!(polygon_to_gl(PolygonMode::Point), 0x1B00);
+        assert_eq!(stencil_op_to_gl(StencilOperation::Replace), 0x1E02);
+    }
+
+    /// 比较器语义：未设(None)对任何实值恒不等→首轮必下发；哨兵可区分关混合与未设。
+    #[test]
+    fn same_helpers_semantics_test() {
+        let off: Option<BlendState> = None;
+        assert!(blend_same(Some(off), off), "关混合哨兵相等");
+        assert!(!blend_same(None, off), "未设≠关混合");
+        assert!(!cull_same(None, None));
+        assert!(cull_same(Some(None), None));
+        assert!(name_of(None) == 0);
+    }
+
+    /// gid：桌面名往返恒等（u64 归一化）；Web 形为 slot-key ffi，语义合同见 gid 壳注。
+    #[test]
+    fn nz_test() {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let v = glow::NativeBuffer(std::num::NonZeroU32::new(5).unwrap());
+            assert_eq!(crate::gid::id_of_buffer(v), 5);
+            assert_eq!(crate::gid::buffer_from(5), v);
+        }
+    }
+}

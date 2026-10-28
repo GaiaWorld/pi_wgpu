@@ -1,0 +1,56 @@
+# pi_wgpu · WebGPU 兼容子集的 GL 直替层——骨架声明工程（公开壳+实现芯桩；逻辑体由后续批次补全）
+# 依赖版本策略：开发期 path 钉定；官方挂接批切 registry 发布版
+[package]
+name = "pi_wgpu"
+version = "0.3.7"
+edition = "2021"
+description = "WebGPU compatible subset on GL/GLES/WebGL2 - rebuilt skeleton (design: pi-wgpu-rebuild)"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["gl"]
+gl = []
+single_thread = []
+# 宽松上传（默认关）：接受 bytes_per_row 非 4 倍数，行补齐拷贝后发驱动（ES2 不可行路径拒止保留）。
+loose_upload = []
+geterror = []
+webgl_context = []
+webgl = []
+
+use_wgpu = ["dep:wgpu", "wgpu/glsl"]  # B13 薄壳 facade：整面 re-export 官方 wgpu；与 gl 互斥
+
+[dependencies]
+once_cell = "=1.21.4"  # 钉住本 naga fork 传递依赖的可用版本（新版本缺 sync 模块）
+pi_egl = { version = "0.2", registry = "yn" }
+glow = { package = "pi_glow", version = "0.13", registry = "yn" }
+pi_share = "0.5"
+pi_hash = "0.1"
+naga = { version = "25.0", features = ["wgsl-in", "glsl-in", "glsl-out"] }
+bitflags = "2.9"
+wgpu-types = { version = "25.0", features = ["trace"] }
+thiserror = "1.0"
+log = "0.4"
+raw-window-handle = "0.6"
+wgpu = { version = "25.0", optional = true, features=["glsl"] }
+
+[patch.crates-io]
+naga = { path = "../wgpu/naga" }
+wgpu-types = { path = "../wgpu/wgpu-types" }
+pi_share = { path = "../pi_share" }
+
+[patch."http://ser.yinengyun.com:10082/tech/crates-io.git"]
+pi_glow = { path = "../pi_glow" }
+
+[dev-dependencies]
+winit = "0.30"
+pollster = "0.3"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Kernel", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_LibraryLoader"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas", "ImageBitmap", "Window", "Navigator", "WebGl2RenderingContext", "WebGlContextAttributes"] }
+js-sys = "0.3"
+slotmap = "1" # gid 身份层 slot-key ffi 全 64 位重建
+getrandom = { version = "0.2", features = ["js"] } # wasm js 后端

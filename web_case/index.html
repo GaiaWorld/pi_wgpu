@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>pi_wgpu · Web 案例（alpha_blend）</title>
+<link rel="icon" href="data:,">
+<style>body{margin:0;background:#1d1f23;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#9aa;font-family:monospace}canvas{border:1px solid #555;background:#fff}p{font-size:12px}</style>
+</head><body>
+<canvas id="screen"></canvas>
+<p>F12 控制台应见 [info] surface: Web GL 入口注入完成 与 BLEND-VERIFY ok；画面=左红条、中部红蓝叠紫、右白底</p>
+<script type="module">
+import init from './pkg/pi_web_case.js';
+await init();
+</script>
+</body></html>
