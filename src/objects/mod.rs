@@ -39,11 +39,13 @@ pub(crate) struct DirectHandleState {
 }
 impl DirectHandle {
     /// 读当前驱动名（None=死态；原子装载，跨线程观察合法——驱动调用仍受附着门控）。 @internal
+    #[inline]
     pub(crate) fn name(&self) -> Option<GlHandle> {
         std::num::NonZeroU64::new(self.inner.handle.load(std::sync::atomic::Ordering::SeqCst))
             .map(|v| GlHandle(v.get()))
     }
     /// 读附着代号快照。 @internal
+    #[inline]
     pub(crate) fn generation(&self) -> u32 {
         self.inner.generation
     }
@@ -60,6 +62,7 @@ impl DirectHandle {
     /// 置死并物理删除：先置空句柄名防重入，再即调驱动删除（本库无延迟删除队列、无等待 GC），
     /// 并把（域,名）登记进 state 芯死名表——镜像对已删名不谎报持有，下次 flush 强制重下发后销记。
     /// 注意（共享计数）：对任一 clone 调本方法=连坐删除（对全部持有者生效），仅适用单持有/整面失效；常规死亡走末引用 Drop。 @internal
+    #[inline]
     pub(crate) fn mark_dead(&self) {
         crate::objects_inner::mark_dead_impl(self)
     }
@@ -101,26 +104,31 @@ pub(crate) struct HandleCache {
 
 /// 按键取对象：命中=计数+1 后返回；未命中=按键域建物理对象并登记。
 /// 任一阶段失败：断言（报键域与哈希），表不留半登记项，保持调用前原状。 @internal
+#[inline]
 pub(crate) fn ensure_reuse(key: ReuseKey, cache: &mut HandleCache) -> Reusable {
     crate::objects_inner::ensure_reuse_impl(key, cache)
 }
 /// 克隆持行：计数+1（录制命令持有复用对象用；与 release_reuse 成对）。
+#[inline]
 pub(crate) fn retain_reuse(item: &Reusable) -> Reusable {
     crate::objects_inner::retain_reuse_impl(item)
 }
 
 /// 显式淘汰 VAO 复用行（组合缓存 LRU 回收；调用方保证该行当前未被使用）。
+#[inline]
 pub(crate) fn evict_vao(cache: &mut HandleCache, key: u64) {
     crate::objects_inner::evict_vao_impl(cache, key)
 }
 
 /// 复用域持有者数只读（RTT 选架占用判据；不含调用方未来计数）。
+#[inline]
 pub(crate) fn reuse_holders(key: ReuseKey) -> u32 {
     crate::objects_inner::holders_impl(key)
 }
 
 /// 一方引用退出：计数-1；归零即物理删+死名登记（镜像刷失=下次 flush 强制重发，非即时改写镜像）。
 /// 计数已为零再释放=断言（成对合同被破）。 @internal
+#[inline]
 pub(crate) fn release_reuse(item: &Reusable) {
     crate::objects_inner::release_reuse_impl(item)
 }

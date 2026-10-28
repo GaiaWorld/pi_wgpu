@@ -71,6 +71,7 @@ static TEST_PROBE: Lazy<Mutex<[u32; 3]>> = Lazy::new(|| Mutex::new([0; 3]));
 
 /// 计数观测（test 构建生效；产品构建编译期为空）。
 #[cfg(test)]
+#[inline]
 fn probe(slot: usize) {
     let mut p = TEST_PROBE.lock().unwrap_or_else(|e| e.into_inner());
     p[slot] = p[slot].wrapping_add(1);
@@ -82,6 +83,7 @@ fn probe(_slot: usize) {}
 
 /// 读观测计数（合验用例断言用）。
 #[cfg(test)]
+#[inline]
 pub(crate) fn probe_count(slot: usize) -> u32 {
     TEST_PROBE.lock().unwrap_or_else(|e| e.into_inner())[slot]
 }
@@ -149,11 +151,13 @@ pub(crate) fn bump_frame() {
 }
 
 /// 当前帧号（回读帧门比较用）。
+#[inline]
 fn frame_now() -> u32 {
     FRAME.load(Ordering::Relaxed)
 }
 
 /// 帧号对外视图（组合 VAO 淘汰保护：本帧用过的条目不进候选）。
+#[inline]
 pub(crate) fn frame_no() -> u32 {
     frame_now()
 }
@@ -207,6 +211,7 @@ fn name_of(o: Option<GlHandle>) -> u64 {
 
 // —— 枚举映射（词汇无 PartialEq：比较一律经映射原语；全表值对规范注释）——
 /// 比较函数映射（NEVER=0x0200..ALWAYS=0x0207 标准序）。
+#[inline]
 fn cmp_to_gl(c: CompareFunction) -> u32 {
     match c {
         CompareFunction::Never => 0x0200,
@@ -221,6 +226,7 @@ fn cmp_to_gl(c: CompareFunction) -> u32 {
 }
 
 /// 混合等式映射（ADD=0x8006/SUB=0x800A/REV=0x800B/MIN=0x8007/MAX=0x8008）。
+#[inline]
 fn blend_op_to_gl(op: BlendOperation) -> u32 {
     match op {
         BlendOperation::Add => 0x8006,
@@ -233,6 +239,7 @@ fn blend_op_to_gl(op: BlendOperation) -> u32 {
 
 /// 混合因子映射（上游全 17 值官方 enum 号；Src1 系为 ES3.2 号值——WebGL2 无此能力，
 /// 创建校验面已拒（second-source 域名外），此处仅为完备性收录，不会被下发）。
+#[inline]
 fn blend_factor_to_gl(f: BlendFactor) -> u32 {
     match f {
         BlendFactor::Zero => 0,
@@ -259,6 +266,7 @@ fn blend_factor_to_gl(f: BlendFactor) -> u32 {
 /// 正面绕序映射（GL_CW=0x0900/GL_CCW=0x0901）。
 /// 正面绕序映射：出码侧翻 NDC Y（ADJUST_COORDINATE_SPACE）会让窗口空间绕序反向，
 /// 故此处必须反向映射，否则正面被当背面剔除（wgpu-hal gles/conv.rs 同因）。
+#[inline]
 fn front_face_to_gl(f: FrontFace) -> u32 {
     match f {
         FrontFace::Ccw => 0x0900,
@@ -267,6 +275,7 @@ fn front_face_to_gl(f: FrontFace) -> u32 {
 }
 
 /// 剔除模式映射（FRONT=0x0404/BACK=0x0405；None/Undef=无剔除号=开关关）。
+#[inline]
 fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
     match m {
         Some(Face::Front) => Some(0x0404),
@@ -277,6 +286,7 @@ fn cull_mode_to_gl(m: CullMode) -> Option<u32> {
 
 /// 填充模式映射（GL 规范值：POINT=0x1B00 / LINE=0x1B01 / FILL=0x1B02；
 /// WebGL 无语面，set/flush 两侧均按平台隔离，非 Fill 只登记差异）。
+#[inline]
 fn polygon_to_gl(m: PolygonMode) -> u32 {
     match m {
         PolygonMode::Fill => 0x1B02,
@@ -286,6 +296,7 @@ fn polygon_to_gl(m: PolygonMode) -> u32 {
 }
 
 /// 模板操作映射（KEEP=0x1E00/ZERO=0x1E01/REPLACE=0x1E02/INCR=0x1E03/DECR=0x1E04/INVERT=0x1E05/WRAP=0x8507/0x8508）。
+#[inline]
 fn stencil_op_to_gl(op: StencilOperation) -> u32 {
     match op {
         StencilOperation::Keep => 0x1E00,
@@ -300,6 +311,7 @@ fn stencil_op_to_gl(op: StencilOperation) -> u32 {
 }
 
 /// 深度偏置常量与斜率下发值对（驱动侧 POLYGON_OFFSET_FACTOR=斜率/UNITS=常数）。
+#[inline]
 fn bias_pair(b: DepthBiasState) -> (f32, f32) {
     (b.slope_scale, b.constant as f32)
 }
@@ -324,6 +336,7 @@ fn color_same(cur: Option<Color>, next: Color) -> bool {
 }
 
 /// 深度比较函数相等（映射值比较）。
+#[inline]
 fn cmp_same(cur: Option<CompareFunction>, next: CompareFunction) -> bool {
     match cur {
         Some(c) => cmp_to_gl(c) == cmp_to_gl(next),
@@ -332,6 +345,7 @@ fn cmp_same(cur: Option<CompareFunction>, next: CompareFunction) -> bool {
 }
 
 /// 模板单面相等（比较函数+三操作拆原语）。
+#[inline]
 fn stencil_face_same(cur: Option<StencilFaceState>, next: StencilFaceState) -> bool {
     match cur {
         Some(a) => {
@@ -345,6 +359,7 @@ fn stencil_face_same(cur: Option<StencilFaceState>, next: StencilFaceState) -> b
 }
 
 /// 剔除模式相等（None/未设可区分）。
+#[inline]
 fn cull_same(cur: Option<CullMode>, next: CullMode) -> bool {
     match (cur, next) {
         (Some(a), b) => match (cull_mode_to_gl(a), cull_mode_to_gl(b)) {
@@ -357,6 +372,7 @@ fn cull_same(cur: Option<CullMode>, next: CullMode) -> bool {
 }
 
 /// 正面绕序相等。
+#[inline]
 fn front_same(cur: Option<FrontFace>, next: FrontFace) -> bool {
     match cur {
         Some(f) => front_face_to_gl(f) == front_face_to_gl(next),
@@ -365,6 +381,7 @@ fn front_same(cur: Option<FrontFace>, next: FrontFace) -> bool {
 }
 
 /// 填充模式相等。
+#[inline]
 fn polygon_same(cur: Option<PolygonMode>, next: PolygonMode) -> bool {
     match cur {
         Some(p) => polygon_to_gl(p) == polygon_to_gl(next),
@@ -373,6 +390,7 @@ fn polygon_same(cur: Option<PolygonMode>, next: PolygonMode) -> bool {
 }
 
 /// 深度偏置相等（三分量）。
+#[inline]
 fn bias_same(cur: Option<DepthBiasState>, next: DepthBiasState) -> bool {
     match cur {
         Some(b) => {
@@ -385,6 +403,7 @@ fn bias_same(cur: Option<DepthBiasState>, next: DepthBiasState) -> bool {
 }
 
 /// 写掩码相等（字节直较）。
+#[inline]
 fn writes_same(cur: Option<ColorWrites>, next: ColorWrites) -> bool {
     match cur {
         Some(w) => w.bits() == next.bits(),
@@ -502,6 +521,7 @@ pub(crate) fn check_err(tag: &str) {
     });
 }
 
+#[inline]
 unsafe fn set_enable(gl: &glow::Context, group: u32, on: bool) {
     if on {
         gl.enable(group);

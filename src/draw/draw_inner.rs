@@ -47,6 +47,7 @@ const GL_HALF_FLOAT: u32 = 0x140B;
 const GL_DOUBLE: u32 = 0x140A;
 const GL_UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
 const GL_UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
+#[inline]
 fn vtx_fmt(f: crate::types::VertexFormat) -> (i32, u32, bool, bool) {
     use crate::types::VertexFormat::*;
     match f {
@@ -119,6 +120,7 @@ fn topo(m: crate::types::PrimitiveTopology) -> u32 {
 }
 
 /// 顶点格式判别码（哈希用；判别式即上游序，直接转 u8）。
+#[inline]
 fn fmt_code(f: crate::types::VertexFormat) -> u8 {
     f as u8
 }
@@ -553,6 +555,7 @@ const COMBO_SCRATCH_SALT: u64 = 0x5C7A_7C4B_0000_0001;
 static COMBO_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 组合哈希混合子。
+#[inline]
 fn combo_mix(acc: u64, v: u64) -> u64 {
     (acc ^ v).wrapping_mul(0x0100_0000_0000_b711)
 }
@@ -751,6 +754,7 @@ fn combo_bind(p: &RenderPass<'_>, m: &mut StateMirror, base: u32, gl: &glow::Con
 }
 
 /// 组合表整清（VAO 物理删除/世代重置联动：旧整备标记对新对象无效）。
+#[inline]
 pub(crate) fn combo_forget() {
     COMBO.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }

@@ -93,6 +93,7 @@ pub struct BufferSlice<'a> {
 }
 impl<'a> BufferSlice<'a> {
     /// 源缓冲引用。 @public
+    #[inline]
     pub fn get_buffer(&self) -> &'a Buffer {
         self.buffer
     }
@@ -101,10 +102,12 @@ impl<'a> BufferSlice<'a> {
         self.offset
     }
     /// 片段长度（None=到缓冲末尾）。 @public
+    #[inline]
     pub fn get_size(&self) -> Option<crate::types::BufferSize> {
         self.size
     }
     /// 片段的绝对字节范围 [start,end)。 @public
+    #[inline]
     pub fn get_range(&self) -> std::ops::Range<crate::types::BufferAddress> {
         self.offset..self.offset + self.size.map_or(self.buffer.size, |s| s.get())
     }
@@ -151,6 +154,7 @@ impl Buffer {
     }
 
     /// 创建期用途位集（上游同形）。 @public
+    #[inline]
     pub fn usage(&self) -> crate::types::BufferUsages {
         self._usage
     }
@@ -227,6 +231,7 @@ impl Texture {
     /// None=按宿主纹理取默认（维度依纹理维/目标/层数推定）；维度相容（Cube/CubeArray 需宿主创建目标为 CUBE_MAP/CUBE_MAP_ARRAY——非正方形 6 层不是 cube）；
     /// 视图目标按维度覆盖（Cube→CUBE_MAP、CubeArray→CUBE_MAP_ARRAY，余同纹理目标）。违约=断言含 desc.label。
     /// 本层「取整张」：base/count 切片暂不生效（越界接表归实现批）。 @public
+    #[inline]
     pub fn create_view(&self, desc: &TextureViewDescriptor<'_>) -> TextureView {
         crate::entry_inner::create_view_impl(self, desc)
     }
@@ -235,38 +240,47 @@ impl Texture {
         crate::entry_inner::texture_destroy_impl(self)
     }
     /// 整张尺寸快照（恒等于创建期 size，上游同式）。 @public
+    #[inline]
     pub fn size(&self) -> crate::types::Extent3d {
         self._size
     }
     /// 宽（=size.width）。 @public
+    #[inline]
     pub fn width(&self) -> u32 {
         self._size.width
     }
     /// 高（=size.height）。 @public
+    #[inline]
     pub fn height(&self) -> u32 {
         self._size.height
     }
     /// 深度或数组层数（=size.depth_or_array_layers）。 @public
+    #[inline]
     pub fn depth_or_array_layers(&self) -> u32 {
         self._size.depth_or_array_layers
     }
     /// mip 层数。 @public
+    #[inline]
     pub fn mip_level_count(&self) -> u32 {
         self._mip
     }
     /// 采样数（本层仅 1/4）。 @public
+    #[inline]
     pub fn sample_count(&self) -> u32 {
         self._samples
     }
     /// 维度。 @public
+    #[inline]
     pub fn dimension(&self) -> crate::types::TextureDimension {
         self._dim
     }
     /// 像素格式。 @public
+    #[inline]
     pub fn format(&self) -> crate::types::TextureFormat {
         self._format
     }
     /// 用途位集。 @public
+    #[inline]
     pub fn usage(&self) -> crate::types::TextureUsages {
         self._usage
     }
