@@ -2,7 +2,7 @@
 # 依赖版本策略：开发期 path 钉定；官方挂接批切 registry 发布版
 [package]
 name = "pi_wgpu"
-version = "0.3.7"
+version = "0.4.0"
 edition = "2021"
 description = "WebGPU compatible subset on GL/GLES/WebGL2 - rebuilt skeleton (design: pi-wgpu-rebuild)"
 license = "MIT OR Apache-2.0"
