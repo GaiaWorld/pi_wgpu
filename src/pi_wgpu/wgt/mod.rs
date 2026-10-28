@@ -866,7 +866,7 @@ impl Backends {
         /// - Vulkan
         ///
         /// This is a native-only feature.
-        const RAY_TRACING_ACCELERATION_STRUCTURE = 1 << 56;
+        const EXPERIMENTAL_RAY_TRACING_ACCELERATION_STRUCTURE = 1 << 56;
 
         // 57 available
 
