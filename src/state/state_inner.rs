@@ -114,6 +114,15 @@ pub(crate) fn forget_removed(domain: u8, name: u64) {
 }
 
 /// 整面清空（invalidate_generations 路径：旧世代名集在新附着下无意义）。
+pub(crate) fn removed_snapshot() -> Vec<(u8, u64)> {
+    REMOVED_NAMES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .copied()
+        .collect()
+}
+
 pub(crate) fn clear_removed() {
     REMOVED_NAMES
         .lock()
@@ -392,37 +401,6 @@ fn apply_program(m: &StateMirror) {
     });
 }
 
-/// UBO 块指位下发（设计：sampler-unit-assign 延伸）。程序态组：与 useProgram 同段成对下发；
-/// ES300 无法在着色器写 `binding=`，块绑定只能这样指定，否则块停在 0 号绑定点。
-fn apply_block_bindings(m: &StateMirror, program: GlHandle) {
-    if m.block_bindings.is_empty() {
-        return;
-    }
-    with_gl(|gl| unsafe {
-        let prog = crate::gid::program_from(program.0);
-        for b in m.block_bindings.iter() {
-            gl.uniform_block_binding(prog, b.index, b.binding);
-        }
-    });
-}
-
-/// 采样入口指位下发（设计：sampler-unit-assign）。程序态组：只随 flush 的程序水位差异成对下发，
-/// 与 use_program 同 GL 段；无失败分支（入表前提=活程序 + 位置已查得），不设重试。
-fn apply_sampler_units(m: &StateMirror) {
-    if m.sampler_uniforms.is_empty() {
-        return;
-    }
-    with_gl(|gl| unsafe {
-        for u in m.sampler_uniforms.iter() {
-            // 位置按驱动句柄原样回填（创建期自 get_uniform_location 取，u32 与 i32 往返无损）。
-            gl.uniform_1_i32(
-                Some(&u.location.0),
-                u.unit as i32,
-            );
-        }
-    });
-}
-
 /// 属性组下发。
 fn apply_vao(m: &StateMirror) {
     with_gl(|gl| unsafe {
@@ -537,6 +515,9 @@ pub(crate) fn set_program(m: &mut StateMirror, name: GlHandle) {
     }
     m.program = Some(name);
     apply_program(m);
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，set 路发过=驱动态
+// 已是该值，不回写则下轮 flush 必判失配重发同一组——产品 trace 双 useProgram/双 bindTexture 根。
+    m.water.program = Some(name.0);
 }
 
 /// 属性组 set（None=解绑回无名状态）。
@@ -546,6 +527,7 @@ pub(crate) fn set_vao(m: &mut StateMirror, name: Option<GlHandle>) {
     }
     m.vao = name;
     apply_vao(m);
+    m.water.vao = Some(name.map_or(0, |g| g.0));
 }
 
 /// 目标组 set。
@@ -555,6 +537,7 @@ pub(crate) fn set_draw_fbo(m: &mut StateMirror, name: Option<GlHandle>) {
     }
     m.fbo_draw = name;
     apply_fbo(m);
+    m.water.fbo_draw = Some(name.map_or(0, |g| g.0));
 }
 
 /// 上传组 set。
@@ -564,6 +547,7 @@ pub(crate) fn set_pixel_unpack_buffer(m: &mut StateMirror, name: Option<GlHandle
     }
     m.pixel_unpack_buffer = name;
     apply_unpack(m);
+    m.water.unpack = Some(name.map_or(0, |g| g.0));
 }
 
 /// uniform 槽 set：差异才重绑（键=名+偏移+尺寸）；无偏移无尺寸走 bindBufferBase，带偏移/尺寸走 bindBufferRange；
@@ -605,6 +589,9 @@ pub(crate) fn bind_ubo(
             (None, _, _) => gl.bind_buffer_range(GL_UNIFORM_BUFFER, index, None, 0, 0),
         };
     });
+    // 直发即水位置齐（不可回读组防双发：flush 按水位比对，set 路发过=驱动态
+// 已是该值，不回写则下轮 flush 必判失配重发同一组——产品 trace 双 useProgram/双 bindTexture 根。 flush 记录形同=裸 (name,off,sz)。
+    m.water.ubo[idx] = name.map(|g| (g.0, offset, size));
 }
 
 /// 纹理槽 set：必要时先切 ACTIVE_TEXTURE（单元号比对防冗余切换），再绑定并落槽表。
@@ -628,6 +615,7 @@ pub(crate) fn bind_texture(m: &mut StateMirror, unit: u32, target: u32, name: Op
             None => gl.bind_texture(target, None),
         };
     });
+    m.water.tex[idx] = Some(want.map(|(g, tg)| (g.0, tg)));
 }
 
 /// 采样器槽 set（绑定到单元；WebGL2 兼容面）。
@@ -646,6 +634,7 @@ pub(crate) fn bind_sampler(m: &mut StateMirror, unit: u32, name: Option<GlHandle
             None => gl.bind_sampler(unit, None),
         };
     });
+    m.water.sampler[idx] = Some(name.map(|g| g.0));
 }
 
 /// 视口组 set（六元组=draw 汇合层内翻后的最终下发值；交集面=GLint 视口+f32 深度区间两段下发，比对防冗余）。
@@ -712,6 +701,14 @@ pub(crate) fn set_blend(m: &mut StateMirror, blend: Option<BlendState>) {
             );
         }
     });
+    m.water.blend = Some(blend.map(|bs| [
+        blend_op_to_gl(bs.color.operation),
+        blend_op_to_gl(bs.alpha.operation),
+        blend_factor_to_gl(bs.color.src_factor),
+        blend_factor_to_gl(bs.color.dst_factor),
+        blend_factor_to_gl(bs.alpha.src_factor),
+        blend_factor_to_gl(bs.alpha.dst_factor),
+    ]));
 }
 
 /// 混合常量色 set。
@@ -721,6 +718,7 @@ pub(crate) fn set_blend_constant(m: &mut StateMirror, c: Color) {
     }
     m.blend_constant = Some(c);
     with_gl(|gl| unsafe { gl.blend_color(c.r as f32, c.g as f32, c.b as f32, c.a as f32) });
+    m.water.blend_constant = Some([c.r, c.g, c.b, c.a]);
 }
 
 /// 写掩码 set（位拆四 bool）。
@@ -862,6 +860,8 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             if exp_active != real_active {
                 gl.active_texture(GL_TEXTURE0 + exp_active);
             }
+            // 回读段已亲验/亲正驱动态——镜位即实态，固化免 exec 路下轮条件重发（双消耗面）。
+            m.active_texture_unit = Some(exp_active);
             let exp_depth = m.depth_test_enabled.unwrap_or(false);
             if (gl.get_parameter_i32(GL_DEPTH_TEST) != 0) != exp_depth {
                 set_enable(gl, GL_DEPTH_TEST, exp_depth);
@@ -922,19 +922,44 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
         crate::state_inner::check_err("f_readback");
         // 整发档（驱动态不可回读的组，按已下发水位比对、差异才发）
         if dead_pending {
-            // 死名表非空：镜像可能仍指名被删对象——清水位=下轮整组强发。
-            m.water = Water::default();
+            // 精确清退（2026-10-27 产品 trace 定案）：整面清水位=全组盲强发——useProgram 双发
+            // 与贴图重绑全由它来。program/ubo/tex/smp 各组已有逐槽 dead_name 防死名下发，
+            // 水位对非死条目仍是有效记录；此处仅按号精退属性/vao 族（objects slot 号复用防撞）。
+            let dead = removed_snapshot();
+            if let Some(cur) = m.vao {
+                if dead.iter().any(|(d, n)| *d == 1 && *n == cur.0) {
+                    m.vao = None;
+                }
+            }
+            for rec in m.attr_keys.iter_mut() {
+                if let Some((v, b, _)) = *rec {
+                    if dead.iter().any(|(d, n)| (*d == 1 && *n == v) || (*d == 4 && *n == b)) {
+                        *rec = None;
+                    }
+                }
+            }
+            for rec in m.attr_en.iter_mut() {
+                if let Some(v) = *rec {
+                    if dead.iter().any(|(d, n)| *d == 1 && *n == v) {
+                        *rec = None;
+                    }
+                }
+            }
+            for rec in m.attr_div.iter_mut() {
+                if let Some((v, _)) = *rec {
+                    if dead.iter().any(|(d, n)| *d == 1 && *n == v) {
+                        *rec = None;
+                    }
+                }
+            }
         }
         let prog_name = name_of(m.program);
         if dead_name(dead_pending, 0, prog_name) {
             m.water.program = Some(prog_name);
         } else if m.water.program != Some(prog_name) {
             apply_program(m);
-            // 程序真换 → 指示采样入口读哪个单元、UBO 块绑到哪个绑定点（与 use_program 同段成对）。
-            if let Some(p) = m.program {
-                apply_block_bindings(m, p);
-            }
-            apply_sampler_units(m);
+            // 指位零参与切换（2026-10-27 缓存定案）：uniform1i/glUniformBlockBinding=程序对象
+            // 持久态，创建期 collect 芯内已一次发，此后只随 use_program 天然携带。
             m.water.program = Some(prog_name);
             probe(1);
         }
@@ -1002,7 +1027,12 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             }
             crate::state_inner::check_err("f_ubo");
             let tex_t = m.texture_bindings[i].map(|(g, tg)| (g.0, tg));
-            if !tex_dead && m.water.tex[i] != Some(tex_t) {
+            // 全局状态缓存语义（2026-10-27 用户定案）：水位 None=未记录，驱动该槽初值
+            // 即未绑定——期望 None 且未记录=天然一致，不发 null 断言（旧形首轮/每代附着
+            // 复位全 24 槽扫 null=风暴噪音+Web 越界 INVALID_VALUE 残源）；仅 Some→None 发解绑。
+            let tex_stale: bool =
+                !(m.water.tex[i].is_none() && tex_t.is_none()) && m.water.tex[i] != Some(tex_t);
+            if !tex_dead && tex_stale {
                 gl.active_texture(GL_TEXTURE0 + i as u32);
                 switched = true;
                 match tex_t {
@@ -1014,7 +1044,10 @@ pub(crate) fn flush_impl(m: &mut StateMirror) {
             }
             crate::state_inner::check_err("f_tex");
             let smp_t = m.sampler_bindings[i].map(|g| g.0);
-            if !smp_dead && m.water.sampler[i] != Some(smp_t) {
+            // 同上缓存语义：未记录且期望空=一致，不发初轮 null；仅 Some→None 发解绑。
+            let smp_stale: bool =
+                !(m.water.sampler[i].is_none() && smp_t.is_none()) && m.water.sampler[i] != Some(smp_t);
+            if !smp_dead && smp_stale {
                 match smp_t {
                     Some(n) => gl.bind_sampler(i as u32, Some(crate::gid::sampler_from(n))),
                     None => gl.bind_sampler(i as u32, None),
