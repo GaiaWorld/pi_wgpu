@@ -133,6 +133,65 @@ pub(crate) fn write_range_err(
     None
 }
 
+/// 压缩写分块芯：按「块行」切源下发——WebGL2 的 compressedTex 形态忽略 UNPACK_ROW_LENGTH，
+/// step>need_row 必须手动逐块行喂；step==need_row（tight 源=源原序）单发整图快路。
+/// sub-width/byteLength 恒按块行计（宽尾含半块字节数=ceil(宽/块宽)×块字节，GL byteLength 合同一致）；
+/// 高尾 sub_h=min(块高,剩余)，越界余行截源不谎发。
+unsafe fn comp_upload(
+    gl: &glow::Context,
+    face_target: u32,
+    mip: i32,
+    ox: i32,
+    oy: i32,
+    ew: i32,
+    eh: i32,
+    bh: i32,
+    internal: u32,
+    need_row: u64,
+    step: u64,
+    src: &[u8],
+) {
+    let bh64: u64 = bh.max(1) as u64;
+    let rows: u64 = ((eh.max(0) as u64) + bh64 - 1) / bh64;
+    if step <= need_row {
+        let want: usize = (rows.saturating_mul(need_row)) as usize;
+        let part: &[u8] = if src.len() >= want { &src[..want] } else { src };
+        gl.compressed_tex_sub_image_2d(
+            face_target,
+            mip,
+            ox,
+            oy,
+            ew,
+            eh,
+            internal,
+            part.len() as i32,
+            glow::CompressedPixelUnpackData::Slice(part),
+        );
+        return;
+    }
+    for y in 0..rows {
+        let so: usize = (y * step) as usize;
+        if so >= src.len() {
+            break;
+        }
+        let eo: usize = (so + need_row as usize).min(src.len());
+        let part: &[u8] = &src[so..eo];
+        let yy: i32 = oy + (y as i32) * bh;
+        let sub_h: i32 = (eh - (y as i32) * bh).min(bh).max(0);
+        gl.compressed_tex_sub_image_2d(
+            face_target,
+            mip,
+            ox,
+            yy,
+            ew,
+            sub_h,
+            internal,
+            part.len() as i32,
+            glow::CompressedPixelUnpackData::Slice(part),
+        );
+    }
+}
+
 pub(crate) fn write_texture_impl(
     q: &Queue,
     t: &TexelCopyTextureInfo<'_>,
@@ -169,20 +228,29 @@ pub(crate) fn write_texture_impl(
         return;
     }
     let p = &t.texture.params;
+    let block_w: u64 = p.block.0.max(1) as u64;
+    let block_h: u64 = p.block.1.max(1) as u64;
+    let block_bytes: u64 = p.block_bytes.max(1) as u64;
+    // 一整块行所需字节（上游 transfer.rs required_bytes 同式 width_in_blocks×block_bytes）；
+    // 非压缩 block=(1,1) 退化为 texel 旧式。校验与写路（comp_upload）共此判据。
+    let need_row: u64 = ((e.width.max(0) as u64) + block_w - 1) / block_w * block_bytes;
+    let comp_fmt: bool = p.block.0 != 1 || p.block.1 != 1;
     let mut bad = false;
     if l.offset % 4 != 0 {
         log::error!("upload {:?} off={}", UploadErr::Misaligned, l.offset);
         bad = true;
     }
     if let Some(bpr) = l.bytes_per_row {
-        // 默认=wgpu 契约（256 对齐）硬校验；loose_upload=放宽为「行距容得下一整行」，
-        // 非 4 倍数行走紧凑重排（GL UNPACK_ALIGNMENT=4 硬规则）。Web 目标恒走宽松档：
-        // 产品 Web 包（ktx/画布）传自然行距为常态，256 硬合同在 Web 实测即误伤。
-        let row_ok = if cfg!(any(feature = "loose_upload", target_arch = "wasm32")) {
-            bpr as u64 >= (e.width as u64 * (p.block_bytes.max(1) as u64))
-        } else {
-            bpr % 256 == 0
-        };
+        // 行距判据=一整块行字节（见上 need_row：压缩格式旧式「texel 数×整块字节」把行距
+        // 误估 4 倍、BC 自然行距 4080 因此被误拒——产品实锤）。默认=wgpu 契约（256 对齐）
+        // 硬校验；loose_upload/Web 放宽为「行距容得下整块行+压缩须块字节整数倍」（写路逐块行
+        // 分切不依赖 UNPACK_ROW_LENGTH，WebGL2 压缩形态本就忽略它）。
+        let row_ok = (bpr as u64) >= need_row
+            && if cfg!(any(feature = "loose_upload", target_arch = "wasm32")) {
+                !comp_fmt || (bpr as u64) % block_bytes == 0
+            } else {
+                bpr % 256 == 0
+            };
         if !row_ok {
             log::error!("upload {:?} bpr={}", UploadErr::RowPitch, bpr);
             bad = true;
@@ -208,7 +276,7 @@ pub(crate) fn write_texture_impl(
     let lay = convert_impl(l, &e);
     // block≠(1,1)=压缩合同（formats 表约定）：写路换 compressedTex 系，
     // 内部格式落 p.internal_format（压缩词汇位=0 槽，本支不读 unpack 词）。
-    let comp = p.block != (1, 1);
+    let comp = comp_fmt;
     let bpp = p.block_bytes.max(1) as u64;
     let target = t.texture._target;
     crate::crash_diag::op(&format!(
@@ -261,21 +329,40 @@ pub(crate) fn write_texture_impl(
                     .unwrap_or(e.width as u64 * bpp);
                 let rpi_src = lay.rows_per_image.map(|r| r as u64).unwrap_or(e.height as u64);
                 let face_stride = bpr_src * rpi_src;
+                // 压缩面步长按块行计：rpi_src=height 是texel 行语义仅适用非压缩；
+                // comp 的每面字节 = step × 块行数（WebGPU rowsPerImage 压缩档即块行）。
+                let step_c: u64 = lay.bytes_per_row.unwrap_or(need_row as u32) as u64;
+                let rpi_blocks_c: u64 = lay
+                    .rows_per_image
+                    .map(|r: u32| r as u64)
+                    .unwrap_or(((e.height.max(0) as u64) + block_h - 1) / block_h);
+                let face_stride_c: u64 = step_c.saturating_mul(rpi_blocks_c);
                 for f in 0..e.depth_or_array_layers {
                     let face = GL_TEXTURE_CUBE_MAP_POSITIVE_X + t.origin.z + f;
-                    let off = f as usize * face_stride as usize;
+                    let off = if comp {
+                        (f as u64 * face_stride_c) as usize
+                    } else {
+                        (f as u64 * face_stride) as usize
+                    };
                     let part: &[u8] = if off < src.len() { &src[off..] } else { &[] };
                     if comp {
-                        gl.compressed_tex_sub_image_2d(
+                        if part.is_empty() {
+                            break;
+                        }
+                        gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0);
+                        comp_upload(
+                            gl,
                             face,
                             t.mip_level as i32,
                             t.origin.x as i32,
                             t.origin.y as i32,
                             e.width as i32,
                             e.height as i32,
+                            p.block.1.max(1) as i32,
                             p.internal_format,
-                            part.len() as i32,
-                            glow::CompressedPixelUnpackData::Slice(part),
+                            need_row,
+                            step_c,
+                            part,
                         );
                         continue;
                     }
@@ -293,16 +380,21 @@ pub(crate) fn write_texture_impl(
                 }
             }
             _ if comp => {
-                gl.compressed_tex_sub_image_2d(
+                // 2D 单层压缩：tight 单发；行距补隙逐块行分切（comp_upload）。
+                gl.pixel_store_i32(GL_UNPACK_ROW_LENGTH, 0);
+                comp_upload(
+                    gl,
                     target,
                     t.mip_level as i32,
                     t.origin.x as i32,
                     t.origin.y as i32,
                     e.width as i32,
                     e.height as i32,
+                    p.block.1.max(1) as i32,
                     p.internal_format,
-                    src.len() as i32,
-                    glow::CompressedPixelUnpackData::Slice(src),
+                    need_row,
+                    lay.bytes_per_row.unwrap_or(need_row as u32) as u64,
+                    src,
                 );
             }
             _ => {
@@ -493,10 +585,13 @@ pub(crate) fn exec_copy_texture_to_buffer(
     let mip: i32 = src.mip_level as i32;
     let item = {
         let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
-        crate::objects::ensure_reuse(
-            crate::objects::ReuseKey::Fbo(crate::draw_inner::rtt_fbo_key(Some(tex), None)),
+        crate::draw_inner::pick_rtt_row(
             &mut cache,
+            crate::draw_inner::rtt_fbo_key(Some(tex), None),
+            crate::draw_inner::row_att_sig_of(Some(tex), None),
+            false,
         )
+        .item
     };
     let fb = item.handle.expect("upload 断言: Fbo 复用行无名");
     let tname = tex._h.name().expect("前置活名");

@@ -264,14 +264,14 @@ pub(crate) fn exec_begin_impl<'p>(
             }
         }
     }
-    /// 同段清除体（目标已绑；由调用方在 GL 段内执行）。
-    /// 清屏守卫带（WebGPU load-op 语义=附件全体、不受残状影响；GL 里裁剪与写掩码是全局态、
-    /// 随 FBO 切换不洗——上通道残裁剪框会裁缺清屏、残写掩码会挡清除值写入，产品 render_core
-    /// 高频 depth Write(false)=实弹面）：清屏临时禁裁剪+写掩码全开+sRGB 关，清毕按上层镜像
-    /// 期望归还（镜像只读不动、零下发链与水位不扰；深度使能/比较与 sRGB 另有回读档 flush
-    /// 自纠=双保险；模板写掩码全库无下发面=恒初值，不动）。视口与 glClear 无涉、不设默认
-    /// （登记差异：上游 pass 起始重置全屏视口，本层通道未显式 set 者延续上通道，render_core
-    /// 每通道必设全屏=无暴露）。
+    // 同段清除体（目标已绑；由调用方在 GL 段内执行）。
+    // 清屏守卫带（WebGPU load-op 语义=附件全体、不受残状影响；GL 里裁剪与写掩码是全局态、
+    // 随 FBO 切换不洗——上通道残裁剪框会裁缺清屏、残写掩码会挡清除值写入，产品 render_core
+    // 高频 depth Write(false)=实弹面）：清屏临时禁裁剪+写掩码全开+sRGB 关，清毕按上层镜像
+    // 期望归还（镜像只读不动、零下发链与水位不扰；深度使能/比较与 sRGB 另有回读档 flush
+    // 自纠=双保险；模板写掩码全库无下发面=恒初值，不动）。视口与 glClear 无涉、不设默认
+    // （登记差异：上游 pass 起始重置全屏视口，本层通道未显式 set 者延续上通道，render_core
+    // 每通道必设全屏=无暴露）。
     let do_clear = |gl: &glow::Context| {
         if mask == 0 {
             return;
@@ -292,7 +292,6 @@ pub(crate) fn exec_begin_impl<'p>(
             let srgb_on = false;
             // 守卫带进场：残状不参清屏语义。
             gl.disable(GL_SCISSOR_TEST);
-            gl.scissor(0, 0, i32::MAX, i32::MAX);
             gl.color_mask(true, true, true, true);
             gl.depth_mask(true);
             if srgb_on {
@@ -333,10 +332,13 @@ pub(crate) fn exec_begin_impl<'p>(
     let fbo: Option<crate::objects::Reusable> = match host {
         None => None,
         Some(_) => {
-            let item = {
+            let fk0: u64 = rtt_fbo_key(ctext, dtext);
+            let cur: RowAtt = row_att_sig_of(ctext, dtext);
+            let (fk, item) = {
                 let mut cache = e._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
-                let fk: u64 = rtt_fbo_key(ctext, dtext);
-                crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(fk), &mut cache)
+                // 选架：签名=本轮宿主之架优先；未被占即用；主架被在世通道占用（乱序交错）探备用架。
+                let p = pick_rtt_row(&mut cache, fk0, cur, true);
+                (p.key, p.item)
             };
             let fb = item
                 .handle
@@ -348,55 +350,35 @@ pub(crate) fn exec_begin_impl<'p>(
                 crate::state_inner::flush_impl(&mut mm);
     crate::state_inner::check_err("after_flush_mm");
             }
-            let cname = ctext.and_then(|t| t._h.name());
-            let dname = dtext.and_then(|t| t._h.name());
+            let need_full: bool = match row_att_get(fk) {
+                Some(old) => old != cur,
+                None => true,
+            };
             with_gl(|gl| unsafe {
                 gl.bind_framebuffer(
                     GL_FRAMEBUFFER,
                     Some(crate::gid::framebuffer_from(fb.0)),
                 );
-                // 行复用安全：先裸槽，防旧配置行残挂他宿主误判（0x8CD7 实测教训）。
-                gl.framebuffer_texture_2d(
-                    GL_FRAMEBUFFER,
-                    GL_COLOR_ATTACHMENT0,
-                    0x0DE1, // GL_TEXTURE_2D
-                    None,
-                    0,
-                );
-                gl.framebuffer_texture_2d(
-                    GL_FRAMEBUFFER,
-                    GL_DEPTH_ATTACHMENT,
-                    0x0DE1, // GL_TEXTURE_2D
-                    None,
-                    0,
-                );
-                if let (Some(t), Some(nm)) = (ctext, cname) {
+                if need_full {
+                // 行复用安全：先裸槽，防旧形状行残挂他宿主误判（0x8CD7 实测教训）。
+                gl.framebuffer_texture_2d(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 0x0DE1, None, 0);
+                gl.framebuffer_texture_2d(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 0x0DE1, None, 0);
+                gl.framebuffer_texture_2d(GL_FRAMEBUFFER, 0x821A, 0x0DE1, None, 0);
+                if cur.0 != 0 {
                     gl.framebuffer_texture_2d(
                         GL_FRAMEBUFFER,
                         GL_COLOR_ATTACHMENT0,
-                        t._target,
-                        Some(crate::gid::texture_from(nm.0)),
+                        cur.1,
+                        Some(crate::gid::texture_from(cur.0)),
                         0,
                     );
                 }
-                gl.framebuffer_texture_2d(
-                    GL_FRAMEBUFFER,
-                    0x821A, // GL_DEPTH_STENCIL_ATTACHMENT（组合槽，packed 格式行残留剥离）
-                    0x0DE1, // GL_TEXTURE_2D
-                    None,
-                    0,
-                );
-                if let (Some(t), Some(nm)) = (dtext, dname) {
-                    let slot = if is_packed_stencil(t._format) {
-                        0x8D80
-                    } else {
-                        0x8D00
-                    };
+                if cur.2 != 0 {
                     gl.framebuffer_texture_2d(
                         GL_FRAMEBUFFER,
-                        slot,
-                        t._target,
-                        Some(crate::gid::texture_from(nm.0)),
+                        cur.4,
+                        cur.3,
+                        Some(crate::gid::texture_from(cur.2)),
                         0,
                     );
                 }
@@ -406,6 +388,8 @@ pub(crate) fn exec_begin_impl<'p>(
                     "draw str-assert: 离屏 FBO 不完备（status={:#x}）",
                     st
                 );
+                row_att_set(fk, cur);
+                }
                 do_clear(gl);
             });
             Some(item)
@@ -459,10 +443,8 @@ pub(crate) fn exec_set_pipeline_parts(
     let name = x.program.handle.expect("draw str-assert: 死程序句柄");
     {
         let mut m = lock_state(p);
+        // 指位为程序对象持久态（管线创建期一次下发，entry collect_*），镜像不记、切换不重发。
         state_inner::set_program(&mut m, name);
-        // 指位表随管线写入镜像期望态（只改镜像，不触 GL；下发归 flush 程序组）。
-        m.sampler_uniforms = x.sampler_uniforms.clone();
-        m.block_bindings = x.block_bindings.clone();
     }
     p._vertex = x.vertex.clone();
     p._topology = x.topology;
@@ -533,8 +515,26 @@ pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
     // VAO=管线级复用对象（由 set_pipeline 提供；本处只绑 + 重设属性，不建删）。
     let vao_name = p._vao.expect("draw str-assert: 管线未设 VAO");
     let mut m = lock_state(p);
+    // 属性水位（全局驱动态缓存语义）：属性参数住在 VAO 里——同 (VAO,源缓冲,片段偏移)
+    // 时 VAO 内容已设好，只补 VAO 绑定，属性/divisor 整段免重发（产品实测每 draw 重下 14 条）。
+    let key = (vao_name.0, name.0, o);
+    let slot = (i as usize) % m.attr_keys.len();
+    if m.attr_keys[slot] == Some(key) {
+        // VAO 绑定同走镜像水位：同 VAO 连续命中=本快路零 GL 下发。
+        state_inner::set_vao(&mut m, Some(vao_name));
+        drop(m);
+        p._vbinds.retain(|b| b.0 != i);
+        p._vbinds.push((i, name, o));
+        p._vertex_ready = true;
+        return;
+    }
+    m.attr_keys[slot] = Some(key);
     with_gl(|gl| unsafe {
-        gl.bind_vertex_array(Some(crate::gid::vao_from(vao_name.0)));
+        // VAO 切换判定在 pointer 之前（属性必须落进目标 VAO），比对免同值重绑。
+        if m.vao != Some(vao_name) {
+            gl.bind_vertex_array(Some(crate::gid::vao_from(vao_name.0)));
+            m.vao = Some(vao_name);
+        }
         gl.bind_buffer(GL_ARRAY_BUFFER, Some(crate::gid::buffer_from(name.0)));
         for a in layout.attributes.iter() {
             let (n, ty, norm, integer) = vtx_fmt(a.format);
@@ -557,15 +557,34 @@ pub(crate) fn exec_set_vertex(p: &mut RenderPass<'_>, i: u32, sl: &crate::entry:
                     o as i32 + a.offset as i32,
                 );
             }
-            gl.enable_vertex_attrib_array(a.shader_location);
+            // enable 位独立水位：pointer 段重放不拖 enable 重复（使能为 VAO 内态，同 VAO 幂等）。
+            let lk = a.shader_location as usize;
+            match m.attr_en.get_mut(lk) {
+                Some(s) => {
+                    if *s != Some(vao_name.0) {
+                        gl.enable_vertex_attrib_array(a.shader_location);
+                        *s = Some(vao_name.0);
+                    }
+                }
+                None => gl.enable_vertex_attrib_array(a.shader_location),
+            }
         }
         if matches!(layout.step_mode, crate::types::VertexStepMode::Instance) {
             for a in layout.attributes.iter() {
-                gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR);
+                let lk = a.shader_location as usize;
+                let want = Some((vao_name.0, INSTANCE_DIVISOR));
+                match m.attr_div.get_mut(lk) {
+                    Some(s) => {
+                        if *s != want {
+                            gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR);
+                            *s = want;
+                        }
+                    }
+                    None => gl.vertex_attrib_divisor(a.shader_location, INSTANCE_DIVISOR),
+                }
             }
         }
     });
-    state_inner::set_vao(&mut m, Some(vao_name));
     drop(m);
     p._vbinds.retain(|b| b.0 != i);
     p._vbinds.push((i, name, o));
@@ -705,6 +724,11 @@ pub(crate) fn exec_draw(
         state_inner::flush_impl(&mut m);
         crate::state_inner::check_err("after_flush_m");
         if need {
+            // fi 移位重写了属性偏移=该批槽位缓存过时；清槽令下轮正常路强制重发。
+            let nslots = m.attr_keys.len();
+            for (s, _, _) in vbinds.iter() {
+                m.attr_keys[(*s as usize) % nslots] = None;
+            }
             fi_rebind(gl, &vbinds, &layouts, base);
         }
         if icount == 1 && base == 0 {
@@ -792,10 +816,13 @@ pub(crate) fn exec_end_impl(p: &mut RenderPass<'_>) {
                     .cache
                     .lock()
                     .unwrap_or_else(|x| x.into_inner());
-                crate::objects::ensure_reuse(
-                    crate::objects::ReuseKey::Fbo(rtt_fbo_key(Some(&rtx), None)),
+                pick_rtt_row(
                     &mut cache,
+                    rtt_fbo_key(Some(&rtx), None),
+                    row_att_sig_of(Some(&rtx), None),
+                    false,
                 )
+                .item
             };
             let dfb = ditem
                 .handle
@@ -888,15 +915,127 @@ pub(crate) fn rtt_fbo_key(
     // （2026-10-20 双 pass 样例实锤：两 fb 行共用一 u64 致后开通道画进前通道的 fb）。
     let mut k: u64 = if c.is_some() { 0xC0FFEE } else { 0 };
     k = if d.is_some() { mix(k, 0xDEED) } else { k };
+    // 形状键（2026-10-28 定案）：格式×样本×目标形态入键、宿主纹理名不入——
+    // 逐帧重建同形状贴图时行稳定，附件变化由签名差分定向重挂（begin 路）。
+    let shape = |t: &crate::entry::Texture, salt: u64| -> u64 {
+        let mut fmt: u64 = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            t._format.hash(&mut h);
+            h.finish()
+        };
+        let mut s = mix(0, fmt);
+        s = mix(s, t._samples as u64);
+        mix(s, t._target as u64 | salt)
+    };
     if let Some(t) = c {
-        k = mix(k, t._h.name().map(|g| g.0 as u64).unwrap_or(0));
-        k = mix(k, t._target as u64);
+        k = mix(k, shape(t, 0));
     }
     if let Some(t) = d {
-        k = mix(k, t._h.name().map(|g| g.0 as u64).unwrap_or(0));
-        k = mix(k, t._target as u64 | 0xFFFF_0000);
+        k = mix(k, shape(t, 0xFFFF_0000));
     }
     k
+}
+
+/// 行附件签名：(色宿主 gid, 色 target, 深宿主 gid, 深 target, 深槽)；0=无宿主。
+type RowAtt = (u64, u32, u64, u32, u32);
+
+/// 形状键行→当前附件签名表（begin 路附件差分基准；死名摘除、世代重置整清）。
+static ROW_ATT: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<u64, RowAtt>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn row_att_get(fk: u64) -> Option<RowAtt> {
+    ROW_ATT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&fk)
+        .copied()
+}
+
+fn row_att_set(fk: u64, sig: RowAtt) {
+    ROW_ATT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(fk, sig);
+}
+
+/// 纹删挂点：GL 自动 null 其附着——摘引用该名之签，下轮 begin 全量重挂+断言。
+pub(crate) fn row_att_drop_tex(gid: u64) {
+    ROW_ATT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|_, sig| sig.0 != gid && sig.2 != gid);
+}
+
+/// Fbo 行物理删挂点：摘对应 fk 记录（再 ensure 出新行=无签，触发全套）。
+pub(crate) fn row_att_drop_fbo(fk: u64) {
+    ROW_ATT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&fk);
+}
+
+/// 行附件签名由通道双宿主纹理构造（0=无宿主/死柄）。
+pub(crate) fn row_att_sig_of(
+    c: Option<&crate::entry::Texture>,
+    d: Option<&crate::entry::Texture>,
+) -> RowAtt {
+    (
+        c.and_then(|t| t._h.name()).map(|g| g.0).unwrap_or(0),
+        c.map(|t| t._target).unwrap_or(0),
+        d.and_then(|t| t._h.name()).map(|g| g.0).unwrap_or(0),
+        d.map(|t| t._target).unwrap_or(0),
+        d.map(|t| {
+            if is_packed_stencil(t._format) {
+                0x8D80u32
+            } else {
+                0x8D00u32
+            }
+        })
+        .unwrap_or(0),
+    )
+}
+
+/// 选架结果（键+行引用）。
+pub(crate) struct RowPick {
+    pub key: u64,
+    pub item: crate::objects::Reusable,
+}
+
+/// RTT 选架：签名=本轮宿主的架优先（读回路/同宿主共架）；未被占的空架 begin 自挂；
+/// 主架被在世通道占用且宿主不同（乱序交错）⇒ 线性探测备用架。attachable=false（读回路）
+/// 不取空架（空架无附着读=垃圾）；探测穷尽=错误码兜底取主架（并发超额合同外）。
+pub(crate) fn pick_rtt_row(
+    cache: &mut crate::objects::HandleCache,
+    fk0: u64,
+    cur: RowAtt,
+    attachable: bool,
+) -> RowPick {
+    let mixv = |f: u64, v: u64| -> u64 { (f ^ v).wrapping_mul(0x0100_0000_0000_b711) };
+    for i in 0..8u64 {
+        let key: u64 = if i == 0 {
+            fk0
+        } else {
+            mixv(fk0 ^ 0x9E37_79B9_7F4A_7C15, i)
+        };
+        let holders_before = crate::objects::reuse_holders(crate::objects::ReuseKey::Fbo(key));
+        let item = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(key), cache);
+        if row_att_get(key) == Some(cur) || (attachable && holders_before == 0) {
+            return RowPick { key, item };
+        }
+        crate::objects::release_reuse(&item);
+    }
+    log::error!("draw: RTT 架探测穷尽 fk={fk0:#x}");
+    let item = crate::objects::ensure_reuse(crate::objects::ReuseKey::Fbo(fk0), cache);
+    RowPick { key: fk0, item }
+}
+
+/// 世代/设备重置：整清（全部签名在新驱动环境下无意义）。
+pub(crate) fn row_att_forget() {
+    ROW_ATT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 /// Per-label once-gate for noisy degrade logs (avoids per-frame spam).
@@ -1064,13 +1203,16 @@ pub(crate) mod tests {
         };
         drop(enc.begin_render_pass(&desc));
         crate::record::flush_encoder(&mut enc);
-        // 双附件复用：test 直接按同键 ensure 再手动绑读（begin/end 已交还行=此处重建属同配置）。
+        // 双附件复用：行驻留契约后同形状跨帧不删行——按选架读回=签名=本轮宿主之架（主架命中直绑）。
         let item = {
             let mut cache = enc._inner.cache.lock().unwrap_or_else(|x| x.into_inner());
-            crate::objects::ensure_reuse(
-                crate::objects::ReuseKey::Fbo(rtt_fbo_key(Some(&ctex), Some(&dtex))),
+            pick_rtt_row(
                 &mut cache,
+                rtt_fbo_key(Some(&ctex), Some(&dtex)),
+                row_att_sig_of(Some(&ctex), Some(&dtex)),
+                false,
             )
+            .item
         };
         let fb = item.handle.expect("ensure 有名行");
         let px: [u8; 4] = with_gl(|gl| unsafe {
@@ -1309,7 +1451,9 @@ pub(crate) fn set_bind_group_impl(
     });
 }
 
-/// 录制：设顶点缓冲槽。
+/// 录制：顶点属性来源绑定（缓冲/偏移 记录直下；fi_rebind 0 基=登记差异；
+/// WebGL 属性槽=上下文态、下发自带生效——本层 exec_set_vertex 带水位缓存，
+/// 同 (VAO,缓冲,偏移) 免重发）。
 pub(crate) fn set_vertex_impl(p: &mut RenderPass<'_>, slot: u32, s: &crate::entry::BufferSlice<'_>) {
     p._enc._commands.push(crate::record::Command::SetVertex {
         slot,

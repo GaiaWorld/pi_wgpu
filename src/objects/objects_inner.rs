@@ -36,6 +36,16 @@ fn bump(key: ReuseKey) -> u32 {
 /// 两函数整体串行化（每通道各一次，非热路径；锁序=cache→本闸→驱动）。
 static CACHE_OP: Mutex<()> = Mutex::new(());
 
+/// 复用域持有者数只读（RTT 选架占用判据）。
+pub(crate) fn holders_impl(key: ReuseKey) -> u32 {
+    REFCOUNTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .copied()
+        .unwrap_or(0)
+}
+
 /// 活物理判据：当前计数>0 即活；纯读判定不改计数。
 fn count_active(key: ReuseKey) -> bool {
     let t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
@@ -110,7 +120,10 @@ fn delete_by_key(key: ReuseKey, name: GlHandle) {
             match key {
                 ReuseKey::Program(_) => gl.delete_program(crate::gid::program_from(name.0)),
                 ReuseKey::Vao(_) => gl.delete_vertex_array(crate::gid::vao_from(name.0)),
-                ReuseKey::Fbo(_) => gl.delete_framebuffer(crate::gid::framebuffer_from(name.0)),
+                ReuseKey::Fbo(h) => {
+                    crate::draw_inner::row_att_drop_fbo(h);
+                    gl.delete_framebuffer(crate::gid::framebuffer_from(name.0))
+                }
                 ReuseKey::Rbo(_) => gl.delete_renderbuffer(crate::gid::renderbuffer_from(name.0)),
             }
         };
@@ -146,8 +159,16 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
                     refcount: ShareU32::new(c),
                 };
             }
-            let fresh = gen_by_key(key);
-            item.handle = Some(fresh);
+            // Fbo 域驻留（2026-10-28）：计数归零不再物理删（release 侧豁免）——有名行直接沿用，
+            // 跨帧同形状=同对象同附着；重建 genGl 仅无名/世代失效行。
+            let fresh = match (key, item.handle) {
+                (ReuseKey::Fbo(_), Some(existing)) => existing,
+                _ => {
+                    let g = gen_by_key(key);
+                    item.handle = Some(g);
+                    g
+                }
+            };
             let c = bump(key);
             item.refcount.store(c, Ordering::SeqCst);
             return Reusable {
@@ -176,10 +197,11 @@ pub(crate) fn ensure_reuse_impl(key: ReuseKey, cache: &mut HandleCache) -> Reusa
 
 // 1. 全局计数-1（本地原子快照不参与真相）；已为零 → 断言（成对合同被破）。
 // 2. 减到零 → 按域物理删除 + 登记死名；缓存行留死名原样待 ensure 换新覆写。
+//    Fbo 域豁免删除（驻留复用）——pass 级归还不再触发整行重建，附件与对象跨帧稳定。
 pub(crate) fn release_reuse_impl(item: &Reusable) {
     let _op = CACHE_OP.lock().unwrap_or_else(|e| e.into_inner());
     let left = drop_count(item.key);
-    if left == 0 {
+    if left == 0 && !matches!(item.key, ReuseKey::Fbo(_)) {
         if let Some(name) = item.handle {
             delete_by_key(item.key, name);
         }
@@ -212,7 +234,10 @@ fn delete_direct(kind: DirectKind, name: GlHandle) {
         unsafe {
             match kind {
                 DirectKind::Buffer => gl.delete_buffer(crate::gid::buffer_from(name.0)),
-                DirectKind::Texture => gl.delete_texture(crate::gid::texture_from(name.0)),
+                DirectKind::Texture => {
+                    crate::draw_inner::row_att_drop_tex(name.0);
+                    gl.delete_texture(crate::gid::texture_from(name.0))
+                }
                 DirectKind::Sampler => gl.delete_sampler(crate::gid::sampler_from(name.0)),
             }
         };
@@ -233,6 +258,7 @@ pub(crate) fn invalidate_impl(c: &mut HandleCache, s: &mut StateMirror) {
     let mut t = REFCOUNTS.lock().unwrap_or_else(|e| e.into_inner());
     t.clear();
     drop(t);
+    crate::draw_inner::row_att_forget();
     crate::state_inner::clear_removed();
     crate::state_inner::reset_all(s);
 }

@@ -109,6 +109,11 @@ pub(crate) fn retain_reuse(item: &Reusable) -> Reusable {
     crate::objects_inner::retain_reuse_impl(item)
 }
 
+/// 复用域持有者数只读（RTT 选架占用判据；不含调用方未来计数）。
+pub(crate) fn reuse_holders(key: ReuseKey) -> u32 {
+    crate::objects_inner::holders_impl(key)
+}
+
 /// 一方引用退出：计数-1；归零即物理删+死名登记（镜像刷失=下次 flush 强制重发，非即时改写镜像）。
 /// 计数已为零再释放=断言（成对合同被破）。 @internal
 pub(crate) fn release_reuse(item: &Reusable) {
